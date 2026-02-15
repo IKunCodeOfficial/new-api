@@ -18,12 +18,25 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
+import { TabPane, Tabs } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 import UsageLogsTable from '../../components/table/usage-logs';
+import TokenAnalyticsPage from '../../components/table/token-analytics';
 
-const Token = () => (
-  <div className='mt-[60px] px-2'>
-    <UsageLogsTable />
-  </div>
-);
+const Log = () => {
+  const { t } = useTranslation();
+  return (
+    <div className='mt-[60px] px-2'>
+      <Tabs type='line' defaultActiveKey='usage-logs'>
+        <TabPane tab={t('使用日志')} itemKey='usage-logs'>
+          <UsageLogsTable />
+        </TabPane>
+        <TabPane tab={t('令牌用量分析')} itemKey='token-analytics'>
+          <TokenAnalyticsPage />
+        </TabPane>
+      </Tabs>
+    </div>
+  );
+};
 
-export default Token;
+export default Log;
