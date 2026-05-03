@@ -1,4 +1,5 @@
 .idea
+.ace-tool
 .vscode
 .zed
 .history

@@ -26,12 +26,16 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
       home: true,
       console: true,
       pricing: true,
+      status: true,
       docs: true,
       about: true,
     };
 
-    // 使用传入的配置或默认配置
-    const modules = headerNavModules || defaultModules;
+    // 使用传入配置，并为旧配置缺失的新模块补默认值
+    const modules = {
+      ...defaultModules,
+      ...(headerNavModules || {}),
+    };
 
     const allLinks = [
       {
@@ -48,6 +52,12 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
         text: t('模型广场'),
         itemKey: 'pricing',
         to: '/pricing',
+      },
+      {
+        text: t('状态'),
+        itemKey: 'status',
+        isExternal: true,
+        externalLink: 'https://status.ikuncode.cc/',
       },
       ...(docsLink
         ? [

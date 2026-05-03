@@ -1224,6 +1224,7 @@
     "安全验证": "Проверка безопасности",
     "安全验证级别": "Уровень проверки безопасности",
     "安装指南": "Руководство по установке",
+    "外部服务状态页面": "Внешняя страница состояния сервиса",
     "完成": "Завершить",
     "完成初始化": "Завершить инициализацию",
     "完成硬件类型、部署位置、副本数量等配置后，将自动计算价格": "Price will be automatically calculated after completing hardware type, deployment location, number of replicas and other configurations",

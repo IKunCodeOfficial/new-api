@@ -15,6 +15,7 @@ const DEFAULT_HEADER_NAV_MODULES = {
   home: true,
   console: true,
   pricing: { enabled: true, requireAuth: false },
+  status: true,
   docs: true,
   about: true,
 }
@@ -72,6 +73,15 @@ export function useTopNavLinks(): TopNavLink[] {
   if (pricing && typeof pricing === 'object' && pricing.enabled) {
     const disabled = pricing.requireAuth && !isAuthed
     links.push({ title: t('Model Square'), href: '/pricing', disabled })
+  }
+
+  // Status
+  if (modules?.status !== false) {
+    links.push({
+      title: t('Status'),
+      href: 'https://status.ikuncode.cc/',
+      external: true,
+    })
   }
 
   // Docs (supports external links)

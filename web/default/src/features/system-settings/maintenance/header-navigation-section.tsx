@@ -27,6 +27,7 @@ const headerNavSchema = z.object({
   console: z.boolean(),
   pricingEnabled: z.boolean(),
   pricingRequireAuth: z.boolean(),
+  status: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
 })
@@ -53,6 +54,10 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.pricing?.requireAuth === undefined
       ? HEADER_NAV_DEFAULT.pricing.requireAuth
       : Boolean(config.pricing.requireAuth),
+  status:
+    config.status === undefined
+      ? HEADER_NAV_DEFAULT.status
+      : Boolean(config.status),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
   about:
@@ -83,6 +88,7 @@ export function HeaderNavigationSection({
       ...config,
       home: values.home,
       console: values.console,
+      status: values.status,
       docs: values.docs,
       about: values.about,
       pricing: {
@@ -126,6 +132,11 @@ export function HeaderNavigationSection({
       key: 'docs',
       title: t('Docs'),
       description: t('Documentation or external knowledge base.'),
+    },
+    {
+      key: 'status',
+      title: t('Status'),
+      description: t('External service status page.'),
     },
     {
       key: 'about',

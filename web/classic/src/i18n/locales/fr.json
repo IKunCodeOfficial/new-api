@@ -1216,6 +1216,7 @@
     "安全验证": "Vérification de sécurité",
     "安全验证级别": "Niveau de vérification de la sécurité",
     "安装指南": "Guide d'installation",
+    "外部服务状态页面": "Page d'état du service externe",
     "完成": "Terminé",
     "完成初始化": "Terminer l'initialisation",
     "完成硬件类型、部署位置、副本数量等配置后，将自动计算价格": "Price will be automatically calculated after completing hardware type, deployment location, number of replicas and other configurations",

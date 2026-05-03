@@ -9,6 +9,7 @@ export type HeaderNavModulesConfig = {
   home: boolean
   console: boolean
   pricing: HeaderNavPricingConfig
+  status: boolean
   docs: boolean
   about: boolean
   [key: string]: boolean | HeaderNavPricingConfig
@@ -28,6 +29,7 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
     enabled: true,
     requireAuth: false,
   },
+  status: true,
   docs: true,
   about: true,
 }
