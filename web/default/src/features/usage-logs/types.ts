@@ -11,6 +11,7 @@ import type { UsageLog } from './data/schema'
  * Log category for different log types
  */
 export type LogCategory = 'common' | 'drawing' | 'task'
+export type UsageLogsSection = LogCategory | 'token-analytics'
 
 // ============================================================================
 // Filter Types
@@ -304,6 +305,76 @@ export interface GetTaskLogsParams {
   task_id?: string
   start_timestamp?: number
   end_timestamp?: number
+}
+
+// ============================================================================
+// Token Analytics Types
+// ============================================================================
+
+export type TokenAnalyticsSortBy =
+  | 'quota_sum'
+  | 'request_count'
+  | 'last_used_at'
+  | 'token_created_time'
+  | 'token_name'
+  | 'token_id'
+  | 'prompt_tokens_sum'
+  | 'completion_tokens_sum'
+  | 'token_status'
+
+export type TokenAnalyticsSortOrder = 'asc' | 'desc'
+
+export interface GetTokenAnalyticsParams {
+  p?: number
+  page_size?: number
+  keyword?: string
+  start_timestamp: number
+  end_timestamp: number
+  sort_by?: TokenAnalyticsSortBy
+  sort_order?: TokenAnalyticsSortOrder
+}
+
+export interface TokenAnalyticsItem {
+  token_id: number
+  token_name: string
+  token_status: number
+  token_group: string
+  token_created_time: number
+  token_expired_time: number
+  request_count: number
+  quota_sum: number
+  prompt_tokens_sum: number
+  completion_tokens_sum: number
+  last_used_at: number
+}
+
+export interface TokenAnalyticsTrendPoint {
+  bucket_start: number
+  request_count: number
+  quota_sum: number
+}
+
+export interface TokenAnalyticsTrendResponse {
+  success: boolean
+  message?: string
+  data?: {
+    granularity: 'hour' | 'day'
+    series: TokenAnalyticsTrendPoint[]
+    top_tokens: Array<
+      Pick<TokenAnalyticsItem, 'token_id' | 'token_name' | 'request_count' | 'quota_sum'>
+    >
+  }
+}
+
+export interface GetTokenAnalyticsResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: TokenAnalyticsItem[]
+    total: number
+    page: number
+    page_size: number
+  }
 }
 
 // ============================================================================

@@ -22,6 +22,12 @@ const USAGE_LOGS_SECTIONS = [
     descriptionKey: 'View and manage your task logs',
     build: () => null, // Content is rendered directly in the page component
   },
+  {
+    id: 'token-analytics',
+    titleKey: 'Token Usage Analytics',
+    descriptionKey: 'Analyze API key usage, spend, and request trends',
+    build: () => null, // Content is rendered directly in the page component
+  },
 ] as const
 
 export type UsageLogsSectionId = (typeof USAGE_LOGS_SECTIONS)[number]['id']

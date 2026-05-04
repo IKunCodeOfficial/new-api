@@ -7,6 +7,9 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  GetTokenAnalyticsParams,
+  GetTokenAnalyticsResponse,
+  TokenAnalyticsTrendResponse,
   UserInfo,
 } from './types'
 
@@ -91,3 +94,30 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+// ============================================================================
+// Token Analytics API
+// ============================================================================
+
+export async function getUserTokenAnalytics(
+  params: GetTokenAnalyticsParams
+): Promise<GetTokenAnalyticsResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const res = await api.get(`/api/log/self/token-analytics?${queryParams}`)
+  return res.data
+}
+
+export async function getUserTokenAnalyticsTrend(
+  params: Omit<
+    GetTokenAnalyticsParams,
+    'p' | 'page_size' | 'sort_by' | 'sort_order'
+  >
+): Promise<TokenAnalyticsTrendResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const res = await api.get(`/api/log/self/token-analytics/trend?${queryParams}`)
+  return res.data
+}

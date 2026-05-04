@@ -71,6 +71,8 @@ export function useSidebarData(): SidebarData {
           {
             title: t('Usage Logs'),
             url: '/usage-logs/common',
+            activeUrls: ['/usage-logs/token-analytics'],
+            configUrls: ['/usage-logs/common', '/usage-logs/token-analytics'],
             icon: FileText,
           },
           {

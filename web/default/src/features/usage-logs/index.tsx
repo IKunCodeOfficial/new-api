@@ -11,12 +11,14 @@ import {
   UsageLogsProvider,
   useUsageLogsContext,
 } from './components/usage-logs-provider'
+import { TokenAnalyticsPage } from './components/token-analytics'
 import { UsageLogsTable } from './components/usage-logs-table'
 import {
   isUsageLogsSectionId,
   USAGE_LOGS_DEFAULT_SECTION,
   type UsageLogsSectionId,
 } from './section-registry'
+import type { LogCategory } from './types'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
@@ -36,6 +38,10 @@ const SECTION_META: Record<
   task: {
     titleKey: 'Task Logs',
     descriptionKey: 'View and manage your task logs',
+  },
+  'token-analytics': {
+    titleKey: 'Token Usage Analytics',
+    descriptionKey: 'Analyze API key usage, spend, and request trends',
   },
 }
 
@@ -58,11 +64,21 @@ function UsageLogsContent() {
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
-        title: 'Task Logs',
-        items: TASK_LOG_SECTIONS.map((section) => ({
-          title: SECTION_META[section].titleKey,
-          url: `/usage-logs/${section}`,
-        })),
+        title: 'Usage Logs',
+        items: [
+          {
+            title: SECTION_META.common.titleKey,
+            url: '/usage-logs/common',
+          },
+          {
+            title: SECTION_META['token-analytics'].titleKey,
+            url: '/usage-logs/token-analytics',
+          },
+          ...TASK_LOG_SECTIONS.map((section) => ({
+            title: SECTION_META[section].titleKey,
+            url: `/usage-logs/${section}`,
+          })),
+        ],
       },
     ],
     []
@@ -92,10 +108,9 @@ function UsageLogsContent() {
     [navigate]
   )
 
-  const pageMeta =
-    activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
-  const showTaskSwitcher =
-    activeCategory !== 'common' && visibleSections.length > 1
+  const pageMeta = SECTION_META[activeCategory]
+  const showSectionSwitcher = visibleSections.length > 1
+  const isLogCategory = activeCategory !== 'token-analytics'
 
   return (
     <>
@@ -106,7 +121,7 @@ function UsageLogsContent() {
         </SectionPageLayout.Description>
         <SectionPageLayout.Content>
           <div className='space-y-4'>
-            {showTaskSwitcher && (
+            {showSectionSwitcher && (
               <Tabs value={activeCategory} onValueChange={handleSectionChange}>
                 <TabsList className='h-auto max-w-full flex-wrap justify-start'>
                   {visibleSections.map((section) => (
@@ -117,7 +132,11 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
-            <UsageLogsTable logCategory={activeCategory} />
+            {isLogCategory ? (
+              <UsageLogsTable logCategory={activeCategory as LogCategory} />
+            ) : (
+              <TokenAnalyticsPage />
+            )}
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
