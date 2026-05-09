@@ -4,11 +4,13 @@ import { ChevronsUpDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -27,6 +29,12 @@ type WorkspaceSwitcherProps = {
   workspaces: Workspace[]
   defaultName?: string
   defaultVersion?: string
+  /**
+   * Visual layout:
+   * - 'sidebar': stacked card style (used inside the sidebar header).
+   * - 'inline': compact horizontal pill (used inside the top app bar).
+   */
+  variant?: 'sidebar' | 'inline'
 }
 
 /**
@@ -39,6 +47,7 @@ export function WorkspaceSwitcher({
   workspaces,
   defaultName = 'New API',
   defaultVersion,
+  variant = 'sidebar',
 }: WorkspaceSwitcherProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -110,7 +119,7 @@ export function WorkspaceSwitcher({
     // Only navigate, let useEffect synchronize workspace state based on new pathname
     // This avoids race conditions and context loss issues
     if (workspace.id === WORKSPACE_IDS.SYSTEM_SETTINGS) {
-      navigate({ to: '/system-settings/general' })
+      navigate({ to: '/system-settings/site' })
     } else {
       navigate({ to: '/dashboard' })
     }
@@ -121,6 +130,88 @@ export function WorkspaceSwitcher({
   }
 
   const canSwitchWorkspace = availableWorkspaces.length > 1
+
+  const renderWorkspaceList = () => (
+    <DropdownMenuGroup>
+      <DropdownMenuLabel className='text-muted-foreground text-xs'>
+        {t('Workspaces')}
+      </DropdownMenuLabel>
+      {availableWorkspaces.map((workspace, index) => (
+        <DropdownMenuItem
+          key={workspace.id}
+          onClick={() => handleWorkspaceChange(workspace)}
+          className='gap-2 p-2'
+        >
+          {index === 0 ? (
+            <div className='flex size-6 items-center justify-center overflow-hidden rounded-sm border'>
+              <img src={logo} alt='Logo' className='size-full object-cover' />
+            </div>
+          ) : (
+            <div className='flex size-6 items-center justify-center rounded-sm border'>
+              <workspace.logo className='size-4 shrink-0' />
+            </div>
+          )}
+          {workspace.name}
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuGroup>
+  )
+
+  if (variant === 'inline') {
+    const inlineLogo =
+      activeWorkspace.id === WORKSPACE_IDS.SYSTEM_SETTINGS ? (
+        <div className='bg-primary text-primary-foreground flex size-5 items-center justify-center rounded-md'>
+          <activeWorkspace.logo className='size-3' />
+        </div>
+      ) : (
+        <div className='flex size-5 items-center justify-center overflow-hidden rounded-md'>
+          <img
+            src={logo}
+            alt={t('Logo')}
+            className='size-full rounded-md object-cover'
+          />
+        </div>
+      )
+
+    const inlineButtonClass = cn(
+      'inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium text-foreground outline-none select-none transition-colors',
+      'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40',
+      'data-popup-open:bg-accent'
+    )
+
+    if (!canSwitchWorkspace) {
+      return (
+        <div
+          className={cn(
+            inlineButtonClass,
+            'cursor-default hover:bg-transparent'
+          )}
+        >
+          {inlineLogo}
+          <span className='max-w-[12rem] truncate'>{activeWorkspace.name}</span>
+        </div>
+      )
+    }
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger className={inlineButtonClass}>
+          {inlineLogo}
+          <span className='max-w-[12rem] truncate'>{activeWorkspace.name}</span>
+          <ChevronsUpDown className='text-muted-foreground size-3.5' />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          className='min-w-56 rounded-lg'
+          align='start'
+          side='bottom'
+          sideOffset={6}
+        >
+          {renderWorkspaceList()}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
   const workspaceButtonContent = (
     <>
       {activeWorkspace.id === WORKSPACE_IDS.SYSTEM_SETTINGS ? (
@@ -151,54 +242,32 @@ export function WorkspaceSwitcher({
       <SidebarMenuItem>
         {canSwitchWorkspace ? (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <SidebarMenuButton
-                size='lg'
-                className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
-              >
-                {workspaceButtonContent}
-              </SidebarMenuButton>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuButton
+                  size='lg'
+                  className='data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground'
+                />
+              }
+            >
+              {workspaceButtonContent}
             </DropdownMenuTrigger>
             <DropdownMenuContent
-              className='w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg'
+              className='w-(--anchor-width) min-w-56 rounded-lg'
               align='start'
               side={isMobile ? 'bottom' : 'right'}
               sideOffset={4}
             >
-              <DropdownMenuLabel className='text-muted-foreground text-xs'>
-                {t('Workspaces')}
-              </DropdownMenuLabel>
-              {availableWorkspaces.map((workspace, index) => (
-                <DropdownMenuItem
-                  key={workspace.id}
-                  onClick={() => handleWorkspaceChange(workspace)}
-                  className='gap-2 p-2'
-                >
-                  {index === 0 ? (
-                    <div className='flex size-6 items-center justify-center overflow-hidden rounded-sm border'>
-                      <img
-                        src={logo}
-                        alt='Logo'
-                        className='size-full object-cover'
-                      />
-                    </div>
-                  ) : (
-                    <div className='flex size-6 items-center justify-center rounded-sm border'>
-                      <workspace.logo className='size-4 shrink-0' />
-                    </div>
-                  )}
-                  {workspace.name}
-                </DropdownMenuItem>
-              ))}
+              {renderWorkspaceList()}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
           <SidebarMenuButton
-            asChild
             size='lg'
-            className='cursor-default hover:bg-transparent hover:text-sidebar-foreground active:bg-transparent active:text-sidebar-foreground'
+            className='hover:text-sidebar-foreground active:text-sidebar-foreground cursor-default hover:bg-transparent active:bg-transparent'
+            render={<div />}
           >
-            <div>{workspaceButtonContent}</div>
+            {workspaceButtonContent}
           </SidebarMenuButton>
         )}
       </SidebarMenuItem>

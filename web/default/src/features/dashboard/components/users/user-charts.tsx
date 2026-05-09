@@ -125,13 +125,13 @@ export function UserCharts() {
   return (
     <div className='space-y-3'>
       <div className='flex items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2'>
-        <div className='flex shrink-0 items-center gap-1.5 rounded-md border p-0.5'>
+        <div className='flex shrink-0 items-center gap-1.5 rounded-lg border p-0.5'>
           {TIME_RANGE_PRESETS.map((preset) => (
             <button
               key={preset.days}
               type='button'
               onClick={() => handleRangeChange(preset.days)}
-              className={`rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 selectedRange === preset.days
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -142,7 +142,7 @@ export function UserCharts() {
           ))}
         </div>
 
-        <div className='flex shrink-0 items-center gap-1.5 rounded-md border p-0.5'>
+        <div className='flex shrink-0 items-center gap-1.5 rounded-lg border p-0.5'>
           {TIME_GRANULARITY_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -150,7 +150,7 @@ export function UserCharts() {
               onClick={() =>
                 handleGranularityChange(opt.value as TimeGranularity)
               }
-              className={`rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 timeGranularity === opt.value
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -161,7 +161,7 @@ export function UserCharts() {
           ))}
         </div>
 
-        <div className='flex shrink-0 items-center gap-1.5 rounded-md border p-0.5'>
+        <div className='flex shrink-0 items-center gap-1.5 rounded-lg border p-0.5'>
           <span className='text-muted-foreground px-2 text-xs font-medium'>
             {t('Top Users')}
           </span>
@@ -170,7 +170,7 @@ export function UserCharts() {
               key={limit}
               type='button'
               onClick={() => setTopUserLimit(limit)}
-              className={`rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 topUserLimit === limit
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
