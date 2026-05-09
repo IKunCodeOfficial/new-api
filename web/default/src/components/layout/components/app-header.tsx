@@ -1,4 +1,5 @@
 import { useNotifications } from '@/hooks/use-notifications'
+import { useSidebarData } from '@/hooks/use-sidebar-data'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
@@ -10,6 +11,7 @@ import { defaultTopNavLinks } from '../config/top-nav.config'
 import { type TopNavLink } from '../types'
 import { Header } from './header'
 import { TopNav } from './top-nav'
+import { WorkspaceSwitcher } from './workspace-switcher'
 
 /**
  * General application Header component
@@ -87,20 +89,30 @@ export function AppHeader({
   // Prioritize dynamically generated links from backend
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const sidebarData = useSidebarData()
 
   // Notifications hook
   const notifications = useNotifications()
 
-  // Determine left content: custom content > navigation bar > null
-  const leftSection =
-    leftContent || (showTopNav ? <TopNav links={links} /> : null)
-
   return (
     <>
       <Header>
-        {leftSection}
+        <WorkspaceSwitcher
+          variant='inline'
+          workspaces={sidebarData.workspaces}
+        />
+
+        {leftContent ? (
+          <div className='ms-2 flex items-center'>{leftContent}</div>
+        ) : null}
+
         {rightContent ?? (
-          <div className='ms-auto flex items-center space-x-4'>
+          <div className='ms-auto flex items-center gap-1 sm:gap-2'>
+            {showTopNav && (
+              <div className='me-1 hidden lg:block'>
+                <TopNav links={links} />
+              </div>
+            )}
             {showSearch && <Search />}
             {showNotifications && (
               <NotificationButton

@@ -30,7 +30,7 @@ export function FAQPanel() {
       height='h-64 sm:h-80'
     >
       <ScrollArea className='h-64 sm:h-80'>
-        <Accordion type='single' collapsible className='w-full'>
+        <Accordion className='w-full'>
           {list.map((item: FAQItem, idx: number) => {
             const key = item.id ?? `faq-${idx}`
             const value = `item-${key}`
