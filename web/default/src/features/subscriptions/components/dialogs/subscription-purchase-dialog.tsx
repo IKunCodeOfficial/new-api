@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useState, useEffect } from 'react'
 import { Crown, CalendarClock, Package } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -24,6 +42,7 @@ import {
   paySubscriptionStripe,
   paySubscriptionCreem,
   paySubscriptionEpay,
+  paySubscriptionWaffoPancake,
 } from '../../api'
 import { formatDuration, formatResetPeriod } from '../../lib'
 import type { PlanRecord } from '../../types'
@@ -39,6 +58,7 @@ interface Props {
   plan: PlanRecord | null
   enableStripe?: boolean
   enableCreem?: boolean
+  enableWaffoPancake?: boolean
   enableOnlineTopUp?: boolean
   epayMethods?: PaymentMethod[]
   purchaseLimit?: number
@@ -63,9 +83,11 @@ export function SubscriptionPurchaseDialog(props: Props) {
 
   const hasStripe = props.enableStripe && !!plan.stripe_price_id
   const hasCreem = props.enableCreem && !!plan.creem_product_id
+  const hasWaffoPancake =
+    props.enableWaffoPancake && !!plan.waffo_pancake_product_id
   const hasEpay =
     props.enableOnlineTopUp && (props.epayMethods || []).length > 0
-  const hasAnyPayment = hasStripe || hasCreem || hasEpay
+  const hasAnyPayment = hasStripe || hasCreem || hasWaffoPancake || hasEpay
   const selectedEpayMethodLabel =
     (props.epayMethods || []).find((m) => m.type === selectedEpayMethod)
       ?.name ||
@@ -107,6 +129,29 @@ export function SubscriptionPurchaseDialog(props: Props) {
         window.open(res.data.checkout_url, '_blank')
         toast.success(t('Payment page opened'))
         props.onOpenChange(false)
+      } else {
+        toast.error(
+          res.message && res.message !== 'success'
+            ? res.message
+            : t('Payment request failed')
+        )
+      }
+    } catch {
+      toast.error(t('Payment request failed'))
+    } finally {
+      setPaying(false)
+    }
+  }
+
+  // In-tab redirect (not window.open) — user-gesture context is lost
+  // across the await, so a popup would be blocked. Same as the wallet hook.
+  const handlePayWaffoPancake = async () => {
+    setPaying(true)
+    try {
+      const res = await paySubscriptionWaffoPancake({ plan_id: plan.id })
+      if (res.message === 'success' && res.data?.checkout_url) {
+        toast.success(t('Redirecting to payment page...'))
+        window.location.href = res.data.checkout_url
       } else {
         toast.error(
           res.message && res.message !== 'success'
@@ -244,7 +289,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
               <p className='text-muted-foreground text-xs'>
                 {t('Select payment method')}
               </p>
-              {(hasStripe || hasCreem) && (
+              {(hasStripe || hasCreem || hasWaffoPancake) && (
                 <div className='grid grid-cols-2 gap-2 sm:flex'>
                   {hasStripe && (
                     <Button
@@ -264,6 +309,16 @@ export function SubscriptionPurchaseDialog(props: Props) {
                       disabled={paying || limitReached}
                     >
                       Creem
+                    </Button>
+                  )}
+                  {hasWaffoPancake && (
+                    <Button
+                      variant='outline'
+                      className='flex-1'
+                      onClick={handlePayWaffoPancake}
+                      disabled={paying || limitReached}
+                    >
+                      Waffo Pancake
                     </Button>
                   )}
                 </div>
