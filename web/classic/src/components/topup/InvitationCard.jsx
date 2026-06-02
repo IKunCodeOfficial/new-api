@@ -212,23 +212,9 @@ const InvitationCard = ({
         >
           <div className='space-y-3'>
             <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
+              <Badge dot type='warning' />
               <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册，好友充值后您可获得相应奖励')}
-              </Text>
-            </div>
-
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('通过划转功能将奖励额度转入到您的账户余额中')}
-              </Text>
-            </div>
-
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('邀请的好友越多，获得的奖励越多')}
+                {t('本站暂无邀请返利，该功能正在开发中，敬请稍候。')}
               </Text>
             </div>
           </div>
