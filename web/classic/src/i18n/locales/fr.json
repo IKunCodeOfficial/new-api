@@ -3679,6 +3679,16 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "可划转收益": "Récompenses transférables",
+    "冻结收益": "Récompenses verrouillées",
+    "邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转": "Invitez des amis à s’inscrire. Après une recharge en ligne réussie, vous recevez une remise déverrouillée après 1 mois.",
+    "划转后的奖励仅可用于消费，不可提现": "Les récompenses transférées peuvent seulement être dépensées et ne peuvent pas être retirées.",
+    "可划转邀请额度": "Quota d’invitation transférable",
+    "冻结邀请额度": "Quota d’invitation verrouillé",
+    "冻结奖励锁定1个月后可划转，划转后仅可消费，不可提现": "Les récompenses verrouillées peuvent être transférées après 1 mois. Après transfert, elles peuvent seulement être dépensées et ne peuvent pas être retirées.",
+    "邀请充值返利比例": "Taux de remise des recharges parrainées",
+    "受邀用户在线充值返利比例，0.05 表示 5%": "Taux de remise pour les recharges en ligne des utilisateurs invités. 0,05 signifie 5 %.",
+    "邀请充值返利比例必须在 0 到 1 之间": "Le taux de remise des recharges parrainées doit être compris entre 0 et 1."
   }
 }

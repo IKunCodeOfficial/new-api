@@ -4213,6 +4213,16 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "可划转收益": "Phần thưởng có thể chuyển",
+    "冻结收益": "Phần thưởng bị khóa",
+    "邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转": "Mời bạn bè đăng ký. Sau khi họ nạp tiền trực tuyến thành công, bạn nhận hoàn thưởng và có thể chuyển sau 1 tháng.",
+    "划转后的奖励仅可用于消费，不可提现": "Phần thưởng đã chuyển chỉ có thể dùng để chi tiêu, không thể rút.",
+    "可划转邀请额度": "Hạn mức mời có thể chuyển",
+    "冻结邀请额度": "Hạn mức mời bị khóa",
+    "冻结奖励锁定1个月后可划转，划转后仅可消费，不可提现": "Phần thưởng bị khóa có thể chuyển sau 1 tháng. Sau khi chuyển, chỉ có thể dùng để chi tiêu và không thể rút.",
+    "邀请充值返利比例": "Tỷ lệ hoàn thưởng nạp tiền giới thiệu",
+    "受邀用户在线充值返利比例，0.05 表示 5%": "Tỷ lệ hoàn thưởng cho lượt nạp trực tuyến của người dùng được mời. 0,05 nghĩa là 5%.",
+    "邀请充值返利比例必须在 0 到 1 之间": "Tỷ lệ hoàn thưởng nạp tiền giới thiệu phải nằm trong khoảng từ 0 đến 1."
   }
 }

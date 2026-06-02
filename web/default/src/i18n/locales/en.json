@@ -4527,6 +4527,14 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Locked Rewards": "Locked Rewards",
+    "Only unlocked referral rewards can be transferred. Transferred rewards can be spent but cannot be withdrawn.": "Only unlocked referral rewards can be transferred. Transferred rewards can be spent but cannot be withdrawn.",
+    "Rebate rate for invited user top-ups. 0.05 means 5%.": "Rebate rate for invited user top-ups. 0.05 means 5%.",
+    "Referral rebate rate": "Referral rebate rate",
+    "Referral rewards unlock after one month, can be transferred to balance, and can only be used for spending.": "Referral rewards unlock after one month, can be transferred to balance, and can only be used for spending.",
+    "Fetch available models from upstream": "Fetch available models from upstream",
+    "Password must be between 8 and 20 characters": "Password must be between 8 and 20 characters",
+    "Waffo": "Waffo"
   }
 }

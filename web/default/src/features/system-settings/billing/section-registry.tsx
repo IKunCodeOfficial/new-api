@@ -144,6 +144,8 @@ const BILLING_SECTIONS = [
           EpayKey: settings.EpayKey,
           Price: settings.Price,
           MinTopUp: settings.MinTopUp,
+          AffiliateRebateRate:
+            settings['payment_setting.affiliate_rebate_rate'],
           CustomCallbackAddress: settings.CustomCallbackAddress,
           PayMethods: settings.PayMethods,
           AmountOptions: settings['payment_setting.amount_options'],

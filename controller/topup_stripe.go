@@ -278,15 +278,22 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 		return
 	}
 
-	err := model.Recharge(referenceId, customerId, callerIp)
+	paidMoney, _ := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64)
+	if paidMoney > 0 {
+		paidMoney = paidMoney / 100
+	}
+	completed, err := model.Recharge(referenceId, customerId, callerIp, paidMoney)
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("Stripe 充值处理失败 trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, err.Error()))
 		return
 	}
+	if !completed {
+		logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值订单已处理，忽略重复事件 trade_no=%s event_type=%s client_ip=%s", referenceId, string(event.Type), callerIp))
+		return
+	}
 
-	total, _ := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64)
 	currency := strings.ToUpper(event.GetObjectValue("currency"))
-	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值成功 trade_no=%s amount_total=%.2f currency=%s event_type=%s client_ip=%s", referenceId, total/100, currency, string(event.Type), callerIp))
+	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值成功 trade_no=%s amount_total=%.2f currency=%s event_type=%s client_ip=%s", referenceId, paidMoney, currency, string(event.Type), callerIp))
 }
 
 func sessionExpired(ctx context.Context, event stripe.Event) {

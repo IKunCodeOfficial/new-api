@@ -39,6 +39,7 @@ export default function SettingsGeneralPayment(props) {
     PayMethods: '',
     AmountOptions: '',
     AmountDiscount: '',
+    AffiliateRebateRate: 0.05,
   });
   const [originInputs, setOriginInputs] = useState({});
   const formApiRef = useRef(null);
@@ -52,6 +53,7 @@ export default function SettingsGeneralPayment(props) {
         PayMethods: props.options.PayMethods || '',
         AmountOptions: props.options.AmountOptions || '',
         AmountDiscount: props.options.AmountDiscount || '',
+        AffiliateRebateRate: props.options.AffiliateRebateRate ?? 0.05,
       };
       setInputs(currentInputs);
       setOriginInputs({ ...currentInputs });
@@ -98,6 +100,15 @@ export default function SettingsGeneralPayment(props) {
       return;
     }
 
+    if (
+      Number.isNaN(Number(inputs.AffiliateRebateRate)) ||
+      Number(inputs.AffiliateRebateRate) < 0 ||
+      Number(inputs.AffiliateRebateRate) > 1
+    ) {
+      showError(t('邀请充值返利比例必须在 0 到 1 之间'));
+      return;
+    }
+
     setLoading(true);
     try {
       const options = [
@@ -129,6 +140,12 @@ export default function SettingsGeneralPayment(props) {
         options.push({
           key: 'payment_setting.amount_discount',
           value: inputs.AmountDiscount,
+        });
+      }
+      if (originInputs.AffiliateRebateRate !== inputs.AffiliateRebateRate) {
+        options.push({
+          key: 'payment_setting.affiliate_rebate_rate',
+          value: inputs.AffiliateRebateRate,
         });
       }
 
@@ -223,8 +240,11 @@ export default function SettingsGeneralPayment(props) {
               />
             </Col>
           </Row>
-          <Row style={{ marginTop: 16 }}>
-            <Col span={24}>
+          <Row
+            gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+            style={{ marginTop: 16 }}
+          >
+            <Col xs={24} sm={24} md={16} lg={16} xl={16}>
               <Form.TextArea
                 field='AmountDiscount'
                 label={t('充值金额折扣配置')}
@@ -235,6 +255,16 @@ export default function SettingsGeneralPayment(props) {
                 extraText={t(
                   '设置不同充值金额对应的折扣，键为充值金额，值为折扣率，例如：{"100": 0.95, "200": 0.9, "500": 0.85}',
                 )}
+              />
+            </Col>
+            <Col xs={24} sm={24} md={8} lg={8} xl={8}>
+              <Form.InputNumber
+                field='AffiliateRebateRate'
+                label={t('邀请充值返利比例')}
+                min={0}
+                max={1}
+                step={0.01}
+                extraText={t('受邀用户在线充值返利比例，0.05 表示 5%')}
               />
             </Col>
           </Row>

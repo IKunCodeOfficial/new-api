@@ -59,8 +59,10 @@ export interface UserProfile {
   aff_code?: string
   /** Number of successful affiliate invites */
   aff_count: number
-  /** Affiliate quota (pending rewards) */
+  /** Affiliate quota available for transfer */
   aff_quota: number
+  /** Affiliate quota still locked before it can be transferred */
+  aff_frozen_quota?: number
   /** Total affiliate quota earned (historical) */
   aff_history_quota: number
   /** Invite user ID */

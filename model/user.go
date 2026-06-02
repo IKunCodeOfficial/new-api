@@ -356,27 +356,37 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	defer tx.Rollback() // 确保在函数退出时事务能回滚
 
 	// 加锁查询用户以确保数据一致性
-	err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, user.Id).Error
+	lockedUser := &User{}
+	err := tx.Set("gorm:query_option", "FOR UPDATE").First(lockedUser, user.Id).Error
 	if err != nil {
 		return err
 	}
 
+	if _, err = releaseMatureAffiliateRebatesForLockedUserTx(tx, lockedUser, common.GetTimestamp()); err != nil {
+		return err
+	}
+
 	// 再次检查用户的AffQuota是否足够
-	if user.AffQuota < quota {
+	if lockedUser.AffQuota < quota {
 		return errors.New("邀请额度不足！")
 	}
 
 	// 更新用户额度
-	user.AffQuota -= quota
-	user.Quota += quota
+	lockedUser.AffQuota -= quota
+	lockedUser.Quota += quota
 
 	// 保存用户状态
-	if err := tx.Save(user).Error; err != nil {
+	if err := tx.Save(lockedUser).Error; err != nil {
 		return err
 	}
 
 	// 提交事务
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	*user = *lockedUser
+	_ = invalidateUserCache(user.Id)
+	return nil
 }
 
 func (user *User) Insert(inviterId int) error {

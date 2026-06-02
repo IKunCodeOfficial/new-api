@@ -3825,6 +3825,16 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "可划转收益": "Transferable rewards",
+    "冻结收益": "Locked rewards",
+    "邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转": "Invite friends to register. After they complete an online top-up, you receive a rebate that unlocks after 1 month.",
+    "划转后的奖励仅可用于消费，不可提现": "Transferred rewards can only be spent and cannot be withdrawn.",
+    "可划转邀请额度": "Transferable invitation quota",
+    "冻结邀请额度": "Locked invitation quota",
+    "冻结奖励锁定1个月后可划转，划转后仅可消费，不可提现": "Locked rewards can be transferred after 1 month. After transfer, they can only be spent and cannot be withdrawn.",
+    "邀请充值返利比例": "Referral top-up rebate rate",
+    "受邀用户在线充值返利比例，0.05 表示 5%": "Rebate rate for invited users' online top-ups. 0.05 means 5%.",
+    "邀请充值返利比例必须在 0 到 1 之间": "Referral top-up rebate rate must be between 0 and 1."
   }
 }

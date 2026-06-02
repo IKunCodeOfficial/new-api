@@ -49,13 +49,26 @@ const TransferModal = ({
       <div className='space-y-4'>
         <div>
           <Typography.Text strong className='block mb-2'>
-            {t('可用邀请额度')}
+            {t('可划转邀请额度')}
           </Typography.Text>
           <Input
             value={renderQuota(userState?.user?.aff_quota)}
             disabled
             className='!rounded-lg'
           />
+        </div>
+        <div>
+          <Typography.Text strong className='block mb-2'>
+            {t('冻结邀请额度')}
+          </Typography.Text>
+          <Input
+            value={renderQuota(userState?.user?.aff_frozen_quota || 0)}
+            disabled
+            className='!rounded-lg'
+          />
+          <Typography.Text type='tertiary' className='block mt-2 text-xs'>
+            {t('冻结奖励锁定1个月后可划转，划转后仅可消费，不可提现')}
+          </Typography.Text>
         </div>
         <div>
           <Typography.Text strong className='block mb-2'>

@@ -78,6 +78,7 @@ const paymentSchema = z.object({
   EpayKey: z.string(),
   Price: z.coerce.number().min(0),
   MinTopUp: z.coerce.number().min(0),
+  AffiliateRebateRate: z.coerce.number().min(0).max(1),
   CustomCallbackAddress: z.string().refine((value) => {
     const trimmed = value.trim()
     if (!trimmed) return true
@@ -283,6 +284,7 @@ export function PaymentSettingsSection({
     const sanitized = {
       Price: values.Price as number,
       MinTopUp: values.MinTopUp as number,
+      AffiliateRebateRate: values.AffiliateRebateRate as number,
       PayMethods: values.PayMethods.trim(),
       AmountOptions: values.AmountOptions.trim(),
       AmountDiscount: values.AmountDiscount.trim(),
@@ -291,6 +293,7 @@ export function PaymentSettingsSection({
     const initial = {
       Price: initialRef.current.Price,
       MinTopUp: initialRef.current.MinTopUp,
+      AffiliateRebateRate: initialRef.current.AffiliateRebateRate,
       PayMethods: initialRef.current.PayMethods.trim(),
       AmountOptions: initialRef.current.AmountOptions.trim(),
       AmountDiscount: initialRef.current.AmountDiscount.trim(),
@@ -304,6 +307,13 @@ export function PaymentSettingsSection({
 
     if (sanitized.MinTopUp !== initial.MinTopUp) {
       updates.push({ key: 'MinTopUp', value: sanitized.MinTopUp })
+    }
+
+    if (sanitized.AffiliateRebateRate !== initial.AffiliateRebateRate) {
+      updates.push({
+        key: 'payment_setting.affiliate_rebate_rate',
+        value: sanitized.AffiliateRebateRate,
+      })
     }
 
     if (
@@ -524,6 +534,7 @@ export function PaymentSettingsSection({
       EpayKey: values.EpayKey.trim(),
       Price: values.Price,
       MinTopUp: values.MinTopUp,
+      AffiliateRebateRate: values.AffiliateRebateRate,
       CustomCallbackAddress: removeTrailingSlash(values.CustomCallbackAddress),
       PayMethods: values.PayMethods.trim(),
       AmountOptions: values.AmountOptions.trim(),
@@ -542,6 +553,7 @@ export function PaymentSettingsSection({
       EpayKey: initialRef.current.EpayKey.trim(),
       Price: initialRef.current.Price,
       MinTopUp: initialRef.current.MinTopUp,
+      AffiliateRebateRate: initialRef.current.AffiliateRebateRate,
       CustomCallbackAddress: removeTrailingSlash(
         initialRef.current.CustomCallbackAddress
       ),
@@ -577,6 +589,13 @@ export function PaymentSettingsSection({
 
     if (sanitized.MinTopUp !== initial.MinTopUp) {
       updates.push({ key: 'MinTopUp', value: sanitized.MinTopUp })
+    }
+
+    if (sanitized.AffiliateRebateRate !== initial.AffiliateRebateRate) {
+      updates.push({
+        key: 'payment_setting.affiliate_rebate_rate',
+        value: sanitized.AffiliateRebateRate,
+      })
     }
 
     if (sanitized.CustomCallbackAddress !== initial.CustomCallbackAddress) {
@@ -745,7 +764,7 @@ export function PaymentSettingsSection({
               </p>
             </div>
 
-            <div className='grid gap-6 md:grid-cols-2'>
+            <div className='grid gap-6 md:grid-cols-3'>
               <FormField
                 control={form.control}
                 name='Price'
@@ -792,6 +811,32 @@ export function PaymentSettingsSection({
                     </FormControl>
                     <FormDescription>
                       {t('Smallest USD amount users can recharge (Epay)')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AffiliateRebateRate'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Referral rebate rate')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        step='0.01'
+                        min={0}
+                        max={1}
+                        value={(field.value ?? 0) as number}
+                        onChange={(event) =>
+                          field.onChange(event.target.valueAsNumber)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Rebate rate for invited user top-ups. 0.05 means 5%.')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

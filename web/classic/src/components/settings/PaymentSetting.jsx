@@ -44,6 +44,7 @@ const PaymentSetting = () => {
     PayMethods: '',
     AmountOptions: '',
     AmountDiscount: '',
+    AffiliateRebateRate: 0.05,
 
     StripeApiSecret: '',
     StripeWebhookSecret: '',
@@ -149,6 +150,13 @@ const PaymentSetting = () => {
               newInputs['AmountDiscount'] = item.value;
             }
             break;
+          case 'payment_setting.affiliate_rebate_rate': {
+            const rate = parseFloat(item.value);
+            newInputs['AffiliateRebateRate'] = Number.isFinite(rate)
+              ? rate
+              : 0.05;
+            break;
+          }
           case 'payment_setting.compliance_confirmed':
             newInputs[item.key] = toBoolean(item.value);
             break;

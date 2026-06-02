@@ -38,6 +38,7 @@ interface TransferDialogProps {
   onOpenChange: (open: boolean) => void
   onConfirm: (amount: number) => Promise<boolean>
   availableQuota: number
+  frozenQuota: number
   transferring: boolean
 }
 
@@ -46,6 +47,7 @@ export function TransferDialog({
   onOpenChange,
   onConfirm,
   availableQuota,
+  frozenQuota,
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
@@ -64,6 +66,8 @@ export function TransferDialog({
       onOpenChange(false)
     }
   }
+  const canTransfer =
+    amount >= QUOTA_PER_DOLLAR && amount <= availableQuota && availableQuota > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -73,17 +77,29 @@ export function TransferDialog({
             {t('Transfer Rewards')}
           </DialogTitle>
           <DialogDescription>
-            {t('Move affiliate rewards to your main balance')}
+            {t(
+              'Only unlocked referral rewards can be transferred. Transferred rewards can be spent but cannot be withdrawn.'
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className='space-y-4 py-3 sm:space-y-6 sm:py-4'>
-          <div className='space-y-2'>
-            <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-              {t('Available Rewards')}
-            </Label>
-            <div className='text-2xl font-semibold'>
-              {formatQuota(availableQuota)}
+          <div className='grid grid-cols-2 gap-3'>
+            <div className='space-y-2'>
+              <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
+                {t('Available Rewards')}
+              </Label>
+              <div className='text-2xl font-semibold'>
+                {formatQuota(availableQuota)}
+              </div>
+            </div>
+            <div className='space-y-2'>
+              <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
+                {t('Locked Rewards')}
+              </Label>
+              <div className='text-2xl font-semibold'>
+                {formatQuota(frozenQuota)}
+              </div>
             </div>
           </div>
 
@@ -118,7 +134,10 @@ export function TransferDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={transferring}>
+          <Button
+            onClick={handleConfirm}
+            disabled={transferring || !canTransfer}
+          >
             {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Transfer')}
           </Button>

@@ -346,6 +346,7 @@ export function Wallet(props: WalletProps) {
         onOpenChange={setTransferDialogOpen}
         onConfirm={handleTransfer}
         availableQuota={user?.aff_quota ?? 0}
+        frozenQuota={user?.aff_frozen_quota ?? 0}
         transferring={transferring}
       />
 

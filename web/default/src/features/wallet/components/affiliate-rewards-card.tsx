@@ -58,6 +58,7 @@ export function AffiliateRewardsCard({
   }
 
   const hasRewards = (user?.aff_quota ?? 0) > 0
+  const frozenRewards = user?.aff_frozen_quota ?? 0
 
   return (
     <Card className='bg-muted/20 py-0'>
@@ -72,15 +73,16 @@ export function AffiliateRewardsCard({
             </h3>
             <p className='text-muted-foreground line-clamp-1 text-xs'>
               {t(
-                'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+                'Referral rewards unlock after one month, can be transferred to balance, and can only be used for spending.'
               )}
             </p>
           </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-1.5 text-center'>
+        <div className='grid grid-cols-4 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
+            [t('Available Rewards'), formatQuota(user?.aff_quota ?? 0)],
+            [t('Locked Rewards'), formatQuota(frozenRewards)],
             [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
             [t('Invites'), String(user?.aff_count ?? 0)],
           ].map(([label, value]) => (

@@ -383,10 +383,18 @@ func GetAffCode(c *gin.Context) {
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")
+	if _, err := model.ReleaseMatureAffiliateRebates(id); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("release affiliate rebates failed: user_id=%d error=%s", id, err.Error()))
+	}
 	user, err := model.GetUserById(id, false)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	affFrozenQuota, err := model.GetAffiliateFrozenQuota(id)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("get affiliate frozen quota failed: user_id=%d error=%s", id, err.Error()))
+		affFrozenQuota = 0
 	}
 	// Hide admin remarks: set to empty to trigger omitempty tag, ensuring the remark field is not included in JSON returned to regular users
 	user.Remark = ""
@@ -417,6 +425,7 @@ func GetSelf(c *gin.Context) {
 		"aff_code":          user.AffCode,
 		"aff_count":         user.AffCount,
 		"aff_quota":         user.AffQuota,
+		"aff_frozen_quota":  affFrozenQuota,
 		"aff_history_quota": user.AffHistoryQuota,
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,

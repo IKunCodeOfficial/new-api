@@ -358,5 +358,6 @@ export interface UserInfo {
   aff_code?: string
   aff_count?: number
   aff_quota?: number
+  aff_frozen_quota?: number
   remark?: string
 }

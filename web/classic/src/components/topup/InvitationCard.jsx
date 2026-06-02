@@ -27,7 +27,7 @@ import {
   Badge,
   Space,
 } from '@douyinfe/semi-ui';
-import { Copy, Users, BarChart2, TrendingUp, Gift, Zap } from 'lucide-react';
+import { Copy, Users, BarChart2, TrendingUp, Gift, Zap, Lock } from 'lucide-react';
 
 const { Text } = Typography;
 
@@ -105,7 +105,7 @@ const InvitationCard = ({
                 )}
 
                 {/* 统计数据 */}
-                <div className='grid grid-cols-3 gap-6 mt-4'>
+                <div className='grid grid-cols-4 gap-4 mt-4'>
                   {/* 待使用收益 */}
                   <div className='text-center'>
                     <div
@@ -126,7 +126,32 @@ const InvitationCard = ({
                           fontSize: '12px',
                         }}
                       >
-                        {t('待使用收益')}
+                        {t('可划转收益')}
+                      </Text>
+                    </div>
+                  </div>
+
+                  {/* 冻结收益 */}
+                  <div className='text-center'>
+                    <div
+                      className='text-base sm:text-2xl font-bold mb-2'
+                      style={{ color: 'white' }}
+                    >
+                      {renderQuota(userState?.user?.aff_frozen_quota || 0)}
+                    </div>
+                    <div className='flex items-center justify-center text-sm'>
+                      <Lock
+                        size={14}
+                        className='mr-1'
+                        style={{ color: 'rgba(255,255,255,0.8)' }}
+                      />
+                      <Text
+                        style={{
+                          color: 'rgba(255,255,255,0.8)',
+                          fontSize: '12px',
+                        }}
+                      >
+                        {t('冻结收益')}
                       </Text>
                     </div>
                   </div>
@@ -214,14 +239,14 @@ const InvitationCard = ({
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />
               <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册，好友充值后您可获得相应奖励')}
+                {t('邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转')}
               </Text>
             </div>
 
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />
               <Text type='tertiary' className='text-sm'>
-                {t('通过划转功能将奖励额度转入到您的账户余额中')}
+                {t('划转后的奖励仅可用于消费，不可提现')}
               </Text>
             </div>
 

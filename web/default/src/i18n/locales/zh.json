@@ -4527,6 +4527,14 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Locked Rewards": "锁定奖励",
+    "Only unlocked referral rewards can be transferred. Transferred rewards can be spent but cannot be withdrawn.": "仅已解锁的邀请奖励可以划转。划转后的奖励仅可消费，不可提现。",
+    "Rebate rate for invited user top-ups. 0.05 means 5%.": "受邀用户充值返利比例，0.05 表示 5%。",
+    "Referral rebate rate": "邀请充值返利比例",
+    "Referral rewards unlock after one month, can be transferred to balance, and can only be used for spending.": "邀请奖励锁定一个月后可划转到余额，且仅可用于消费。",
+    "Fetch available models from upstream": "从上游获取可用模型",
+    "Password must be between 8 and 20 characters": "密码长度必须在 8 到 20 个字符之间",
+    "Waffo": "Waffo"
   }
 }
