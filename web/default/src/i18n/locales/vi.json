@@ -2616,7 +2616,7 @@
     "Please set Ollama API Base URL first": "Vui lòng đặt URL cơ sở API Ollama trước",
     "Please try again later.": "Vui lòng thử lại sau.",
     "Please upload key file(s)": "Vui lòng tải lên (các) tệp khóa",
-    "Please wait a moment, human check is initializing...": "Vui lòng đợi một chút, kiểm tra con người đang khởi tạo...",
+    "Please wait a moment, human check is initializing...": "Vui lòng đợi một chút, kiểm tra con người đang khởi tạo... Vui lòng kiểm tra xem xác minh người thật có xuất hiện bên dưới hay không. Nếu không, vui lòng đổi sang môi trường mạng khác và thử lại.",
     "Policy JSON": "JSON chính sách",
     "Polling": "Thăm dò",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Chế độ thăm dò yêu cầu Redis và bộ nhớ đệm, nếu không hiệu suất sẽ bị suy giảm đáng kể.",

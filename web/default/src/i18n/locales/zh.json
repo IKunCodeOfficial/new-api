@@ -2616,7 +2616,7 @@
     "Please set Ollama API Base URL first": "请先设置 Ollama API Base URL",
     "Please try again later.": "请稍后再试。",
     "Please upload key file(s)": "请上传密钥文件",
-    "Please wait a moment, human check is initializing...": "请稍等，人机验证正在初始化...",
+    "Please wait a moment, human check is initializing...": "请稍等，人机验证正在初始化...请查看下方是否出现人机验证，如果没有，请更换一个网络环境重试。",
     "Policy JSON": "策略 JSON",
     "Polling": "轮询",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "轮询模式需要 Redis 和内存缓存，否则性能将显著下降",

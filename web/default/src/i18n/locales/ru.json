@@ -2616,7 +2616,7 @@
     "Please set Ollama API Base URL first": "Сначала установите базовый URL-адрес API Ollama",
     "Please try again later.": "Пожалуйста, попробуйте еще раз позже.",
     "Please upload key file(s)": "Загрузите ключевой файл(ы)",
-    "Please wait a moment, human check is initializing...": "Пожалуйста, подождите немного, инициализация проверки человеком...",
+    "Please wait a moment, human check is initializing...": "Пожалуйста, подождите немного, инициализация проверки человеком... Проверьте, появилась ли ниже проверка на человека. Если нет, смените сетевое окружение и повторите попытку.",
     "Policy JSON": "JSON политики",
     "Polling": "Опрос",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Режим опроса требует Redis и кэш памяти, в противном случае производительность будет значительно снижена",

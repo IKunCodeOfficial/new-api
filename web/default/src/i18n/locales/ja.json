@@ -2616,7 +2616,7 @@
     "Please set Ollama API Base URL first": "最初にOllama APIベースURLを設定してください",
     "Please try again later.": "後でもう一度お試しください。",
     "Please upload key file(s)": "キーファイルをアップロードしてください",
-    "Please wait a moment, human check is initializing...": "しばらくお待ちください、人間チェックを初期化中です...",
+    "Please wait a moment, human check is initializing...": "しばらくお待ちください、人間チェックを初期化中です... 下に人間認証が表示されているかご確認ください。表示されない場合は、別のネットワーク環境に切り替えて再試行してください。",
     "Policy JSON": "ポリシーJSON",
     "Polling": "ポーリング",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "ポーリングモードにはRedisとメモリキャッシュが必要です。そうでない場合、パフォーマンスが大幅に低下します",

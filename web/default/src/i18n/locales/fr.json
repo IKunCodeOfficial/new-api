@@ -2616,7 +2616,7 @@
     "Please set Ollama API Base URL first": "Veuillez d'abord définir l'URL de base de l'API Ollama",
     "Please try again later.": "Veuillez réessayer plus tard.",
     "Please upload key file(s)": "Veuillez télécharger le (s) fichier(s) clé (s)",
-    "Please wait a moment, human check is initializing...": "Veuillez patienter un instant, la vérification humaine s'initialise...",
+    "Please wait a moment, human check is initializing...": "Veuillez patienter un instant, la vérification humaine s'initialise... Veuillez vérifier si la vérification anti-robot apparaît ci-dessous. Si ce n'est pas le cas, veuillez changer d'environnement réseau et réessayer.",
     "Policy JSON": "JSON de stratégie",
     "Polling": "Sondage",
     "Polling mode requires Redis and memory cache, otherwise performance will be significantly degraded": "Le mode d'interrogation nécessite Redis et un cache mémoire, sinon les performances seront considérablement dégradées",

@@ -3427,7 +3427,7 @@
     "请确认是否重置": "Vui lòng xác nhận đặt lại",
     "请确认管理员密码": "Vui lòng xác nhận mật khẩu quản trị viên",
     "请稍候...": "Vui lòng đợi...",
-    "请稍后几秒重试，Turnstile 正在检查用户环境！": "Vui lòng thử lại sau vài giây, Turnstile đang kiểm tra môi trường người dùng!",
+    "请稍后几秒重试，Turnstile 正在检查用户环境！": "Vui lòng thử lại sau vài giây, Turnstile đang kiểm tra môi trường người dùng! Vui lòng kiểm tra xem xác minh người thật có xuất hiện bên dưới hay không. Nếu không, vui lòng đổi sang môi trường mạng khác và thử lại.",
     "请粘贴完整回调 URL（包含 code 与 state）": "Vui lòng dán URL callback đầy đủ (bao gồm code và state)",
     "请联系管理员在系统设置中配置API信息": "Vui lòng liên hệ quản trị viên để cấu hình thông tin API trong cài đặt hệ thống",
     "请联系管理员在系统设置中配置Uptime": "Vui lòng liên hệ quản trị viên để cấu hình Uptime trong cài đặt hệ thống",
