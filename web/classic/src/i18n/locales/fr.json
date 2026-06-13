@@ -1474,6 +1474,8 @@
     "开启之后将上游地址替换为服务器地址": "Après l'activation, l'adresse en amont sera remplacée par l'adresse du serveur",
     "开启后，using_group 会参与 cache key（不同分组隔离）。": "Une fois activé, using_group fera partie de la clé de cache (isolation par groupe).",
     "开启后，仅\"消费\"和\"错误\"日志将记录您的客户端IP地址": "Après l'activation, seuls les journaux \"consommation\" et \"erreur\" enregistreront votre adresse IP client",
+    "隐私过滤": "Filtre de confidentialité",
+    "开启后，在请求发送到模型之前，会对提示词中的个人信息和密钥（邮箱、电话、API密钥等）进行脱敏": "Une fois activé, les informations personnelles et les secrets (e-mail, téléphone, clés API, etc.) présents dans vos invites sont masqués avant l'envoi de la requête au modèle.",
     "开启后，对免费模型（倍率为0，或者价格为0）的模型也会预消耗额度": "Après activation, les modèles gratuits (ratio 0 ou prix 0) préconsommeront également du quota",
     "开启后，将定期发送ping数据保持连接活跃": "Après activation, des données ping seront envoyées périodiquement pour maintenir la connexion active",
     "开启后，当前分组渠道失败时会按顺序尝试下一个分组的渠道": "Après activation, lorsque le canal du groupe actuel échoue, il essaiera le canal du groupe suivant dans l'ordre",

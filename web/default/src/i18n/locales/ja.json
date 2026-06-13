@@ -3187,6 +3187,8 @@
     "Recommended": "推奨",
     "Recommended actions": "おすすめの操作",
     "Recommended to keep this high to avoid upstream throttling.": "アップストリームのスロットリングを避けるため、これを高く保つことを推奨します。",
+    "Privacy Filter": "プライバシーフィルター",
+    "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.": "プロンプト内の個人情報や機密情報（メールアドレス、電話番号、APIキーなど）を、モデルに送信される前にマスキングします。",
     "Record IP Address": "IPアドレスを記録",
     "Record quota usage": "クォータ使用量を記録",
     "Recursion Strategy": "再帰戦略",

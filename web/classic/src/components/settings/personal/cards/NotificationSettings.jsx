@@ -794,6 +794,18 @@ const NotificationSettings = ({
                     '开启后，仅"消费"和"错误"日志将记录您的客户端IP地址',
                   )}
                 />
+                <Form.Switch
+                  field='privacyFilterEnabled'
+                  label={t('隐私过滤')}
+                  checkedText={t('开')}
+                  uncheckedText={t('关')}
+                  onChange={(value) =>
+                    handleFormChange('privacyFilterEnabled', value)
+                  }
+                  extraText={t(
+                    '开启后，在请求发送到模型之前，会对提示词中的个人信息和密钥（邮箱、电话、API密钥等）进行脱敏',
+                  )}
+                />
               </div>
             </TabPane>
 

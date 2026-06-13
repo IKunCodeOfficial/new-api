@@ -1446,6 +1446,8 @@
     "开启之后将上游地址替换为服务器地址": "Sau khi bật, địa chỉ thượng nguồn sẽ được thay thế bằng địa chỉ máy chủ",
     "开启后，using_group 会参与 cache key（不同分组隔离）。": "Khi bật, using_group sẽ tham gia vào cache key (cách ly theo nhóm).",
     "开启后，仅\"消费\"和\"错误\"日志将记录您的客户端IP地址": "Sau khi bật, chỉ nhật ký \"tiêu thụ\" và \"lỗi\" sẽ ghi lại địa chỉ IP máy khách của bạn",
+    "隐私过滤": "Bộ lọc quyền riêng tư",
+    "开启后，在请求发送到模型之前，会对提示词中的个人信息和密钥（邮箱、电话、API密钥等）进行脱敏": "Sau khi bật, thông tin cá nhân và bí mật (email, số điện thoại, khóa API, v.v.) trong lời nhắc của bạn sẽ được ẩn đi trước khi yêu cầu được gửi đến mô hình.",
     "开启后，对免费模型（倍率为0，或者价格为0）的模型也会预消耗额度": "After enabling, free models (ratio 0 or price 0) will also pre-consume quota",
     "开启后，将定期发送ping数据保持连接活跃": "Sau khi bật, dữ liệu ping sẽ được gửi định kỳ để giữ kết nối hoạt động",
     "开启后，当前分组渠道失败时会按顺序尝试下一个分组的渠道": "Sau khi bật, khi kênh nhóm hiện tại thất bại, nó sẽ thử kênh của nhóm tiếp theo theo thứ tự",

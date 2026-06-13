@@ -3187,6 +3187,8 @@
     "Recommended": "推荐",
     "Recommended actions": "推荐操作",
     "Recommended to keep this high to avoid upstream throttling.": "建议保持此值较高，以避免上游限流。",
+    "Privacy Filter": "隐私过滤",
+    "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.": "在请求发送到模型之前，对提示词中的个人信息和密钥（邮箱、电话号码、API 密钥等）进行脱敏。",
     "Record IP Address": "记录 IP 地址",
     "Record quota usage": "记录配额使用量",
     "Recursion Strategy": "递归策略",

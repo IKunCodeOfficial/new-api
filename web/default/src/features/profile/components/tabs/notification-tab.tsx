@@ -67,6 +67,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     gotify_priority: 5,
     accept_unset_model_ratio_model: false,
     record_ip_log: false,
+    privacy_filter_enabled: false,
     upstream_model_update_notify_enabled: false,
   })
 
@@ -95,6 +96,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         accept_unset_model_ratio_model:
           parsed.accept_unset_model_ratio_model || false,
         record_ip_log: parsed.record_ip_log || false,
+        privacy_filter_enabled: parsed.privacy_filter_enabled || false,
         upstream_model_update_notify_enabled:
           parsed.upstream_model_update_notify_enabled || false,
       })
@@ -378,6 +380,26 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
             className='shrink-0'
             checked={settings.record_ip_log}
             onCheckedChange={(checked) => updateField('record_ip_log', checked)}
+          />
+        </div>
+
+        {/* Privacy Filter */}
+        <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+          <div className='space-y-0.5'>
+            <Label htmlFor='privacyFilter'>{t('Privacy Filter')}</Label>
+            <p className='text-muted-foreground text-xs sm:text-sm'>
+              {t(
+                'Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.'
+              )}
+            </p>
+          </div>
+          <Switch
+            id='privacyFilter'
+            className='shrink-0'
+            checked={settings.privacy_filter_enabled}
+            onCheckedChange={(checked) =>
+              updateField('privacy_filter_enabled', checked)
+            }
           />
         </div>
       </div>

@@ -3187,6 +3187,8 @@
     "Recommended": "Đề xuất",
     "Recommended actions": "Hành động đề xuất",
     "Recommended to keep this high to avoid upstream throttling.": "Khuyến nghị giữ mức này cao để tránh điều tiết từ phía thượng nguồn.",
+    "Privacy Filter": "Bộ lọc quyền riêng tư",
+    "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.": "Ẩn thông tin cá nhân và bí mật (email, số điện thoại, khóa API, v.v.) khỏi lời nhắc của bạn trước khi gửi đến mô hình.",
     "Record IP Address": "Ghi lại địa chỉ IP",
     "Record quota usage": "Ghi lại mức sử dụng hạn mức",
     "Recursion Strategy": "Chiến lược đệ quy",

@@ -3187,6 +3187,8 @@
     "Recommended": "Рекомендуется",
     "Recommended actions": "Рекомендуемые действия",
     "Recommended to keep this high to avoid upstream throttling.": "Рекомендуется поддерживать это значение высоким, чтобы избежать регулирования со стороны вышестоящего поставщика.",
+    "Privacy Filter": "Фильтр конфиденциальности",
+    "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.": "Маскирует личную информацию и секреты (адреса эл. почты, номера телефонов, API-ключи и т. д.) в ваших запросах перед отправкой в модель.",
     "Record IP Address": "Записывать IP-адрес",
     "Record quota usage": "Записывать использование квоты",
     "Recursion Strategy": "Стратегия рекурсии",

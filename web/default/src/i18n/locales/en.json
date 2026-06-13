@@ -3187,6 +3187,8 @@
     "Recommended": "Recommended",
     "Recommended actions": "Recommended actions",
     "Recommended to keep this high to avoid upstream throttling.": "Recommended to keep this high to avoid upstream throttling.",
+    "Privacy Filter": "Privacy Filter",
+    "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.": "Redact personal information and secrets (emails, phone numbers, API keys, etc.) from your prompts before they are sent to the model.",
     "Record IP Address": "Record IP Address",
     "Record quota usage": "Record quota usage",
     "Recursion Strategy": "Recursion Strategy",
