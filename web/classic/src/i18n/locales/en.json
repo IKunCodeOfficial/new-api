@@ -3072,7 +3072,7 @@
     "请确认以下设置信息，点击\"初始化系统\"开始配置": "Please confirm the following settings information, click \"Initialize system\" to start configuration",
     "请确认您已了解禁用两步验证的后果": "Please confirm that you understand the consequences of disabling two-factor authentication",
     "请确认管理员密码": "Please confirm the admin password",
-    "请稍后几秒重试，Turnstile 正在检查用户环境！": "Please try again in a few seconds, Turnstile is checking the user environment!",
+    "请稍后几秒重试，Turnstile 正在检查用户环境！": "Please try again in a few seconds, Turnstile is checking the user environment! Please check whether the human verification challenge appears below. If not, please switch to a different network environment and try again.",
     "请粘贴完整回调 URL（包含 code 与 state）": "Please paste the complete callback URL (including code and state)",
     "请联系管理员在系统设置中配置API信息": "Please contact the administrator to configure API information in the system settings.",
     "请联系管理员在系统设置中配置Uptime": "Please contact the administrator to configure Uptime in the system settings.",

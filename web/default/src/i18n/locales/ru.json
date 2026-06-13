@@ -2973,7 +2973,7 @@
     "Please type the following text to confirm:": "Введите следующий текст для подтверждения:",
     "Please upload key file(s)": "Загрузите ключевой файл(ы)",
     "Please wait a moment before trying again.": "Пожалуйста, подождите немного и попробуйте снова.",
-    "Please wait a moment, human check is initializing...": "Пожалуйста, подождите немного, инициализация проверки человеком...",
+    "Please wait a moment, human check is initializing...": "Пожалуйста, подождите немного, инициализация проверки человеком... Проверьте, появилась ли ниже проверка на человека. Если нет, смените сетевое окружение и повторите попытку.",
     "Please wait before editing to avoid overwriting saved values.": "Дождитесь загрузки перед редактированием, чтобы не перезаписать сохраненные значения.",
     "Policy JSON": "JSON политики",
     "Polling": "Опрос",

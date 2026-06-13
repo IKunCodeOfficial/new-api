@@ -2973,7 +2973,7 @@
     "Please type the following text to confirm:": "確認するには次のテキストを入力してください:",
     "Please upload key file(s)": "キーファイルをアップロードしてください",
     "Please wait a moment before trying again.": "しばらく待ってからもう一度お試しください。",
-    "Please wait a moment, human check is initializing...": "しばらくお待ちください、人間チェックを初期化中です...",
+    "Please wait a moment, human check is initializing...": "しばらくお待ちください、人間チェックを初期化中です... 下に人間認証が表示されているかご確認ください。表示されない場合は、別のネットワーク環境に切り替えて再試行してください。",
     "Please wait before editing to avoid overwriting saved values.": "保存済みの値を上書きしないよう、編集前に読み込み完了をお待ちください。",
     "Policy JSON": "ポリシーJSON",
     "Polling": "ポーリング",

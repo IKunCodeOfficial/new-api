@@ -2973,7 +2973,7 @@
     "Please type the following text to confirm:": "请输入以下文本进行确认：",
     "Please upload key file(s)": "请上传密钥文件",
     "Please wait a moment before trying again.": "请稍候再试。",
-    "Please wait a moment, human check is initializing...": "请稍等，人机验证正在初始化...",
+    "Please wait a moment, human check is initializing...": "请稍等，人机验证正在初始化...请查看下方是否出现人机验证，如果没有，请更换一个网络环境重试。",
     "Please wait before editing to avoid overwriting saved values.": "请等待加载完成后再编辑，以免覆盖已保存的值。",
     "Policy JSON": "策略 JSON",
     "Polling": "轮询",
