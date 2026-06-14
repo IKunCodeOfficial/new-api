@@ -51,9 +51,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { login, wechatLoginByCode } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
@@ -378,6 +378,16 @@ export function UserAuthForm({
               )}
             />
 
+            {/* Turnstile — placed before the submit button so the human check
+                is visible and its status is clear before signing in */}
+            {isTurnstileEnabled && (
+              <TurnstileField
+                siteKey={turnstileSiteKey}
+                token={turnstileToken}
+                onVerify={setTurnstileToken}
+              />
+            )}
+
             {/* Submit Button */}
             <Button
               type='submit'
@@ -387,16 +397,6 @@ export function UserAuthForm({
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
             </Button>
-
-            {/* Turnstile */}
-            {isTurnstileEnabled && (
-              <div className='mt-2'>
-                <Turnstile
-                  siteKey={turnstileSiteKey}
-                  onVerify={setTurnstileToken}
-                />
-              </div>
-            )}
           </>
         )}
 

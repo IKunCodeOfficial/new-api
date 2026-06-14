@@ -45,9 +45,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { register, wechatLoginByCode } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
@@ -284,6 +284,16 @@ export function SignUpForm({
           )}
         />
 
+        {/* Turnstile — placed before email/verification so users can see and
+            complete the human check before the "Send code" button unlocks */}
+        {isTurnstileEnabled && (
+          <TurnstileField
+            siteKey={turnstileSiteKey}
+            token={turnstileToken}
+            onVerify={setTurnstileToken}
+          />
+        )}
+
         {/* Email Verification Section */}
         {emailVerificationRequired && (
           <>
@@ -339,16 +349,6 @@ export function SignUpForm({
               </Button>
             </div>
           </>
-        )}
-
-        {/* Turnstile */}
-        {isTurnstileEnabled && (
-          <div className='mt-2'>
-            <Turnstile
-              siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
-            />
-          </div>
         )}
 
         <LegalConsent

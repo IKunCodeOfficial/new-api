@@ -35,7 +35,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Turnstile } from '@/components/turnstile'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { sendPasswordResetEmail } from '@/features/auth/api'
 import {
   forgotPasswordFormSchema,
@@ -110,6 +110,17 @@ export function ForgotPasswordForm({
           )}
         />
 
+        {/* Turnstile — placed before the submit button so the human check is
+            visible and its status is clear before sending the reset email */}
+        {isTurnstileEnabled && (
+          <TurnstileField
+            className='mt-2'
+            siteKey={turnstileSiteKey}
+            token={turnstileToken}
+            onVerify={setTurnstileToken}
+          />
+        )}
+
         <Button
           type='submit'
           className='mt-2'
@@ -120,15 +131,6 @@ export function ForgotPasswordForm({
             : t('Send reset email')}
           {isLoading ? <Loader2 className='animate-spin' /> : <ArrowRight />}
         </Button>
-
-        {isTurnstileEnabled && (
-          <div className='mt-2'>
-            <Turnstile
-              siteKey={turnstileSiteKey}
-              onVerify={setTurnstileToken}
-            />
-          </div>
-        )}
       </form>
     </Form>
   )
