@@ -41,25 +41,18 @@ import type { LogCategory } from './types'
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
 
-const SECTION_META: Record<
-  UsageLogsSectionId,
-  { titleKey: string; descriptionKey: string }
-> = {
+const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
   common: {
     titleKey: 'Common Logs',
-    descriptionKey: 'View and manage your API usage logs',
   },
   drawing: {
     titleKey: 'Drawing Logs',
-    descriptionKey: 'View and manage your drawing logs',
   },
   task: {
     titleKey: 'Task Logs',
-    descriptionKey: 'View and manage your task logs',
   },
   'token-analytics': {
     titleKey: 'Token Usage Analytics',
-    descriptionKey: 'Analyze API key usage, spend, and request trends',
   },
 }
 
@@ -131,18 +124,15 @@ function UsageLogsContent() {
 
   return (
     <>
-      <SectionPageLayout>
+      <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
-        <SectionPageLayout.Description>
-          {t(pageMeta.descriptionKey)}
-        </SectionPageLayout.Description>
         <SectionPageLayout.Content>
-          <div className='space-y-4'>
+          <div className='flex h-full min-h-0 flex-col gap-4'>
             {showSectionSwitcher && (
               <Tabs value={activeCategory} onValueChange={handleSectionChange}>
-                <TabsList className='group-data-horizontal/tabs:h-auto max-w-full flex-wrap justify-start'>
+                <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
                   {visibleSections.map((section) => (
                     <TabsTrigger key={section} value={section}>
                       {t(SECTION_META[section].titleKey)}
@@ -151,11 +141,13 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
-            {isLogCategory ? (
-              <UsageLogsTable logCategory={activeCategory as LogCategory} />
-            ) : (
-              <TokenAnalyticsPage />
-            )}
+            <div className='min-h-0 flex-1'>
+              {isLogCategory ? (
+                <UsageLogsTable logCategory={activeCategory as LogCategory} />
+              ) : (
+                <TokenAnalyticsPage />
+              )}
+            </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
