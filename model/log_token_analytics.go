@@ -101,12 +101,12 @@ func resolveTokenAnalyticsSortExpr(sortBy string) string {
 func resolveBucketExpr(granularity string) string {
 	isHour := granularity == "hour"
 	switch {
-	case common.UsingPostgreSQL:
+	case common.UsingLogDatabase(common.DatabaseTypePostgreSQL):
 		if isHour {
 			return "EXTRACT(EPOCH FROM DATE_TRUNC('hour', TO_TIMESTAMP(created_at)))::bigint"
 		}
 		return "EXTRACT(EPOCH FROM DATE_TRUNC('day', TO_TIMESTAMP(created_at)))::bigint"
-	case common.UsingSQLite:
+	case common.UsingLogDatabase(common.DatabaseTypeSQLite):
 		if isHour {
 			return "CAST(strftime('%s', strftime('%Y-%m-%d %H:00:00', created_at, 'unixepoch', 'localtime')) AS INTEGER)"
 		}
