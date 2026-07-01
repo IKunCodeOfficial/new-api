@@ -10,11 +10,9 @@ import {
 import { useTranslation } from 'react-i18next'
 import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
-import {
-  DataTablePagination,
-  TableEmpty,
-  TableSkeleton,
-} from '@/components/data-table'
+import { DataTablePagination } from '@/components/data-table'
+import { TableEmpty } from '@/components/data-table/core/table-empty'
+import { TableSkeleton } from '@/components/data-table/core/table-skeleton'
 import { PageFooterPortal } from '@/components/layout'
 import {
   Table,
