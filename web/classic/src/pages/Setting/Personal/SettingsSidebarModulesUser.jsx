@@ -94,6 +94,7 @@ export default function SettingsSidebarModulesUser() {
       defaultConfig.personal = {
         enabled: true,
         topup: isSidebarModuleAllowed('personal', 'topup'),
+        shop: isSidebarModuleAllowed('personal', 'shop'),
         personal: isSidebarModuleAllowed('personal', 'personal'),
       };
     }
@@ -325,6 +326,7 @@ export default function SettingsSidebarModulesUser() {
       description: t('用户个人功能'),
       modules: [
         { key: 'topup', title: t('钱包管理'), description: t('余额充值管理') },
+        { key: 'shop', title: t('充值中心'), description: t('在线充值商城') },
         {
           key: 'personal',
           title: t('个人设置'),
