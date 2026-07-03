@@ -5001,6 +5001,18 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Daily Quota Limit ({{currency}})": "Limite de quota quotidienne ({{currency}})",
+    "0 = unlimited": "0 = illimité",
+    "Maximum quota this key can consume per day. Resets daily at midnight (00:00). 0 or empty means no daily limit.": "Quota maximum que cette clé peut consommer par jour. Se réinitialise chaque jour à minuit (00:00). 0 ou vide signifie aucune limite quotidienne.",
+    "Set daily quota limit": "Définir la limite de quota quotidienne",
+    "Set daily quota limit for {{count}} API key(s)": "Définir la limite de quota quotidienne pour {{count}} clé(s) API",
+    "Updated daily quota limit for {{count}} API key(s)": "Limite de quota quotidienne mise à jour pour {{count}} clé(s) API",
+    "Apply": "Appliquer",
+    "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "S'applique à toutes les clés sélectionnées. Se réinitialise chaque jour à minuit (00:00). 0 supprime la limite quotidienne.",
+    "Daily Quota": "Quota quotidien",
+    "Used today:": "Utilisé aujourd'hui :",
+    "Daily limit:": "Limite quotidienne :",
+    "Resets daily at midnight (00:00)": "Se réinitialise chaque jour à minuit (00:00)"
   }
 }

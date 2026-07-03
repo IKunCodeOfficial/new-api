@@ -247,6 +247,9 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const dailyQuotaLabel = t('Daily Quota Limit ({{currency}})', {
+    currency: currencyLabel,
+  })
   const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
 
@@ -490,6 +493,35 @@ export function ApiKeysMutateDrawer({
                         onCheckedChange={field.onChange}
                       />
                     </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='daily_quota_limit_dollars'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{dailyQuotaLabel}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? 0}
+                        type='number'
+                        min={0}
+                        step={tokensOnly ? 1 : 0.01}
+                        placeholder={t('0 = unlimited')}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Maximum quota this key can consume per day. Resets daily at midnight (00:00). 0 or empty means no daily limit.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

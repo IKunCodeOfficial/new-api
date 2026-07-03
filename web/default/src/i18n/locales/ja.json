@@ -5001,6 +5001,18 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Daily Quota Limit ({{currency}})": "1日のクォータ上限（{{currency}}）",
+    "0 = unlimited": "0 = 無制限",
+    "Maximum quota this key can consume per day. Resets daily at midnight (00:00). 0 or empty means no daily limit.": "このキーが1日に消費できる最大クォータ。毎日午前0時（00:00）にリセットされます。0または空欄の場合は1日の制限なしになります。",
+    "Set daily quota limit": "1日のクォータ上限を設定",
+    "Set daily quota limit for {{count}} API key(s)": "{{count}} 件のAPIキーに1日のクォータ上限を設定",
+    "Updated daily quota limit for {{count}} API key(s)": "{{count}} 件のAPIキーの1日のクォータ上限を更新しました",
+    "Apply": "適用",
+    "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "選択したすべてのキーに適用されます。毎日午前0時（00:00）にリセットされます。0で1日の制限を解除します。",
+    "Daily Quota": "1日のクォータ",
+    "Used today:": "本日の使用量:",
+    "Daily limit:": "1日の上限:",
+    "Resets daily at midnight (00:00)": "毎日午前0時（00:00）にリセットされます"
   }
 }

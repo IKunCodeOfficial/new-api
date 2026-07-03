@@ -22,6 +22,7 @@ import { Button, Space } from '@douyinfe/semi-ui';
 import { showError } from '../../../helpers';
 import CopyTokensModal from './modals/CopyTokensModal';
 import DeleteTokensModal from './modals/DeleteTokensModal';
+import SetDailyQuotaModal from './modals/SetDailyQuotaModal';
 
 const TokensActions = ({
   selectedKeys,
@@ -29,11 +30,13 @@ const TokensActions = ({
   setShowEdit,
   batchCopyTokens,
   batchDeleteTokens,
+  refresh,
   t,
 }) => {
   // Modal states
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDailyQuotaModal, setShowDailyQuotaModal] = useState(false);
 
   // Handle copy selected tokens with options
   const handleCopySelectedTokens = () => {
@@ -51,6 +54,15 @@ const TokensActions = ({
       return;
     }
     setShowDeleteModal(true);
+  };
+
+  // Handle set daily quota limit for selected tokens
+  const handleSetDailyQuota = () => {
+    if (selectedKeys.length === 0) {
+      showError(t('请至少选择一个令牌！'));
+      return;
+    }
+    setShowDailyQuotaModal(true);
   };
 
   // Handle delete confirmation
@@ -86,6 +98,15 @@ const TokensActions = ({
         </Button>
 
         <Button
+          type='tertiary'
+          className='flex-1 md:flex-initial'
+          onClick={handleSetDailyQuota}
+          size='small'
+        >
+          {t('设置日限额')}
+        </Button>
+
+        <Button
           type='danger'
           className='w-full md:w-auto'
           onClick={handleDeleteSelectedTokens}
@@ -99,6 +120,14 @@ const TokensActions = ({
         visible={showCopyModal}
         onCancel={() => setShowCopyModal(false)}
         batchCopyTokens={batchCopyTokens}
+        t={t}
+      />
+
+      <SetDailyQuotaModal
+        visible={showDailyQuotaModal}
+        onCancel={() => setShowDailyQuotaModal(false)}
+        selectedKeys={selectedKeys}
+        refresh={refresh}
         t={t}
       />
 

@@ -189,6 +189,11 @@ func InitOptionMap() {
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
 	for _, option := range options {
+		// 令牌每日限额的配置行复用 options 表存储，但绝不能进入 common.OptionMap
+		// （否则会污染管理端 GetOptions 的返回）。
+		if strings.HasPrefix(option.Key, TokenDailyQuotaOptionPrefix) {
+			continue
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())

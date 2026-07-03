@@ -391,6 +391,17 @@ func TokenAuth() func(c *gin.Context) {
 			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
 		}
 
+		// 令牌每日限额检查：达到当日上限则拒绝后续请求，次日 0 点自动重置。
+		if exceeded, used, limit := model.CheckTokenDailyQuota(token.Id); exceeded {
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests,
+				common.TranslateMessage(c, i18n.MsgTokenDailyQuotaExceeded, map[string]any{
+					"Used":  logger.FormatQuota(int(used)),
+					"Limit": logger.FormatQuota(limit),
+				}),
+				types.ErrorCodeInsufficientUserQuota)
+			return
+		}
+
 		userCache, err := model.GetUserCache(token.UserId)
 		if err != nil {
 			common.SysLog(fmt.Sprintf("TokenAuth GetUserCache error for user %d: %v", token.UserId, err))

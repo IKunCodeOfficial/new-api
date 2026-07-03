@@ -4222,6 +4222,20 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "每日额度限制": "Giới hạn hạn ngạch hàng ngày",
+    "0 表示不限制": "0 nghĩa là không giới hạn",
+    "令牌每日可消耗的最大额度，每日 0 点自动重置，0 表示不限制": "Hạn ngạch tối đa mã thông báo có thể tiêu thụ mỗi ngày, tự động đặt lại vào 0 giờ hàng ngày, 0 nghĩa là không giới hạn",
+    "批量设置每日额度限制": "Đặt hàng loạt giới hạn hạn ngạch hàng ngày",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。": "Sẽ đặt đồng loạt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo đã chọn, tự động đặt lại vào 0 giờ hàng ngày, 0 nghĩa là hủy giới hạn.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_other": "Sẽ đặt đồng loạt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo đã chọn, tự động đặt lại vào 0 giờ hàng ngày, 0 nghĩa là hủy giới hạn.",
+    "已为 {{count}} 个令牌设置每日额度限制！": "Đã đặt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo!",
+    "已为 {{count}} 个令牌设置每日额度限制！_other": "Đã đặt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo!",
+    "设置失败": "Cài đặt thất bại",
+    "设置日限额": "Đặt hạn mức ngày",
+    "今日已用": "Đã dùng hôm nay",
+    "每日限额": "Hạn mức hàng ngày",
+    "每日 0 点自动重置": "Tự động đặt lại vào 0 giờ hàng ngày",
+    "今日已用/每日限额": "Đã dùng hôm nay/Hạn mức hàng ngày"
   }
 }

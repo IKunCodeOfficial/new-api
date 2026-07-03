@@ -3834,6 +3834,22 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "每日额度限制": "Daily Quota Limit",
+    "0 表示不限制": "0 means unlimited",
+    "令牌每日可消耗的最大额度，每日 0 点自动重置，0 表示不限制": "Maximum quota the token can spend per day. Auto-resets daily at midnight. 0 means unlimited",
+    "批量设置每日额度限制": "Batch Set Daily Quota Limit",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。": "This will set a daily quota limit for the {{count}} selected token(s). Auto-resets daily at midnight. 0 removes the limit.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_one": "This will set a daily quota limit for the {{count}} selected token(s). Auto-resets daily at midnight. 0 removes the limit.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_other": "This will set a daily quota limit for the {{count}} selected token(s). Auto-resets daily at midnight. 0 removes the limit.",
+    "已为 {{count}} 个令牌设置每日额度限制！": "Daily quota limit set for {{count}} token(s)!",
+    "已为 {{count}} 个令牌设置每日额度限制！_one": "Daily quota limit set for {{count}} token(s)!",
+    "已为 {{count}} 个令牌设置每日额度限制！_other": "Daily quota limit set for {{count}} token(s)!",
+    "设置失败": "Setting failed",
+    "设置日限额": "Set Daily Limit",
+    "今日已用": "Used today",
+    "每日限额": "Daily limit",
+    "每日 0 点自动重置": "Auto-resets daily at midnight",
+    "今日已用/每日限额": "Used Today / Daily Limit"
   }
 }

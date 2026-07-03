@@ -45,6 +45,10 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  // Daily quota limit in quota units (0 = unlimited) and today's consumed quota units.
+  // Optional for backward compatibility with responses that predate this feature.
+  daily_quota_limit: z.number().optional().default(0),
+  daily_quota_used: z.number().optional().default(0),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -92,6 +96,8 @@ export interface ApiKeyFormData {
   allow_ips: string
   group: string
   cross_group_retry: boolean
+  // Daily quota limit in quota units (0 = unlimited). Sent on create and full edit.
+  daily_quota_limit: number
 }
 
 // ============================================================================
@@ -103,4 +109,5 @@ export type ApiKeysDialogType =
   | 'update'
   | 'delete'
   | 'batch-delete'
+  | 'batch-daily-quota'
   | 'cc-switch'

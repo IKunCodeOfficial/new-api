@@ -29,6 +29,12 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	// DailyQuotaLimit / DailyQuotaUsed are NOT DB columns (gorm:"-"): the limit is
+	// persisted in the options table and usage is counted in Redis/in-process. On requests
+	// a nil DailyQuotaLimit means "leave unchanged"; an explicit 0 clears the limit. On
+	// responses both pointers are always populated (see AttachTokenDailyQuota).
+	DailyQuotaLimit *int   `json:"daily_quota_limit,omitempty" gorm:"-"`
+	DailyQuotaUsed  *int64 `json:"daily_quota_used,omitempty" gorm:"-"`
 }
 
 func (token *Token) Clean() {
@@ -333,6 +339,10 @@ func (token *Token) Delete() (err error) {
 		}
 	}()
 	err = DB.Delete(token).Error
+	if err == nil {
+		// 令牌每日限额：删除令牌时一并清理其限额配置（best-effort）。
+		RemoveTokenDailyQuotaConfig(token.Id)
+	}
 	return err
 }
 
@@ -383,6 +393,8 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
+	// 令牌每日限额：IncreaseTokenQuota 表示退款/回滚，减少当日已用统计（best-effort）。
+	AddTokenDailyUsage(tokenId, -int64(quota))
 	if common.RedisEnabled {
 		gopool.Go(func() {
 			err := cacheIncrTokenQuota(key, int64(quota))
@@ -413,6 +425,8 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
+	// 令牌每日限额：DecreaseTokenQuota 表示扣费，增加当日已用统计（best-effort）。
+	AddTokenDailyUsage(id, int64(quota))
 	if common.RedisEnabled {
 		gopool.Go(func() {
 			err := cacheDecrTokenQuota(key, int64(quota))
@@ -467,6 +481,15 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
+	}
+
+	// 令牌每日限额：批量删除后一并清理限额配置（best-effort）。
+	if len(tokens) > 0 {
+		deletedIds := make([]int, 0, len(tokens))
+		for _, t := range tokens {
+			deletedIds = append(deletedIds, t.Id)
+		}
+		RemoveTokenDailyQuotaConfig(deletedIds...)
 	}
 
 	if common.RedisEnabled {

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { type Table } from '@tanstack/react-table'
-import { Copy, Trash2, Loader2 } from 'lucide-react'
+import { Copy, Trash2, Loader2, CalendarClock } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -32,6 +32,7 @@ import {
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import { type ApiKey } from '../types'
+import { ApiKeysDailyQuotaDialog } from './api-keys-daily-quota-dialog'
 import { ApiKeysMultiDeleteDialog } from './api-keys-multi-delete-dialog'
 import { useApiKeys } from './api-keys-provider'
 
@@ -45,6 +46,7 @@ export function DataTableBulkActions<TData>({
   const { t } = useTranslation()
   const { resolveRealKeysBatch } = useApiKeys()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showDailyQuota, setShowDailyQuota] = useState(false)
   const [isCopying, setIsCopying] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
 
@@ -111,6 +113,26 @@ export function DataTableBulkActions<TData>({
           <TooltipTrigger
             render={
               <Button
+                variant='outline'
+                size='icon'
+                className='size-8'
+                onClick={() => setShowDailyQuota(true)}
+                aria-label={t('Set daily quota limit')}
+              />
+            }
+          >
+            <CalendarClock className='size-4' />
+            <span className='sr-only'>{t('Set daily quota limit')}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Set daily quota limit')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
                 variant='destructive'
                 size='icon'
                 onClick={() => setShowDeleteConfirm(true)}
@@ -127,6 +149,12 @@ export function DataTableBulkActions<TData>({
           </TooltipContent>
         </Tooltip>
       </BulkActionsToolbar>
+
+      <ApiKeysDailyQuotaDialog
+        open={showDailyQuota}
+        onOpenChange={setShowDailyQuota}
+        table={table}
+      />
 
       <ApiKeysMultiDeleteDialog
         open={showDeleteConfirm}

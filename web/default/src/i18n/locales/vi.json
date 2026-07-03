@@ -5001,6 +5001,18 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Daily Quota Limit ({{currency}})": "Hạn mức tối đa hàng ngày ({{currency}})",
+    "0 = unlimited": "0 = không giới hạn",
+    "Maximum quota this key can consume per day. Resets daily at midnight (00:00). 0 or empty means no daily limit.": "Hạn mức tối đa mà khóa này có thể sử dụng mỗi ngày. Đặt lại hàng ngày vào lúc nửa đêm (00:00). 0 hoặc để trống nghĩa là không giới hạn hàng ngày.",
+    "Set daily quota limit": "Đặt hạn mức tối đa hàng ngày",
+    "Set daily quota limit for {{count}} API key(s)": "Đặt hạn mức tối đa hàng ngày cho {{count}} khóa API",
+    "Updated daily quota limit for {{count}} API key(s)": "Đã cập nhật hạn mức tối đa hàng ngày cho {{count}} khóa API",
+    "Apply": "Áp dụng",
+    "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "Áp dụng cho tất cả khóa đã chọn. Đặt lại hàng ngày vào lúc nửa đêm (00:00). 0 sẽ xóa giới hạn hàng ngày.",
+    "Daily Quota": "Hạn mức hàng ngày",
+    "Used today:": "Đã dùng hôm nay:",
+    "Daily limit:": "Giới hạn hàng ngày:",
+    "Resets daily at midnight (00:00)": "Đặt lại hàng ngày vào lúc nửa đêm (00:00)"
   }
 }

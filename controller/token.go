@@ -41,7 +41,9 @@ func GetAllTokens(c *gin.Context) {
 	}
 	total, _ := model.CountUserTokens(userId)
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	maskedTokens := buildMaskedTokenResponses(tokens)
+	model.AttachTokenDailyQuota(maskedTokens)
+	pageInfo.SetItems(maskedTokens)
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -58,7 +60,9 @@ func SearchTokens(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	maskedTokens := buildMaskedTokenResponses(tokens)
+	model.AttachTokenDailyQuota(maskedTokens)
+	pageInfo.SetItems(maskedTokens)
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -74,7 +78,9 @@ func GetToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+	maskedToken := buildMaskedTokenResponse(token)
+	model.AttachTokenDailyQuota([]*model.Token{maskedToken})
+	common.ApiSuccess(c, maskedToken)
 }
 
 func GetTokenKey(c *gin.Context) {
@@ -160,6 +166,8 @@ func GetTokenUsage(c *gin.Context) {
 			"model_limits":         token.GetModelLimitsMap(),
 			"model_limits_enabled": token.ModelLimitsEnabled,
 			"expires_at":           expiredAt,
+			"daily_quota_limit":    model.GetTokenDailyQuotaLimit(token.Id),
+			"daily_quota_used":     model.GetTokenDailyUsage(token.Id),
 		},
 	})
 }
@@ -184,6 +192,19 @@ func AddToken(c *gin.Context) {
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
 		if token.RemainQuota > maxQuotaValue {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
+			return
+		}
+	}
+	// 令牌每日限额：可选字段，nil 表示不设置（默认无限）。校验独立于 UnlimitedQuota，
+	// 因为无限额度令牌也可以设置每日消耗上限。
+	if token.DailyQuotaLimit != nil {
+		if *token.DailyQuotaLimit < 0 {
+			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
+			return
+		}
+		maxDailyQuota := int((1000000000 * common.QuotaPerUnit))
+		if *token.DailyQuotaLimit > maxDailyQuota {
+			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxDailyQuota})
 			return
 		}
 	}
@@ -226,6 +247,12 @@ func AddToken(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// 令牌创建成功后持久化每日限额（best-effort：失败仅记录日志，避免造成重复创建的困惑）。
+	if token.DailyQuotaLimit != nil {
+		if err := model.SetTokenDailyQuotaLimit(cleanToken.Id, *token.DailyQuotaLimit); err != nil {
+			common.SysLog("failed to set token daily quota limit: " + err.Error())
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -271,6 +298,19 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
+	// 令牌每日限额：仅全量编辑（非 statusOnly）且客户端显式携带该字段时校验/更新，
+	// nil 表示保持不变（兼容不发送该字段的旧客户端）。
+	if statusOnly == "" && token.DailyQuotaLimit != nil {
+		if *token.DailyQuotaLimit < 0 {
+			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
+			return
+		}
+		maxDailyQuota := int((1000000000 * common.QuotaPerUnit))
+		if *token.DailyQuotaLimit > maxDailyQuota {
+			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxDailyQuota})
+			return
+		}
+	}
 	cleanToken, err := model.GetTokenByIds(token.Id, userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -305,10 +345,18 @@ func UpdateToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if statusOnly == "" && token.DailyQuotaLimit != nil {
+		if err := model.SetTokenDailyQuotaLimit(cleanToken.Id, *token.DailyQuotaLimit); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	maskedToken := buildMaskedTokenResponse(cleanToken)
+	model.AttachTokenDailyQuota([]*model.Token{maskedToken})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    buildMaskedTokenResponse(cleanToken),
+		"data":    maskedToken,
 	})
 }
 

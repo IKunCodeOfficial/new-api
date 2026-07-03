@@ -5001,6 +5001,18 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Daily Quota Limit ({{currency}})": "每日额度上限（{{currency}}）",
+    "0 = unlimited": "0 = 无限",
+    "Maximum quota this key can consume per day. Resets daily at midnight (00:00). 0 or empty means no daily limit.": "此密钥每天可消耗的最大额度。每日午夜（00:00）重置。0 或留空表示无每日限制。",
+    "Set daily quota limit": "设置每日额度上限",
+    "Set daily quota limit for {{count}} API key(s)": "为 {{count}} 个 API 密钥设置每日额度上限",
+    "Updated daily quota limit for {{count}} API key(s)": "已更新 {{count}} 个 API 密钥的每日额度上限",
+    "Apply": "应用",
+    "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "应用于所有选定的密钥。每日午夜（00:00）重置。0 将清除每日限制。",
+    "Daily Quota": "每日额度",
+    "Used today:": "今日已用：",
+    "Daily limit:": "每日上限：",
+    "Resets daily at midnight (00:00)": "每日午夜（00:00）重置"
   }
 }

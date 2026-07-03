@@ -33,6 +33,9 @@ export function getApiKeyFormSchema(t: TFunction) {
     .object({
       name: z.string().min(1, t('Please enter a name')),
       remain_quota_dollars: z.number().optional(),
+      // Daily quota limit in display currency; 0 (or empty) means unlimited. Independent
+      // of unlimited_quota — an unlimited-balance key can still have a daily cap.
+      daily_quota_limit_dollars: z.number().optional(),
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),
       model_limits: z.array(z.string()),
@@ -42,17 +45,26 @@ export function getApiKeyFormSchema(t: TFunction) {
       tokenCount: z.number().min(1).optional(),
     })
     .superRefine((data, ctx) => {
-      if (data.unlimited_quota) {
-        return
+      if (!data.unlimited_quota) {
+        if (
+          data.remain_quota_dollars === undefined ||
+          data.remain_quota_dollars < 0
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['remain_quota_dollars'],
+            message: t('Quota must be zero or greater'),
+          })
+        }
       }
 
       if (
-        data.remain_quota_dollars === undefined ||
-        data.remain_quota_dollars < 0
+        data.daily_quota_limit_dollars !== undefined &&
+        data.daily_quota_limit_dollars < 0
       ) {
         ctx.addIssue({
           code: 'custom',
-          path: ['remain_quota_dollars'],
+          path: ['daily_quota_limit_dollars'],
           message: t('Quota must be zero or greater'),
         })
       }
@@ -68,6 +80,7 @@ export type ApiKeyFormValues = z.infer<ReturnType<typeof getApiKeyFormSchema>>
 export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   name: '',
   remain_quota_dollars: 10,
+  daily_quota_limit_dollars: 0,
   expired_time: undefined,
   unlimited_quota: true,
   model_limits: [],
@@ -111,6 +124,8 @@ export function transformFormDataToPayload(
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    // 0 (empty) means unlimited; otherwise convert the display amount to quota units.
+    daily_quota_limit: parseQuotaFromDollars(data.daily_quota_limit_dollars || 0),
   }
 }
 
@@ -136,6 +151,9 @@ export function transformApiKeyToFormDefaults(
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
     cross_group_retry: !!apiKey.cross_group_retry,
+    daily_quota_limit_dollars: apiKey.daily_quota_limit
+      ? quotaUnitsToDollars(apiKey.daily_quota_limit)
+      : 0,
     tokenCount: 1,
   }
 }

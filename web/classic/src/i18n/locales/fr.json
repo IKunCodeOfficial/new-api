@@ -3688,6 +3688,24 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "每日额度限制": "Limite de quota quotidienne",
+    "0 表示不限制": "0 signifie illimité",
+    "令牌每日可消耗的最大额度，每日 0 点自动重置，0 表示不限制": "Quota maximal que le jeton peut consommer par jour, réinitialisé automatiquement chaque jour à minuit, 0 signifie illimité",
+    "批量设置每日额度限制": "Définir la limite de quota quotidienne en lot",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_one": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_many": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
+    "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_other": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
+    "已为 {{count}} 个令牌设置每日额度限制！": "Limite de quota quotidienne définie pour {{count}} jetons !",
+    "已为 {{count}} 个令牌设置每日额度限制！_one": "Limite de quota quotidienne définie pour {{count}} jetons !",
+    "已为 {{count}} 个令牌设置每日额度限制！_many": "Limite de quota quotidienne définie pour {{count}} jetons !",
+    "已为 {{count}} 个令牌设置每日额度限制！_other": "Limite de quota quotidienne définie pour {{count}} jetons !",
+    "设置失败": "Échec de la configuration",
+    "设置日限额": "Définir la limite quotidienne",
+    "今日已用": "Utilisé aujourd'hui",
+    "每日限额": "Limite quotidienne",
+    "每日 0 点自动重置": "Réinitialisation automatique chaque jour à minuit",
+    "今日已用/每日限额": "Utilisé aujourd'hui / Limite quotidienne"
   }
 }

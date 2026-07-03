@@ -190,6 +190,61 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       size: 170,
     },
     {
+      id: 'daily_quota',
+      accessorKey: 'daily_quota_limit',
+      header: t('Daily Quota'),
+      cell: ({ row }) => {
+        const apiKey = row.original
+        const limit = apiKey.daily_quota_limit ?? 0
+        const used = Math.max(0, apiKey.daily_quota_used ?? 0)
+        if (limit <= 0) {
+          return (
+            <StatusBadge
+              label={t('Unlimited')}
+              variant='neutral'
+              copyable={false}
+              className='-ml-1.5'
+            />
+          )
+        }
+
+        const percentage = Math.min((used / limit) * 100, 100)
+
+        return (
+          <Tooltip>
+            <TooltipTrigger render={<div className='w-[150px] space-y-1' />}>
+              <div className='flex justify-between text-xs'>
+                <span className='font-medium tabular-nums'>
+                  {formatQuota(used)}
+                </span>
+                <span className='text-muted-foreground tabular-nums'>
+                  {formatQuota(limit)}
+                </span>
+              </div>
+              <Progress
+                value={percentage}
+                className={cn('h-1.5', getQuotaProgressColor(100 - percentage))}
+              />
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className='space-y-1 text-xs'>
+                <div>
+                  {t('Used today:')} {formatQuota(used)} (
+                  {percentage.toFixed(1)}%)
+                </div>
+                <div>
+                  {t('Daily limit:')} {formatQuota(limit)}
+                </div>
+                <div>{t('Resets daily at midnight (00:00)')}</div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )
+      },
+      enableSorting: false,
+      size: 170,
+    },
+    {
       accessorKey: 'group',
       header: t('Group'),
       cell: ({ row }) => {

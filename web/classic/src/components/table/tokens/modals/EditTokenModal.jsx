@@ -74,6 +74,7 @@ const EditTokenModal = (props) => {
     name: '',
     remain_quota: 0,
     remain_amount: 0,
+    daily_quota_amount: 0,
     expired_time: -1,
     unlimited_quota: true,
     model_limits_enabled: false,
@@ -172,6 +173,9 @@ const EditTokenModal = (props) => {
       data.remain_amount = Number(
         quotaToDisplayAmount(data.remain_quota || 0).toFixed(6),
       );
+      data.daily_quota_amount = Number(
+        quotaToDisplayAmount(data.daily_quota_limit || 0).toFixed(6),
+      );
       if (formApiRef.current) {
         formApiRef.current.setValues({ ...getInitValues(), ...data });
       }
@@ -222,6 +226,10 @@ const EditTokenModal = (props) => {
       localInputs.remain_quota = localInputs.unlimited_quota
         ? 0
         : displayAmountToQuota(localInputs.remain_amount);
+      // 令牌每日限额（0 表示不限制）。独立于无限额度开关。
+      localInputs.daily_quota_limit = displayAmountToQuota(
+        localInputs.daily_quota_amount || 0,
+      );
       if (!localInputs.unlimited_quota && localInputs.remain_quota <= 0) {
         showError(t('请输入金额'));
         setLoading(false);
@@ -265,6 +273,10 @@ const EditTokenModal = (props) => {
         localInputs.remain_quota = localInputs.unlimited_quota
           ? 0
           : displayAmountToQuota(localInputs.remain_amount);
+        // 令牌每日限额（0 表示不限制）。独立于无限额度开关。
+        localInputs.daily_quota_limit = displayAmountToQuota(
+          localInputs.daily_quota_amount || 0,
+        );
         if (!localInputs.unlimited_quota && localInputs.remain_quota <= 0) {
           showError(t('请输入金额'));
           setLoading(false);
@@ -586,6 +598,26 @@ const EditTokenModal = (props) => {
                       extraText={t(
                         '令牌的额度仅用于限制令牌本身的最大额度使用量，实际的使用受到账户的剩余额度限制',
                       )}
+                    />
+                  </Col>
+                  <Col span={24}>
+                    <Form.InputNumber
+                      field='daily_quota_amount'
+                      label={t('每日额度限制')}
+                      prefix={getCurrencyConfig().symbol}
+                      placeholder={t('0 表示不限制')}
+                      precision={6}
+                      min={0}
+                      step={0.000001}
+                      onChange={(val) => {
+                        const amount = val === '' || val == null ? 0 : val;
+                        formApiRef.current?.setValue('daily_quota_amount', amount);
+                      }}
+                      extraText={t(
+                        '令牌每日可消耗的最大额度，每日 0 点自动重置，0 表示不限制',
+                      )}
+                      style={{ width: '100%' }}
+                      showClear
                     />
                   </Col>
                 </Row>

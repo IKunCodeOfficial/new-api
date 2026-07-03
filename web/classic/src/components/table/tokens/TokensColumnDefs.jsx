@@ -348,6 +348,48 @@ const renderQuotaUsage = (text, record, t) => {
   );
 };
 
+// Render daily quota usage column (今日已用 / 每日限额)
+const renderDailyQuota = (text, record, t) => {
+  const { Paragraph } = Typography;
+  const limit = parseInt(record.daily_quota_limit) || 0;
+  const used = Math.max(0, parseInt(record.daily_quota_used) || 0);
+  if (limit <= 0) {
+    return (
+      <Tag color='white' shape='circle'>
+        {t('无限额度')}
+      </Tag>
+    );
+  }
+  const percent = Math.min((used / limit) * 100, 100);
+  const popoverContent = (
+    <div className='text-xs p-2'>
+      <Paragraph copyable={{ content: renderQuota(used) }}>
+        {t('今日已用')}: {renderQuota(used)} ({percent.toFixed(0)}%)
+      </Paragraph>
+      <Paragraph copyable={{ content: renderQuota(limit) }}>
+        {t('每日限额')}: {renderQuota(limit)}
+      </Paragraph>
+      <div>{t('每日 0 点自动重置')}</div>
+    </div>
+  );
+  return (
+    <Popover content={popoverContent} position='top'>
+      <Tag color='white' shape='circle'>
+        <div className='flex flex-col items-end'>
+          <span className='text-xs leading-none'>{`${renderQuota(used)} / ${renderQuota(limit)}`}</span>
+          <Progress
+            percent={percent}
+            stroke={getProgressColor(100 - percent)}
+            aria-label='daily quota usage'
+            format={() => `${percent.toFixed(0)}%`}
+            style={{ width: '100%', marginTop: '1px', marginBottom: 0 }}
+          />
+        </div>
+      </Tag>
+    </Popover>
+  );
+};
+
 // Render operations column
 const renderOperations = (
   text,
@@ -496,6 +538,11 @@ export const getTokensColumns = ({
       title: t('剩余额度/总额度'),
       key: 'quota_usage',
       render: (text, record) => renderQuotaUsage(text, record, t),
+    },
+    {
+      title: t('今日已用/每日限额'),
+      key: 'daily_quota',
+      render: (text, record) => renderDailyQuota(text, record, t),
     },
     {
       title: t('分组'),

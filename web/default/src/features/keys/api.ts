@@ -90,6 +90,18 @@ export async function batchDeleteApiKeys(
   return res.data
 }
 
+// Batch set the daily quota limit (in quota units; 0 = unlimited) for multiple API keys
+export async function batchSetApiKeysDailyQuota(
+  ids: number[],
+  dailyQuotaLimit: number
+): Promise<ApiResponse<number>> {
+  const res = await api.post('/api/token/batch/daily_quota', {
+    ids,
+    daily_quota_limit: dailyQuotaLimit,
+  })
+  return res.data
+}
+
 // Update API key status (enable/disable)
 export async function updateApiKeyStatus(
   id: number,
