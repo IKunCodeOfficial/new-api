@@ -124,6 +124,10 @@ export function SidebarModulesSection({
         title: t('Wallet'),
         description: t('Top up balance and view billing history.'),
       },
+      shop: {
+        title: t('Recharge Center'),
+        description: t('Embedded online recharge store.'),
+      },
       personal: {
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
