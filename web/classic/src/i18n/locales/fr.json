@@ -3513,6 +3513,8 @@
     "重试连接": "Retry Connection",
     "金额": "Montant",
     "钱包管理": "Portefeuille",
+    "充值中心": "Centre de recharge",
+    "在线充值商城": "Boutique de recharge en ligne",
     "链接中的{key}将自动替换为sk-xxxx，{address}将自动替换为系统设置的服务器地址，末尾不带/和/v1": "Le {key} dans le lien sera automatiquement remplacé par sk-xxxx, le {address} sera automatiquement remplacé par l'adresse du serveur dans les paramètres système, et la fin n'aura pas / et /v1",
     "销毁容器": "Destroy Container",
     "销毁容器失败": "Failed to destroy container",
