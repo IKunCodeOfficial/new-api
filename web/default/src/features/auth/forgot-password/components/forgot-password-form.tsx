@@ -16,15 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
-import type { z } from 'zod'
-import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
-import { useCountdown } from '@/hooks/use-countdown'
+import type { z } from 'zod'
+
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -42,6 +41,8 @@ import {
   PASSWORD_RESET_COUNTDOWN,
 } from '@/features/auth/constants'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { useCountdown } from '@/hooks/use-countdown'
+import { cn } from '@/lib/utils'
 
 export function ForgotPasswordForm({
   className,

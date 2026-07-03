@@ -41,6 +41,7 @@ func GetSubscriptionPlans(c *gin.Context) {
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
+		p.NormalizeDefaults()
 		result = append(result, SubscriptionPlanDTO{
 			Plan: p,
 		})
@@ -88,8 +89,7 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 	}
 	current := user.GetSetting()
 	current.BillingPreference = pref
-	user.SetSetting(current)
-	if err := user.Update(false); err != nil {
+	if err := model.UpdateUserSetting(user.Id, current); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -125,6 +125,7 @@ func AdminListSubscriptionPlans(c *gin.Context) {
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
+		p.NormalizeDefaults()
 		result = append(result, SubscriptionPlanDTO{
 			Plan: p,
 		})
@@ -163,6 +164,12 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		req.Plan.Currency = "USD"
 	}
 	req.Plan.Currency = "USD"
+	if req.Plan.AllowBalancePay == nil {
+		req.Plan.AllowBalancePay = common.GetPointer(true)
+	}
+	if req.Plan.AllowWalletOverflow == nil {
+		req.Plan.AllowWalletOverflow = common.GetPointer(true)
+	}
 	if req.Plan.DurationUnit == "" {
 		req.Plan.DurationUnit = model.SubscriptionDurationMonth
 	}
@@ -181,6 +188,13 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 	if req.Plan.UpgradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.UpgradeGroup]; !ok {
 			common.ApiErrorMsg(c, "升级分组不存在")
+			return
+		}
+	}
+	req.Plan.DowngradeGroup = strings.TrimSpace(req.Plan.DowngradeGroup)
+	if req.Plan.DowngradeGroup != "" {
+		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.DowngradeGroup]; !ok {
+			common.ApiErrorMsg(c, "降级分组不存在")
 			return
 		}
 	}
@@ -251,6 +265,13 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			return
 		}
 	}
+	req.Plan.DowngradeGroup = strings.TrimSpace(req.Plan.DowngradeGroup)
+	if req.Plan.DowngradeGroup != "" {
+		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.DowngradeGroup]; !ok {
+			common.ApiErrorMsg(c, "降级分组不存在")
+			return
+		}
+	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
@@ -275,9 +296,16 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,
+			"downgrade_group":            req.Plan.DowngradeGroup,
 			"quota_reset_period":         req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds": req.Plan.QuotaResetCustomSeconds,
 			"updated_at":                 common.GetTimestamp(),
+		}
+		if req.Plan.AllowBalancePay != nil {
+			updateMap["allow_balance_pay"] = *req.Plan.AllowBalancePay
+		}
+		if req.Plan.AllowWalletOverflow != nil {
+			updateMap["allow_wallet_overflow"] = *req.Plan.AllowWalletOverflow
 		}
 		if err := tx.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Updates(updateMap).Error; err != nil {
 			return err

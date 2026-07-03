@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useCallback } from 'react'
 import { Check, Copy, Loader2 } from 'lucide-react'
+import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { copyToClipboard } from '@/lib/copy-to-clipboard'
+
+import { BadgeCell } from '@/components/data-table'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -32,7 +34,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { StatusBadge } from '@/components/status-badge'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
+
 import { type ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -76,18 +79,18 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied, t])
 
   return (
-    <div className='flex items-center'>
+    <div className='flex max-w-full min-w-0 items-center'>
       <Popover open={popoverOpen} onOpenChange={handlePopoverOpen}>
         <PopoverTrigger
           render={
             <Button
               variant='ghost'
               size='sm'
-              className='text-muted-foreground h-7 font-mono text-xs'
+              className='text-muted-foreground h-7 max-w-full min-w-0 justify-start truncate px-0 font-mono text-xs hover:bg-transparent aria-expanded:bg-transparent'
             />
           }
         >
-          {maskedKey}
+          <span className='truncate'>{maskedKey}</span>
         </PopoverTrigger>
         <PopoverContent
           className='w-auto max-w-[min(90vw,28rem)]'
@@ -157,7 +160,12 @@ export function ModelLimitsCell({ apiKey }: { apiKey: ApiKey }) {
 
   if (!apiKey.model_limits_enabled || !apiKey.model_limits) {
     return (
-      <StatusBadge label={t('Unlimited')} variant='neutral' copyable={false} />
+      <StatusBadge
+        label={t('Unlimited')}
+        variant='neutral'
+        copyable={false}
+        className='-ml-1.5'
+      />
     )
   }
 
@@ -165,7 +173,7 @@ export function ModelLimitsCell({ apiKey }: { apiKey: ApiKey }) {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<span />}>
+      <TooltipTrigger render={<BadgeCell />}>
         <StatusBadge
           label={t('{{count}} model(s)', { count: models.length })}
           variant='neutral'
@@ -195,6 +203,7 @@ export function IpRestrictionsCell({ apiKey }: { apiKey: ApiKey }) {
         label={t('No restriction')}
         variant='neutral'
         copyable={false}
+        className='-ml-1.5'
       />
     )
   }
@@ -206,7 +215,7 @@ export function IpRestrictionsCell({ apiKey }: { apiKey: ApiKey }) {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<span />}>
+      <TooltipTrigger render={<BadgeCell />}>
         <StatusBadge
           label={t('{{count}} IP(s)', { count: ips.length })}
           variant='neutral'
