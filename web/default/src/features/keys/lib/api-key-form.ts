@@ -80,7 +80,9 @@ export type ApiKeyFormValues = z.infer<ReturnType<typeof getApiKeyFormSchema>>
 export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   name: '',
   remain_quota_dollars: 10,
-  daily_quota_limit_dollars: 0,
+  // undefined (empty), not 0, so the create form shows the "0 = unlimited" placeholder
+  // instead of a literal 0 — an empty field is sent as 0 (no daily limit) on submit.
+  daily_quota_limit_dollars: undefined,
   expired_time: undefined,
   unlimited_quota: true,
   model_limits: [],
@@ -124,7 +126,10 @@ export function transformFormDataToPayload(
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
-    // 0 (empty) means unlimited; otherwise convert the display amount to quota units.
+    // WYSIWYG: the form always shows the key's current daily limit (empty for unlimited
+    // keys, see transformApiKeyToFormDefaults), so what is displayed is what is saved. An
+    // empty/undefined field is an explicit "no daily limit" and is sent as 0, which the
+    // backend treats as "clear the limit" (a non-empty value converts to quota units).
     daily_quota_limit: parseQuotaFromDollars(data.daily_quota_limit_dollars || 0),
   }
 }
@@ -151,9 +156,11 @@ export function transformApiKeyToFormDefaults(
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
     cross_group_retry: !!apiKey.cross_group_retry,
+    // Unlimited keys load as undefined (empty field + placeholder), so the form never shows a
+    // misleading literal 0 for a key that has no cap — the displayed state always matches reality.
     daily_quota_limit_dollars: apiKey.daily_quota_limit
       ? quotaUnitsToDollars(apiKey.daily_quota_limit)
-      : 0,
+      : undefined,
     tokenCount: 1,
   }
 }

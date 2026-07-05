@@ -5008,6 +5008,7 @@
     "Set daily quota limit": "Đặt hạn mức tối đa hàng ngày",
     "Set daily quota limit for {{count}} API key(s)": "Đặt hạn mức tối đa hàng ngày cho {{count}} khóa API",
     "Updated daily quota limit for {{count}} API key(s)": "Đã cập nhật hạn mức tối đa hàng ngày cho {{count}} khóa API",
+    "No API keys were updated": "Không có khóa API nào được cập nhật",
     "Apply": "Áp dụng",
     "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "Áp dụng cho tất cả khóa đã chọn. Đặt lại hàng ngày vào lúc nửa đêm (00:00). 0 sẽ xóa giới hạn hàng ngày.",
     "Daily Quota": "Hạn mức hàng ngày",

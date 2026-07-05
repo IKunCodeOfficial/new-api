@@ -296,6 +296,12 @@ func (token *Token) Insert() error {
 }
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
+// tokenUpdateFields is the single source of truth for the columns a full token edit persists.
+// Both Token.Update and the transactional UpdateTokenWithDailyQuotaLimit select from it, so
+// adding a field here keeps the two write paths in sync.
+var tokenUpdateFields = []string{"name", "status", "expired_time", "remain_quota", "unlimited_quota",
+	"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry"}
+
 func (token *Token) Update() (err error) {
 	defer func() {
 		if shouldUpdateRedis(true, err) {
@@ -307,8 +313,7 @@ func (token *Token) Update() (err error) {
 			})
 		}
 	}()
-	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
+	err = DB.Model(token).Select(tokenUpdateFields).Updates(token).Error
 	return err
 }
 

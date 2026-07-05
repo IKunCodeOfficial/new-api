@@ -15,6 +15,22 @@ type setTokenDailyQuotaBatchRequest struct {
 	DailyQuotaLimit int   `json:"daily_quota_limit"`
 }
 
+// validateDailyTokenQuota checks a requested daily quota limit (in quota units) and writes
+// an i18n error response when it is out of range, returning false. Shared by the three
+// daily-quota entry points (AddToken, UpdateToken, SetTokenDailyQuotaBatch).
+func validateDailyTokenQuota(c *gin.Context, limit int) bool {
+	if limit < 0 {
+		common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
+		return false
+	}
+	maxDailyQuota := common.GetMaxTokenQuota()
+	if limit > maxDailyQuota {
+		common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxDailyQuota})
+		return false
+	}
+	return true
+}
+
 // SetTokenDailyQuotaBatch sets (or clears, when daily_quota_limit <= 0) the daily quota
 // limit for a batch of the caller's own tokens. Ownership is enforced in the model layer.
 func SetTokenDailyQuotaBatch(c *gin.Context) {
@@ -23,13 +39,7 @@ func SetTokenDailyQuotaBatch(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if req.DailyQuotaLimit < 0 {
-		common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
-		return
-	}
-	maxDailyQuota := int((1000000000 * common.QuotaPerUnit))
-	if req.DailyQuotaLimit > maxDailyQuota {
-		common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxDailyQuota})
+	if !validateDailyTokenQuota(c, req.DailyQuotaLimit) {
 		return
 	}
 	userId := c.GetInt("id")

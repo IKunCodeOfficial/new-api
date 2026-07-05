@@ -3698,6 +3698,7 @@
     "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_many": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
     "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_other": "La limite de quota quotidienne sera appliquée uniformément aux {{count}} jetons sélectionnés, réinitialisée automatiquement chaque jour à minuit, 0 pour annuler la limite.",
     "已为 {{count}} 个令牌设置每日额度限制！": "Limite de quota quotidienne définie pour {{count}} jetons !",
+    "没有令牌被更新": "Aucun jeton n'a été mis à jour",
     "已为 {{count}} 个令牌设置每日额度限制！_one": "Limite de quota quotidienne définie pour {{count}} jetons !",
     "已为 {{count}} 个令牌设置每日额度限制！_many": "Limite de quota quotidienne définie pour {{count}} jetons !",
     "已为 {{count}} 个令牌设置每日额度限制！_other": "Limite de quota quotidienne définie pour {{count}} jetons !",

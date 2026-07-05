@@ -5008,6 +5008,7 @@
     "Set daily quota limit": "Définir la limite de quota quotidienne",
     "Set daily quota limit for {{count}} API key(s)": "Définir la limite de quota quotidienne pour {{count}} clé(s) API",
     "Updated daily quota limit for {{count}} API key(s)": "Limite de quota quotidienne mise à jour pour {{count}} clé(s) API",
+    "No API keys were updated": "Aucune clé API n'a été mise à jour",
     "Apply": "Appliquer",
     "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "S'applique à toutes les clés sélectionnées. Se réinitialise chaque jour à minuit (00:00). 0 supprime la limite quotidienne.",
     "Daily Quota": "Quota quotidien",

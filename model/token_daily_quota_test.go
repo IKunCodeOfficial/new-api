@@ -3,6 +3,7 @@ package model
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,7 @@ func setupTokenDailyQuotaTest(t *testing.T) {
 	tokenDailyLimitMu.Lock()
 	tokenDailyLimitCache = map[int]int{}
 	tokenDailyLimitMu.Unlock()
+	resetTokenDailyLimitMemo()
 }
 
 func seedTokenForQuota(t *testing.T, id, userId int) *Token {
@@ -97,27 +99,31 @@ func TestTokenDailyUsageAndCheckBoundaries(t *testing.T) {
 	setupTokenDailyQuotaTest(t)
 	tk := seedTokenForQuota(t, 301, 1)
 
-	// No limit configured: usage is still tracked, but the token is never blocked.
+	// No limit configured: usage is NOT recorded (unlimited tokens skip the write so the
+	// billing hot path and Redis stay free of the unlimited majority), and the token is
+	// never blocked. A limit set later therefore counts from that point forward.
 	AddTokenDailyUsage(tk.Id, 100)
-	assert.Equal(t, int64(100), GetTokenDailyUsage(tk.Id))
+	assert.Equal(t, int64(0), GetTokenDailyUsage(tk.Id))
 	exceeded, used, limit := CheckTokenDailyQuota(tk.Id)
 	assert.False(t, exceeded)
-	assert.Equal(t, int64(0), used) // short-circuits before reading usage when unlimited
+	assert.Equal(t, int64(0), used)
 	assert.Equal(t, 0, limit)
 
-	// Refunds (negative deltas) decrement the counter.
-	AddTokenDailyUsage(tk.Id, -30)
+	// Once a limit is configured, usage accrues and refunds (negative deltas) decrement it.
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
+	AddTokenDailyUsage(tk.Id, 70)
 	assert.Equal(t, int64(70), GetTokenDailyUsage(tk.Id))
+	AddTokenDailyUsage(tk.Id, -30)
+	assert.Equal(t, int64(40), GetTokenDailyUsage(tk.Id))
 
 	// used < limit -> pass.
-	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
 	exceeded, used, limit = CheckTokenDailyQuota(tk.Id)
 	assert.False(t, exceeded)
-	assert.Equal(t, int64(70), used)
+	assert.Equal(t, int64(40), used)
 	assert.Equal(t, 100, limit)
 
 	// used == limit -> block (>= boundary).
-	AddTokenDailyUsage(tk.Id, 30)
+	AddTokenDailyUsage(tk.Id, 60)
 	exceeded, _, _ = CheckTokenDailyQuota(tk.Id)
 	assert.True(t, exceeded)
 
@@ -132,6 +138,9 @@ func TestAddTokenDailyUsage_FloorsAtZero(t *testing.T) {
 	setupTokenDailyQuotaTest(t)
 	tk := seedTokenForQuota(t, 601, 1)
 
+	// A limit must be configured for usage to be recorded at all.
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
+
 	AddTokenDailyUsage(tk.Id, 50)
 	assert.Equal(t, int64(50), GetTokenDailyUsage(tk.Id))
 
@@ -141,12 +150,99 @@ func TestAddTokenDailyUsage_FloorsAtZero(t *testing.T) {
 	assert.Equal(t, int64(0), GetTokenDailyUsage(tk.Id))
 
 	// Subsequent real usage accrues from 0, so the cap still enforces correctly.
-	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
 	AddTokenDailyUsage(tk.Id, 100)
 	exceeded, used, limit := CheckTokenDailyQuota(tk.Id)
 	assert.True(t, exceeded)
 	assert.Equal(t, int64(100), used)
 	assert.Equal(t, 100, limit)
+}
+
+func TestSetTokenDailyQuotaLimit_ClearWipesTodayUsage(t *testing.T) {
+	setupTokenDailyQuotaTest(t)
+	tk := seedTokenForQuota(t, 701, 1)
+
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
+	AddTokenDailyUsage(tk.Id, 60)
+	assert.Equal(t, int64(60), GetTokenDailyUsage(tk.Id))
+
+	// Clearing the limit (0) also drops today's usage counter, so a same-day re-enable starts
+	// counting from 0 rather than resuming the stale 60.
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 0))
+	assert.Equal(t, int64(0), GetTokenDailyUsage(tk.Id))
+
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
+	assert.Equal(t, int64(0), GetTokenDailyUsage(tk.Id))
+	AddTokenDailyUsage(tk.Id, 40)
+	exceeded, used, limit := CheckTokenDailyQuota(tk.Id)
+	assert.False(t, exceeded)
+	assert.Equal(t, int64(40), used)
+	assert.Equal(t, 100, limit)
+}
+
+func TestTokenDailyUsage_InProcessMidnightReset(t *testing.T) {
+	setupTokenDailyQuotaTest(t)
+	prevClock := tokenDailyClock
+	t.Cleanup(func() { tokenDailyClock = prevClock })
+
+	now := time.Date(2026, 1, 1, 23, 0, 0, 0, time.Local)
+	tokenDailyClock = func() time.Time { return now }
+
+	tk := seedTokenForQuota(t, 901, 1)
+	require.NoError(t, SetTokenDailyQuotaLimit(tk.Id, 100))
+	AddTokenDailyUsage(tk.Id, 80)
+	assert.Equal(t, int64(80), GetTokenDailyUsage(tk.Id))
+
+	// Crossing local midnight rolls the in-process usage map to a new day, resetting today's
+	// counter to 0 while the configured limit persists.
+	now = now.Add(2 * time.Hour) // 2026-01-02 01:00
+	assert.Equal(t, int64(0), GetTokenDailyUsage(tk.Id))
+	exceeded, used, limit := CheckTokenDailyQuota(tk.Id)
+	assert.False(t, exceeded)
+	assert.Equal(t, int64(0), used)
+	assert.Equal(t, 100, limit)
+
+	AddTokenDailyUsage(tk.Id, 40)
+	assert.Equal(t, int64(40), GetTokenDailyUsage(tk.Id))
+}
+
+func TestInsertAndUpdateTokenWithDailyQuotaLimit(t *testing.T) {
+	setupTokenDailyQuotaTest(t)
+
+	// Insert persists the token and its limit atomically.
+	limit := 500
+	tok := &Token{
+		Id: 801, UserId: 1, Name: "atomic", Key: "atomic-key",
+		Status: common.TokenStatusEnabled, CreatedTime: 1, AccessedTime: 1,
+		ExpiredTime: -1, RemainQuota: 1000, Group: "default",
+	}
+	require.NoError(t, InsertTokenWithDailyQuotaLimit(tok, &limit))
+	var got Token
+	require.NoError(t, DB.Where("id = ?", tok.Id).First(&got).Error)
+	assert.Equal(t, "atomic", got.Name)
+	assert.Equal(t, 500, GetTokenDailyQuotaLimit(tok.Id))
+
+	// Update rewrites core fields and the limit in one transaction.
+	tok.Name = "atomic-renamed"
+	newLimit := 900
+	require.NoError(t, UpdateTokenWithDailyQuotaLimit(tok, &newLimit))
+	require.NoError(t, DB.Where("id = ?", tok.Id).First(&got).Error)
+	assert.Equal(t, "atomic-renamed", got.Name)
+	assert.Equal(t, 900, GetTokenDailyQuotaLimit(tok.Id))
+
+	// A nil limit updates only the core fields, leaving the existing limit untouched.
+	tok.Name = "atomic-again"
+	require.NoError(t, UpdateTokenWithDailyQuotaLimit(tok, nil))
+	require.NoError(t, DB.Where("id = ?", tok.Id).First(&got).Error)
+	assert.Equal(t, "atomic-again", got.Name)
+	assert.Equal(t, 900, GetTokenDailyQuotaLimit(tok.Id))
+
+	// Clearing via update (0) removes the persisted limit row.
+	zero := 0
+	require.NoError(t, UpdateTokenWithDailyQuotaLimit(tok, &zero))
+	assert.Equal(t, 0, GetTokenDailyQuotaLimit(tok.Id))
+	var count int64
+	require.NoError(t, DB.Model(&Option{}).Where(commonKeyCol+" = ?", tokenDailyQuotaOptionKey(tok.Id)).Count(&count).Error)
+	assert.Equal(t, int64(0), count)
 }
 
 func TestLoadOptionsFromDatabase_SkipsDailyQuotaRows(t *testing.T) {

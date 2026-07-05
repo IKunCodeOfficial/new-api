@@ -5008,6 +5008,7 @@
     "Set daily quota limit": "Установить дневной лимит квоты",
     "Set daily quota limit for {{count}} API key(s)": "Установить дневной лимит квоты для {{count}} API-ключ(а/ей)",
     "Updated daily quota limit for {{count}} API key(s)": "Обновлён дневной лимит квоты для {{count}} API-ключ(а/ей)",
+    "No API keys were updated": "Ни один API-ключ не был обновлён",
     "Apply": "Применить",
     "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "Применяется ко всем выбранным ключам. Сбрасывается ежедневно в полночь (00:00). 0 снимает дневной лимит.",
     "Daily Quota": "Дневная квота",

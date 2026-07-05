@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCurrencyLabel } from '@/lib/currency'
 import { parseQuotaFromDollars } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import { batchSetApiKeysDailyQuota } from '../api'
 import { ERROR_MESSAGES } from '../constants'
@@ -46,21 +47,27 @@ export function ApiKeysDailyQuotaDialog<TData>({
 }: ApiKeysDailyQuotaDialogProps<TData>) {
   const { t } = useTranslation()
   const { triggerRefresh } = useApiKeys()
-  const [amount, setAmount] = useState<number>(0)
+  // Empty (not 0) is the default so an untouched dialog can never be applied: 0 means "clear the
+  // limit for every selected key", which would silently wipe existing caps if it were the default.
+  const [amount, setAmount] = useState<number | ''>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const currencyLabel = getCurrencyLabel()
+  const willClearLimit = amount === 0
 
   // Reset the input each time the dialog opens.
   useEffect(() => {
     if (open) {
-      setAmount(0)
+      setAmount('')
     }
   }, [open])
 
   const handleConfirm = async () => {
     if (selectedRows.length === 0) {
       onOpenChange(false)
+      return
+    }
+    if (amount === '') {
       return
     }
     setIsSubmitting(true)
@@ -70,7 +77,15 @@ export function ApiKeysDailyQuotaDialog<TData>({
       const result = await batchSetApiKeysDailyQuota(ids, dailyQuotaLimit)
 
       if (result.success) {
-        const count = result.data ?? ids.length
+        // The backend returns the number of owned tokens actually updated. Treat an
+        // absent/non-numeric count as 0 (not ids.length) so we never falsely report success
+        // when nothing was updated — matches the classic UI's SetDailyQuotaModal.
+        const count = typeof result.data === 'number' ? result.data : 0
+        if (count === 0) {
+          // Ownership filter matched none of the selected keys — do not report success.
+          toast.error(t('No API keys were updated'))
+          return
+        }
         toast.success(
           t('Updated daily quota limit for {{count}} API key(s)', { count })
         )
@@ -101,7 +116,10 @@ export function ApiKeysDailyQuotaDialog<TData>({
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={isSubmitting}>
+          <Button
+            onClick={handleConfirm}
+            disabled={isSubmitting || amount === ''}
+          >
             {t('Apply')}
           </Button>
         </>
@@ -117,9 +135,19 @@ export function ApiKeysDailyQuotaDialog<TData>({
           min={0}
           value={amount}
           placeholder={t('0 = unlimited')}
-          onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+          onChange={(e) => {
+            const raw = e.target.value
+            setAmount(raw === '' ? '' : parseFloat(raw) || 0)
+          }}
         />
-        <p className='text-muted-foreground text-xs'>
+        <p
+          className={cn(
+            'text-xs',
+            willClearLimit
+              ? 'text-destructive font-medium'
+              : 'text-muted-foreground'
+          )}
+        >
           {t(
             'Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.'
           )}

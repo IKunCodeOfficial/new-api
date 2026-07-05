@@ -4230,6 +4230,7 @@
     "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。": "Sẽ đặt đồng loạt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo đã chọn, tự động đặt lại vào 0 giờ hàng ngày, 0 nghĩa là hủy giới hạn.",
     "将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。_other": "Sẽ đặt đồng loạt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo đã chọn, tự động đặt lại vào 0 giờ hàng ngày, 0 nghĩa là hủy giới hạn.",
     "已为 {{count}} 个令牌设置每日额度限制！": "Đã đặt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo!",
+    "没有令牌被更新": "Không có token nào được cập nhật",
     "已为 {{count}} 个令牌设置每日额度限制！_other": "Đã đặt giới hạn hạn ngạch hàng ngày cho {{count}} mã thông báo!",
     "设置失败": "Cài đặt thất bại",
     "设置日限额": "Đặt hạn mức ngày",

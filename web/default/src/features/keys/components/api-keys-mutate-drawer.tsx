@@ -506,14 +506,24 @@ export function ApiKeysMutateDrawer({
                     <FormControl>
                       <Input
                         {...field}
-                        value={field.value ?? 0}
+                        value={field.value ?? ''}
                         type='number'
                         min={0}
                         step={tokensOnly ? 1 : 0.01}
                         placeholder={t('0 = unlimited')}
-                        onChange={(e) =>
-                          field.onChange(parseFloat(e.target.value) || 0)
-                        }
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          if (raw === '') {
+                            // Empty is a real state (unlimited); keep it undefined so the
+                            // placeholder shows. transformFormDataToPayload sends it as 0.
+                            field.onChange(undefined)
+                            return
+                          }
+                          const parsed = parseFloat(raw)
+                          field.onChange(
+                            Number.isNaN(parsed) ? undefined : parsed
+                          )
+                        }}
                       />
                     </FormControl>
                     <FormDescription>

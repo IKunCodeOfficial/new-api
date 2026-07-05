@@ -5008,6 +5008,7 @@
     "Set daily quota limit": "Set daily quota limit",
     "Set daily quota limit for {{count}} API key(s)": "Set daily quota limit for {{count}} API key(s)",
     "Updated daily quota limit for {{count}} API key(s)": "Updated daily quota limit for {{count}} API key(s)",
+    "No API keys were updated": "No API keys were updated",
     "Apply": "Apply",
     "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.": "Applies to all selected keys. Resets daily at midnight (00:00). 0 clears the daily limit.",
     "Daily Quota": "Daily Quota",

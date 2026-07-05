@@ -19,22 +19,38 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useState } from 'react';
 import { Modal, InputNumber } from '@douyinfe/semi-ui';
-import { API, showError, showSuccess, getCurrencyConfig } from '../../../../helpers';
+import {
+  API,
+  showError,
+  showSuccess,
+  getCurrencyConfig,
+} from '../../../../helpers';
 import { displayAmountToQuota } from '../../../../helpers/quota';
 
-const SetDailyQuotaModal = ({ visible, onCancel, selectedKeys, refresh, t }) => {
-  const [amount, setAmount] = useState(0);
+const SetDailyQuotaModal = ({
+  visible,
+  onCancel,
+  selectedKeys,
+  refresh,
+  t,
+}) => {
+  // null (empty) is the default so an untouched dialog can never be submitted: 0 means "clear the
+  // limit for every selected token", which would silently wipe existing caps if it were the default.
+  const [amount, setAmount] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setAmount(0);
+      setAmount(null);
     }
   }, [visible]);
 
   const handleConfirm = async () => {
     if (!selectedKeys || selectedKeys.length === 0) {
       showError(t('请至少选择一个令牌！'));
+      return;
+    }
+    if (amount === null || amount === '') {
       return;
     }
     setLoading(true);
@@ -47,6 +63,11 @@ const SetDailyQuotaModal = ({ visible, onCancel, selectedKeys, refresh, t }) => 
       });
       if (res?.data?.success) {
         const count = res.data.data || 0;
+        if (count === 0) {
+          // 所选令牌均不属于当前账户（后端按 user_id 过滤），不应提示成功。
+          showError(t('没有令牌被更新'));
+          return;
+        }
         showSuccess(t('已为 {{count}} 个令牌设置每日额度限制！', { count }));
         await refresh();
         onCancel();
@@ -67,10 +88,16 @@ const SetDailyQuotaModal = ({ visible, onCancel, selectedKeys, refresh, t }) => 
       onCancel={onCancel}
       onOk={handleConfirm}
       confirmLoading={loading}
+      okButtonProps={{ disabled: amount === null || amount === '' }}
     >
       <div
         className='mb-3 text-xs'
-        style={{ color: 'var(--semi-color-text-2)' }}
+        style={{
+          color:
+            amount === 0
+              ? 'var(--semi-color-danger)'
+              : 'var(--semi-color-text-2)',
+        }}
       >
         {t(
           '将为所选的 {{count}} 个令牌统一设置每日额度限制，每日 0 点自动重置，0 表示取消限制。',
@@ -83,8 +110,8 @@ const SetDailyQuotaModal = ({ visible, onCancel, selectedKeys, refresh, t }) => 
         precision={6}
         min={0}
         step={0.000001}
-        value={amount}
-        onChange={(val) => setAmount(val === '' || val == null ? 0 : val)}
+        value={amount === null ? undefined : amount}
+        onChange={(val) => setAmount(val === '' || val == null ? null : val)}
         style={{ width: '100%' }}
         showClear
       />
