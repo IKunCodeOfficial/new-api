@@ -1,6 +1,8 @@
-FRONTEND_DIR = ./web/default
-FRONTEND_CLASSIC_DIR = ./web/classic
+WEB_DIR = ./web/default
+WEB_CLASSIC_DIR = ./web/classic
 BACKEND_DIR = .
+DEV_WEB_DEFAULT_PORT ?= 5173
+DEV_WEB_CLASSIC_PORT ?= 5174
 DEV_COMPOSE_FILE = docker-compose.dev.yml
 DEV_POSTGRES_SERVICE = postgres
 DEV_BACKEND_SERVICE = new-api
@@ -8,19 +10,21 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup
+.PHONY: all build-web build-web-classic build-all-web start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup
 
-all: build-all-frontends start-backend
+all: build-all-web start-backend
 
-build-frontend:
-	@echo "Building default frontend..."
-	@cd $(FRONTEND_DIR) && bun install && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat ../../VERSION) bun run build
+build-web:
+	@echo "Building default web..."
+	@cd ./web && bun install --frozen-lockfile
+	@cd $(WEB_DIR) && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat ../../VERSION) bun run build
 
-build-frontend-classic:
-	@echo "Building classic frontend..."
-	@cd $(FRONTEND_CLASSIC_DIR) && bun install && VITE_REACT_APP_VERSION=$(cat ../../VERSION) bun run build
+build-web-classic:
+	@echo "Building classic web..."
+	@cd ./web && bun install --frozen-lockfile
+	@cd $(WEB_CLASSIC_DIR) && VITE_REACT_APP_VERSION=$(cat ../../VERSION) bun run build
 
-build-all-frontends: build-frontend build-frontend-classic
+build-all-web: build-web build-web-classic
 
 start-backend:
 	@echo "Starting backend dev server..."
@@ -35,12 +39,15 @@ dev-api-rebuild:
 	@docker compose -f $(DEV_COMPOSE_FILE) up -d --build $(DEV_BACKEND_SERVICE)
 
 dev-web:
-	@echo "Starting frontend dev server..."
-	@cd $(FRONTEND_DIR) && bun install && bun run dev
+	@echo "Starting default web dev server..."
+	@echo "Default web: http://localhost:$(DEV_WEB_DEFAULT_PORT)"
+	@cd ./web && bun install --filter ./default
+	@cd $(WEB_DIR) && bun run dev -- --host 0.0.0.0 --port $(DEV_WEB_DEFAULT_PORT)
 
 dev-web-classic:
-	@echo "Starting classic frontend dev server..."
-	@cd $(FRONTEND_CLASSIC_DIR) && bun install && bun run dev
+	@echo "Starting classic web dev server..."
+	@cd ./web && bun install --filter ./classic
+	@cd $(WEB_CLASSIC_DIR) && bun run dev -- --host 0.0.0.0 --port $(DEV_WEB_CLASSIC_PORT)
 
 dev: dev-api dev-web
 

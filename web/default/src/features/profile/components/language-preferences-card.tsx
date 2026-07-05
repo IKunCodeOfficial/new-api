@@ -16,15 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
-import {
-  INTERFACE_LANGUAGE_OPTIONS,
-  normalizeInterfaceLanguage,
-} from '@/i18n/languages'
 import { Languages, Loader2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useAuthStore } from '@/stores/auth-store'
+
 import {
   Select,
   SelectContent,
@@ -34,6 +30,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { TitledCard } from '@/components/ui/titled-card'
+import {
+  INTERFACE_LANGUAGE_OPTIONS,
+  normalizeInterfaceLanguage,
+} from '@/i18n/languages'
+import { useAuthStore } from '@/stores/auth-store'
+
 import { updateUserLanguage } from '../api'
 import { parseUserSettings } from '../lib'
 import type { UserProfile } from '../types'
@@ -105,6 +107,7 @@ export function LanguagePreferencesCard(props: LanguagePreferencesCardProps) {
       title={t('Language Preferences')}
       description={t('Set the language used across the interface')}
       icon={<Languages className='h-4 w-4' />}
+      disableHoverEffect
     >
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
         <div className='space-y-1'>

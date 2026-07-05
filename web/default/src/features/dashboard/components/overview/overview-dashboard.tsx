@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
@@ -38,21 +37,24 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useAuthStore } from '@/stores/auth-store'
-import { getUserModels } from '@/lib/api'
-import { MOTION_TRANSITION } from '@/lib/motion'
-import { ROLE } from '@/lib/roles'
-import { cn } from '@/lib/utils'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { Button } from '@/components/ui/button'
+
 import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { Button } from '@/components/ui/button'
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { getUserModels } from '@/lib/api'
+import { MOTION_TRANSITION } from '@/lib/motion'
+import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
+
 import {
   useApiInfo,
   useDashboardContentVisibility,
@@ -190,7 +192,7 @@ function SetupGuideBackdrop(props: { compact?: boolean }) {
       />
       <div
         className={cn(
-          'text-foreground/5 pointer-events-none absolute inset-y-0 right-0 hidden overflow-hidden font-mono sm:block dark:text-foreground/8',
+          'text-foreground/5 dark:text-foreground/8 pointer-events-none absolute inset-y-0 right-0 hidden overflow-hidden font-mono sm:block',
           props.compact ? 'w-1/2 opacity-45' : 'w-[58%] opacity-75'
         )}
         aria-hidden='true'
@@ -589,14 +591,18 @@ export function OverviewDashboard() {
       model,
       keyName,
       keyId: preferredKey?.id,
-      displayKey: preferredKey ? formatDisplayKey(`sk-${preferredKey.key}`) : 'sk-...',
+      displayKey: preferredKey
+        ? formatDisplayKey(`sk-${preferredKey.key}`)
+        : 'sk-...',
       ready,
     }
   }, [apiInfoItems, modelsQuery.data, preferredKey, t])
 
   const completedStepCount = startSteps.filter((step) => step.completed).length
   const setupComplete = completedStepCount === startSteps.length
-  const setupGuideExpanded = manualSetupGuideExpanded ?? !setupComplete
+  const setupStatusReady = apiKeysQuery.isFetched && Boolean(user)
+  const setupGuideExpanded =
+    manualSetupGuideExpanded ?? (setupStatusReady && !setupComplete)
   const showLeftContentPanels =
     isAdmin || showApiInfoPanel || showAnnouncementsPanel || showFAQPanel
   const showContentPanels = showLeftContentPanels || showUptimePanel
