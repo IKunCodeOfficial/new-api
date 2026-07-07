@@ -18,7 +18,7 @@ type TopUp struct {
 	Money           float64 `json:"money"`
 	TradeNo         string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
 	PaymentMethod   string  `json:"payment_method" gorm:"type:varchar(50)"`
-	PaymentProvider string  `json:"payment_provider" gorm:"type:varchar(50);default:''"`
+	PaymentProvider string  `json:"payment_provider" gorm:"type:varchar(50);default:'';index"`
 	CreateTime      int64   `json:"create_time"`
 	CompleteTime    int64   `json:"complete_time"`
 	Status          string  `json:"status"`
@@ -91,7 +91,7 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 
 	return DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
+		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return ErrTopUpNotFound
 		}
 		if expectedPaymentProvider != "" && topUp.PaymentProvider != expectedPaymentProvider {
@@ -106,7 +106,26 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 	})
 }
 
-func Recharge(referenceId string, customerId string, callerIp string, paidMoney float64) (completed bool, err error) {
+// creditedQuotaForTopUp 计算订单应入账的额度，口径与各完成路径保持一致：
+// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
+// - Creem 订单：Amount 本身已是额度（见 RechargeCreem）
+// - 其他订单（易支付/Waffo 等）：Amount 为美元数量，* QuotaPerUnit
+func creditedQuotaForTopUp(topUp *TopUp) int {
+	if topUp == nil {
+		return 0
+	}
+	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+	switch topUp.PaymentProvider {
+	case PaymentProviderStripe:
+		return int(decimal.NewFromFloat(topUp.Money).Mul(dQuotaPerUnit).IntPart())
+	case PaymentProviderCreem:
+		return int(topUp.Amount)
+	default:
+		return int(decimal.NewFromInt(topUp.Amount).Mul(dQuotaPerUnit).IntPart())
+	}
+}
+
+func Recharge(referenceId string, customerId string, callerIp string) (completed bool, err error) {
 	if referenceId == "" {
 		return false, errors.New("未提供支付单号")
 	}
@@ -115,13 +134,8 @@ func Recharge(referenceId string, customerId string, callerIp string, paidMoney 
 	var rebateResult *AffiliateRebateResult
 	topUp := &TopUp{}
 
-	refCol := "`trade_no`"
-	if common.UsingPostgreSQL {
-		refCol = `"trade_no"`
-	}
-
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", referenceId).First(topUp).Error
+		err := lockForUpdate(tx).Where(tradeNoCol()+" = ?", referenceId).First(topUp).Error
 		if err != nil {
 			return errors.New("充值订单不存在")
 		}
@@ -131,6 +145,9 @@ func Recharge(referenceId string, customerId string, callerIp string, paidMoney 
 		}
 
 		if topUp.Status == common.TopUpStatusSuccess {
+			// 幂等重入：订单已入账时补试返利发放（唯一索引防重复），
+			// 为此前发放失败的返利提供 webhook 重投递修复通道
+			rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, creditedQuotaForTopUp(topUp))
 			return nil
 		}
 
@@ -145,7 +162,7 @@ func Recharge(referenceId string, customerId string, callerIp string, paidMoney 
 			return err
 		}
 
-		quotaToAdd = int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+		quotaToAdd = creditedQuotaForTopUp(topUp)
 		if quotaToAdd <= 0 {
 			return errors.New("无效的充值额度")
 		}
@@ -154,14 +171,7 @@ func Recharge(referenceId string, customerId string, callerIp string, paidMoney 
 			return err
 		}
 
-		rebateBaseMoney := paidMoney
-		if rebateBaseMoney <= 0 {
-			rebateBaseMoney = topUp.Money
-		}
-		rebateResult, err = GrantAffiliateRechargeRebateTx(tx, topUp, rebateBaseMoney)
-		if err != nil {
-			return err
-		}
+		rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, quotaToAdd)
 
 		completed = true
 		return nil
@@ -171,12 +181,17 @@ func Recharge(referenceId string, customerId string, callerIp string, paidMoney 
 		common.SysError("topup failed: " + err.Error())
 		return false, errors.New("充值失败，请稍后重试")
 	}
+	// 重入补发的返利也需要记录日志，故不受 completed 门控
+	RecordAffiliateRechargeRebateLog(rebateResult)
 	if !completed {
 		return false, nil
 	}
 
+	if cacheErr := invalidateUserCache(topUp.UserId); cacheErr != nil {
+		common.SysLog("failed to invalidate user cache after stripe recharge: " + cacheErr.Error())
+	}
+
 	RecordTopupLog(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(quotaToAdd), topUp.Amount), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
-	RecordAffiliateRechargeRebateLog(rebateResult)
 
 	return true, nil
 }
@@ -186,14 +201,9 @@ func CompleteEpayRecharge(tradeNo string, actualPaymentMethod string) (topUp *To
 		return nil, 0, nil, errors.New("未提供支付单号")
 	}
 
-	refCol := "`trade_no`"
-	if common.UsingPostgreSQL {
-		refCol = `"trade_no"`
-	}
-
 	topUp = &TopUp{}
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
+		if err := lockForUpdate(tx).Where(tradeNoCol()+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return ErrTopUpNotFound
 		}
 
@@ -202,6 +212,8 @@ func CompleteEpayRecharge(tradeNo string, actualPaymentMethod string) (topUp *To
 		}
 
 		if topUp.Status == common.TopUpStatusSuccess {
+			// 幂等重入：补试返利发放（唯一索引防重复），修复此前发放失败的返利
+			rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, creditedQuotaForTopUp(topUp))
 			return nil
 		}
 
@@ -210,12 +222,11 @@ func CompleteEpayRecharge(tradeNo string, actualPaymentMethod string) (topUp *To
 		}
 
 		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
+			common.SysLog(fmt.Sprintf("易支付 实际支付方式与订单不同 trade_no=%s order_payment_method=%s actual_type=%s", topUp.TradeNo, topUp.PaymentMethod, actualPaymentMethod))
 			topUp.PaymentMethod = actualPaymentMethod
 		}
 
-		dAmount := decimal.NewFromInt(topUp.Amount)
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
+		quotaToAdd = creditedQuotaForTopUp(topUp)
 		if quotaToAdd <= 0 {
 			return errors.New("无效的充值额度")
 		}
@@ -230,8 +241,8 @@ func CompleteEpayRecharge(tradeNo string, actualPaymentMethod string) (topUp *To
 			return err
 		}
 
-		rebateResult, err = GrantAffiliateRechargeRebateTx(tx, topUp, topUp.Money)
-		return err
+		rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, quotaToAdd)
+		return nil
 	})
 	if err != nil {
 		return nil, 0, nil, err
@@ -422,12 +433,16 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
 		// 行级锁，避免并发补单
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
+		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return errors.New("充值订单不存在")
 		}
 
-		// 幂等处理：已成功直接返回
+		// 幂等处理：已成功订单补试返利发放（唯一索引防重复），
+		// 作为返利发放失败后的管理员修复通道（对已成功订单重跑补单即可补发）
 		if topUp.Status == common.TopUpStatusSuccess {
+			if topUp.PaymentProvider == PaymentProviderEpay || topUp.PaymentProvider == PaymentProviderStripe {
+				rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, creditedQuotaForTopUp(topUp))
+			}
 			return nil
 		}
 
@@ -438,17 +453,8 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return errors.New("邀请返利锁定流水不能手动补单")
 		}
 
-		// 计算应充值额度：
-		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
-		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
-		if topUp.PaymentProvider == PaymentProviderStripe {
-			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-			quotaToAdd = int(decimal.NewFromFloat(topUp.Money).Mul(dQuotaPerUnit).IntPart())
-		} else {
-			dAmount := decimal.NewFromInt(topUp.Amount)
-			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-			quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
-		}
+		// 计算应充值额度（口径见 creditedQuotaForTopUp）
+		quotaToAdd = creditedQuotaForTopUp(topUp)
 		if quotaToAdd <= 0 {
 			return errors.New("无效的充值额度")
 		}
@@ -465,11 +471,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return err
 		}
 		if topUp.PaymentProvider == PaymentProviderEpay || topUp.PaymentProvider == PaymentProviderStripe {
-			var rebateErr error
-			rebateResult, rebateErr = GrantAffiliateRechargeRebateTx(tx, topUp, topUp.Money)
-			if rebateErr != nil {
-				return rebateErr
-			}
+			rebateResult = GrantAffiliateRechargeRebateSafely(tx, topUp, quotaToAdd)
 		}
 
 		userId = topUp.UserId
@@ -482,13 +484,18 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	if err != nil {
 		return err
 	}
+	// 重入补发的返利也需要记录日志，故不受 completed 门控
+	RecordAffiliateRechargeRebateLog(rebateResult)
 	if !completed {
 		return nil
 	}
 
+	if cacheErr := invalidateUserCache(userId); cacheErr != nil {
+		common.SysLog("failed to invalidate user cache after manual topup: " + cacheErr.Error())
+	}
+
 	// 事务外记录日志，避免阻塞
 	RecordTopupLog(userId, fmt.Sprintf("管理员补单成功，充值金额: %v，支付金额：%f", logger.FormatQuota(quotaToAdd), payMoney), callerIp, paymentMethod, "admin")
-	RecordAffiliateRechargeRebateLog(rebateResult)
 	return nil
 }
 
@@ -506,7 +513,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", referenceId).First(topUp).Error
+		err := lockForUpdate(tx).Where(refCol+" = ?", referenceId).First(topUp).Error
 		if err != nil {
 			return errors.New("充值订单不存在")
 		}
@@ -581,7 +588,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
+		err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error
 		if err != nil {
 			return errors.New("充值订单不存在")
 		}
@@ -644,7 +651,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
+		err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error
 		if err != nil {
 			return errors.New("充值订单不存在")
 		}

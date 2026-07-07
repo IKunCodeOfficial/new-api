@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -49,6 +50,11 @@ func getAffiliateRebateUser(t *testing.T, id int) User {
 	return user
 }
 
+// expectedRebateQuota 返回按入账额度 × 比例计算的期望返利额度
+func expectedRebateQuota(creditedQuota int, rate float64) int {
+	return int(decimal.NewFromInt(int64(creditedQuota)).Mul(decimal.NewFromFloat(rate)).IntPart())
+}
+
 func TestRecharge_GrantsLockedAffiliateRebateAndReleasesAfterOneMonth(t *testing.T) {
 	truncateTables(t)
 	setAffiliateRebateTestSettings(t, 0.05)
@@ -56,10 +62,11 @@ func TestRecharge_GrantsLockedAffiliateRebateAndReleasesAfterOneMonth(t *testing
 	insertAffiliateRebateUser(t, 1, "inviter", 0)
 	insertAffiliateRebateUser(t, 2, "invitee", 1)
 
+	// Amount 与 Money 刻意不同，钉住 Stripe 订单以 Money 为入账/返利基数的语义
 	topUp := &TopUp{
 		UserId:          2,
 		Amount:          100,
-		Money:           100,
+		Money:           80,
 		TradeNo:         "stripe-affiliate-rebate",
 		PaymentMethod:   PaymentMethodStripe,
 		PaymentProvider: PaymentProviderStripe,
@@ -68,12 +75,13 @@ func TestRecharge_GrantsLockedAffiliateRebateAndReleasesAfterOneMonth(t *testing
 	}
 	require.NoError(t, topUp.Insert())
 
-	completed, err := Recharge(topUp.TradeNo, "cus_affiliate", "127.0.0.1", 80)
+	completed, err := Recharge(topUp.TradeNo, "cus_affiliate", "127.0.0.1")
 	require.NoError(t, err)
 	require.True(t, completed)
 
-	creditedQuota := int(100 * common.QuotaPerUnit)
-	rewardQuota := int(decimal.NewFromFloat(80).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(0.05)).IntPart())
+	// Stripe 订单入账额度 = Money × QuotaPerUnit，返利 = 入账额度 × 比例
+	creditedQuota := int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
 
 	invitee := getAffiliateRebateUser(t, 2)
 	assert.Equal(t, creditedQuota, invitee.Quota)
@@ -139,11 +147,13 @@ func TestGrantAffiliateRechargeRebate_IsIdempotentBySourceTradeNo(t *testing.T) 
 	}
 	require.NoError(t, source.Insert())
 
-	rewardQuota := int(decimal.NewFromFloat(source.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(0.05)).IntPart())
+	// epay 订单入账额度 = Amount × QuotaPerUnit
+	creditedQuota := int(decimal.NewFromInt(source.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
 
 	for i := 0; i < 2; i++ {
 		require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
-			_, err := GrantAffiliateRechargeRebateTx(tx, source, source.Money)
+			_, err := GrantAffiliateRechargeRebateTx(tx, source, creditedQuota)
 			return err
 		}))
 	}
@@ -166,7 +176,7 @@ func TestRecharge_IsIdempotentAfterSuccess(t *testing.T) {
 	topUp := &TopUp{
 		UserId:          21,
 		Amount:          30,
-		Money:           30,
+		Money:           24,
 		TradeNo:         "stripe-idempotent",
 		PaymentMethod:   PaymentMethodStripe,
 		PaymentProvider: PaymentProviderStripe,
@@ -175,16 +185,16 @@ func TestRecharge_IsIdempotentAfterSuccess(t *testing.T) {
 	}
 	require.NoError(t, topUp.Insert())
 
-	completed, err := Recharge(topUp.TradeNo, "cus_once", "127.0.0.1", topUp.Money)
+	completed, err := Recharge(topUp.TradeNo, "cus_once", "127.0.0.1")
 	require.NoError(t, err)
 	require.True(t, completed)
 
-	completed, err = Recharge(topUp.TradeNo, "cus_once", "127.0.0.1", topUp.Money)
+	completed, err = Recharge(topUp.TradeNo, "cus_once", "127.0.0.1")
 	require.NoError(t, err)
 	require.False(t, completed)
 
-	creditedQuota := int(decimal.NewFromFloat(30).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
-	rewardQuota := int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(0.05)).IntPart())
+	creditedQuota := int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
 
 	invitee := getAffiliateRebateUser(t, 21)
 	assert.Equal(t, creditedQuota, invitee.Quota)
@@ -223,15 +233,21 @@ func TestCompleteEpayRecharge_GrantsLockedAffiliateRebateIdempotently(t *testing
 	require.True(t, rebateResult.Inserted)
 	assert.Equal(t, "wxpay", completedTopUp.PaymentMethod)
 
+	// 返利基数为该订单实际入账额度（Amount × QuotaPerUnit），与 Money（支付货币金额）无关
 	creditedQuota := int(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
-	rewardQuota := int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(0.05)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
 	assert.Equal(t, creditedQuota, quotaToAdd)
+	assert.Equal(t, rewardQuota, rebateResult.RewardQuota)
 
 	completedTopUp, quotaToAdd, rebateResult, err = CompleteEpayRecharge(topUp.TradeNo, "wxpay")
 	require.NoError(t, err)
 	require.NotNil(t, completedTopUp)
 	assert.Zero(t, quotaToAdd)
-	assert.Nil(t, rebateResult)
+	// 重复回调会幂等重入返利发放，但唯一索引保证不会重复插入（Inserted=false，也不会重复记日志）
+	if rebateResult != nil {
+		assert.False(t, rebateResult.Inserted)
+		assert.False(t, rebateResult.ShouldLog())
+	}
 
 	invitee := getAffiliateRebateUser(t, 31)
 	assert.Equal(t, creditedQuota, invitee.Quota)
@@ -252,10 +268,11 @@ func TestManualCompleteTopUp_GrantsAffiliateRebateForOnlineProvider(t *testing.T
 	insertAffiliateRebateUser(t, 40, "inviter_manual", 0)
 	insertAffiliateRebateUser(t, 41, "invitee_manual", 40)
 
+	// Amount 与 Money 刻意不同，钉住补单路径以入账额度（epay 按 Amount）为返利基数的语义
 	topUp := &TopUp{
 		UserId:          41,
 		Amount:          50,
-		Money:           50,
+		Money:           25,
 		TradeNo:         "manual-epay-affiliate-rebate",
 		PaymentMethod:   "alipay",
 		PaymentProvider: PaymentProviderEpay,
@@ -268,7 +285,7 @@ func TestManualCompleteTopUp_GrantsAffiliateRebateForOnlineProvider(t *testing.T
 	require.NoError(t, ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1"))
 
 	creditedQuota := int(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
-	rewardQuota := int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(0.05)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
 
 	invitee := getAffiliateRebateUser(t, 41)
 	assert.Equal(t, creditedQuota, invitee.Quota)
@@ -296,7 +313,7 @@ func TestManualCompleteTopUp_RejectsAffiliateRebateLockRows(t *testing.T) {
 		PaymentProvider: PaymentProviderAffiliateRebate,
 		Status:          common.TopUpStatusPending,
 		CreateTime:      time.Now().Unix(),
-		CompleteTime:    time.Now().AddDate(0, 1, 0).Unix(),
+		CompleteTime:    affiliateRebateUnlockTime(time.Now()),
 	}
 	require.NoError(t, rebate.Insert())
 
@@ -311,4 +328,165 @@ func TestManualCompleteTopUp_RejectsAffiliateRebateLockRows(t *testing.T) {
 	inviter := getAffiliateRebateUser(t, 50)
 	assert.Zero(t, inviter.Quota)
 	assert.Zero(t, inviter.AffQuota)
+}
+
+func TestGrantAffiliateRechargeRebateSafely_FailureDoesNotBlockRecharge(t *testing.T) {
+	truncateTables(t)
+	setAffiliateRebateTestSettings(t, 0.05)
+
+	// invitee 的 inviter_id 指向不存在的用户不会报错（返回 nil），
+	// 这里通过传入 nil topUp 之外的手段验证 SAVEPOINT 隔离：
+	// 让 invitee 行缺失，GrantAffiliateRechargeRebateTx 返回 ErrRecordNotFound，
+	// Safely 应吞掉错误且外层事务的写入不受影响。
+	topUp := &TopUp{
+		UserId:          999, // 不存在的用户，触发 grant 内部查询错误
+		Amount:          10,
+		Money:           10,
+		TradeNo:         "safely-isolated",
+		PaymentMethod:   "alipay",
+		PaymentProvider: PaymentProviderEpay,
+		Status:          common.TopUpStatusSuccess,
+		CreateTime:      time.Now().Unix(),
+	}
+
+	insertAffiliateRebateUser(t, 60, "bystander", 0)
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 外层事务中的正常写入
+		if err := tx.Model(&User{}).Where("id = ?", 60).Update("quota", gorm.Expr("quota + ?", 123)).Error; err != nil {
+			return err
+		}
+		result := GrantAffiliateRechargeRebateSafely(tx, topUp, 10*int(common.QuotaPerUnit))
+		assert.Nil(t, result)
+		return nil
+	})
+	require.NoError(t, err)
+
+	// 外层事务的写入应已提交，未被返利失败连累
+	bystander := getAffiliateRebateUser(t, 60)
+	assert.Equal(t, 123, bystander.Quota)
+
+	var rebateCount int64
+	require.NoError(t, DB.Model(&TopUp{}).Where("payment_provider = ?", PaymentProviderAffiliateRebate).Count(&rebateCount).Error)
+	assert.Zero(t, rebateCount)
+}
+
+func TestGrantAffiliateRechargeRebateSafely_RollsBackPartialWrites(t *testing.T) {
+	truncateTables(t)
+	setAffiliateRebateTestSettings(t, 0.05)
+
+	insertAffiliateRebateUser(t, 70, "inviter_savepoint", 0)
+	insertAffiliateRebateUser(t, 71, "invitee_savepoint", 70)
+
+	// 注入故障：返利行插入成功后，aff_history 更新失败，
+	// 验证 SAVEPOINT 会回滚已插入的返利行而外层事务的写入保留
+	failAffHistory := true
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("test_fail_aff_history", func(db *gorm.DB) {
+		if !failAffHistory {
+			return
+		}
+		if dest, ok := db.Statement.Dest.(map[string]interface{}); ok {
+			if _, has := dest["aff_history"]; has {
+				_ = db.AddError(errors.New("injected aff_history failure"))
+			}
+		}
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, DB.Callback().Update().Remove("test_fail_aff_history"))
+	})
+
+	topUp := &TopUp{
+		UserId:          71,
+		Amount:          10,
+		Money:           10,
+		TradeNo:         "savepoint-partial",
+		PaymentMethod:   "alipay",
+		PaymentProvider: PaymentProviderEpay,
+		Status:          common.TopUpStatusSuccess,
+		CreateTime:      time.Now().Unix(),
+	}
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&User{}).Where("id = ?", 71).Update("quota", gorm.Expr("quota + ?", 456)).Error; err != nil {
+			return err
+		}
+		result := GrantAffiliateRechargeRebateSafely(tx, topUp, 10*int(common.QuotaPerUnit))
+		assert.Nil(t, result)
+		return nil
+	})
+	require.NoError(t, err)
+	failAffHistory = false
+
+	// SAVEPOINT 内先插入的返利行必须被回滚，外层写入保留
+	var rebateCount int64
+	require.NoError(t, DB.Model(&TopUp{}).Where("payment_provider = ?", PaymentProviderAffiliateRebate).Count(&rebateCount).Error)
+	assert.Zero(t, rebateCount)
+
+	invitee := getAffiliateRebateUser(t, 71)
+	assert.Equal(t, 456, invitee.Quota)
+
+	inviter := getAffiliateRebateUser(t, 70)
+	assert.Zero(t, inviter.AffHistoryQuota)
+}
+
+func TestManualCompleteTopUp_RetriesRebateForCompletedOrder(t *testing.T) {
+	truncateTables(t)
+	// 返利关闭时完成订单：不产生返利
+	setAffiliateRebateTestSettings(t, 0)
+
+	insertAffiliateRebateUser(t, 80, "inviter_retry", 0)
+	insertAffiliateRebateUser(t, 81, "invitee_retry", 80)
+
+	topUp := &TopUp{
+		UserId:          81,
+		Amount:          10,
+		Money:           5,
+		TradeNo:         "manual-retry-rebate",
+		PaymentMethod:   "alipay",
+		PaymentProvider: PaymentProviderEpay,
+		Status:          common.TopUpStatusPending,
+		CreateTime:      time.Now().Unix(),
+	}
+	require.NoError(t, topUp.Insert())
+
+	require.NoError(t, ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1"))
+	var rebateCount int64
+	require.NoError(t, DB.Model(&TopUp{}).Where("payment_provider = ?", PaymentProviderAffiliateRebate).Count(&rebateCount).Error)
+	require.Zero(t, rebateCount)
+
+	// 开启返利后对已成功订单重跑补单：作为返利漏发的管理员修复通道
+	operation_setting.GetPaymentSetting().AffiliateRebateRate = 0.05
+	require.NoError(t, ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1"))
+
+	creditedQuota := int(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	rewardQuota := expectedRebateQuota(creditedQuota, 0.05)
+
+	// 订单不会二次入账，返利按入账额度补发
+	invitee := getAffiliateRebateUser(t, 81)
+	assert.Equal(t, creditedQuota, invitee.Quota)
+
+	inviter := getAffiliateRebateUser(t, 80)
+	assert.Equal(t, rewardQuota, inviter.AffHistoryQuota)
+
+	require.NoError(t, DB.Model(&TopUp{}).Where("payment_provider = ?", PaymentProviderAffiliateRebate).Count(&rebateCount).Error)
+	assert.Equal(t, int64(1), rebateCount)
+
+	// 再次重跑：幂等，不重复发放
+	require.NoError(t, ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1"))
+	inviter = getAffiliateRebateUser(t, 80)
+	assert.Equal(t, rewardQuota, inviter.AffHistoryQuota)
+}
+
+func TestAffiliateRebateUnlockTimeClampsMonthEnd(t *testing.T) {
+	jan31 := time.Date(2026, time.January, 31, 10, 0, 0, 0, time.UTC)
+	unlock := time.Unix(affiliateRebateUnlockTime(jan31), 0).UTC()
+	assert.Equal(t, time.Date(2026, time.February, 28, 10, 0, 0, 0, time.UTC), unlock)
+
+	mar15 := time.Date(2026, time.March, 15, 8, 30, 0, 0, time.UTC)
+	unlock = time.Unix(affiliateRebateUnlockTime(mar15), 0).UTC()
+	assert.Equal(t, time.Date(2026, time.April, 15, 8, 30, 0, 0, time.UTC), unlock)
+
+	dec31 := time.Date(2026, time.December, 31, 23, 59, 59, 0, time.UTC)
+	unlock = time.Unix(affiliateRebateUnlockTime(dec31), 0).UTC()
+	assert.Equal(t, time.Date(2027, time.January, 31, 23, 59, 59, 0, time.UTC), unlock)
 }

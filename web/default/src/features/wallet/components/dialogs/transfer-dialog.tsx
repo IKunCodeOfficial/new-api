@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 import { QUOTA_PER_DOLLAR } from '../../constants'
 
 interface TransferDialogProps {
@@ -51,14 +52,19 @@ export function TransferDialog({
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
-  const [amount, setAmount] = useState(QUOTA_PER_DOLLAR)
+  // 最低划转额与后端校验一致：使用服务端下发的 QuotaPerUnit（运行时可配置），而非硬编码常量
+  const minTransferQuota = useSystemConfigStore((s) => {
+    const quotaPerUnit = s.config?.currency?.quotaPerUnit
+    return quotaPerUnit && quotaPerUnit > 0 ? quotaPerUnit : QUOTA_PER_DOLLAR
+  })
+  const [amount, setAmount] = useState(minTransferQuota)
 
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(QUOTA_PER_DOLLAR)
+      setAmount(minTransferQuota)
     }
-  }, [open])
+  }, [open, minTransferQuota])
 
   const handleConfirm = async () => {
     const success = await onConfirm(amount)
@@ -67,7 +73,7 @@ export function TransferDialog({
     }
   }
   const canTransfer =
-    amount >= QUOTA_PER_DOLLAR && amount <= availableQuota && availableQuota > 0
+    amount >= minTransferQuota && amount <= availableQuota && availableQuota > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -115,13 +121,13 @@ export function TransferDialog({
               type='number'
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
-              min={QUOTA_PER_DOLLAR}
+              min={minTransferQuota}
               max={availableQuota}
-              step={QUOTA_PER_DOLLAR}
+              step={minTransferQuota}
               className='font-mono text-lg'
             />
             <p className='text-muted-foreground text-xs'>
-              {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
+              {t('Minimum:')} {formatQuota(minTransferQuota)}
             </p>
           </div>
         </div>

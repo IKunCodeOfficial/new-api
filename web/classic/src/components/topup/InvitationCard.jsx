@@ -39,6 +39,7 @@ const InvitationCard = ({
   affLink,
   handleAffLinkClick,
   complianceConfirmed = true,
+  rebateEnabled = false,
 }) => {
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>
@@ -236,12 +237,15 @@ const InvitationCard = ({
           title={<Text type='tertiary'>{t('奖励说明')}</Text>}
         >
           <div className='space-y-3'>
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转')}
-              </Text>
-            </div>
+            {/* 充值返利承诺仅在管理员开启返利比例后展示，避免虚假承诺 */}
+            {rebateEnabled && (
+              <div className='flex items-start gap-2'>
+                <Badge dot type='success' />
+                <Text type='tertiary' className='text-sm'>
+                  {t('邀请好友注册，好友在线充值成功后您可获得返利，奖励锁定1个月后可划转')}
+                </Text>
+              </div>
+            )}
 
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />

@@ -332,14 +332,19 @@ func HardDeleteUserById(id int) error {
 }
 
 func inviteUser(inviterId int) (err error) {
-	user, err := GetUserById(inviterId, true)
-	if err != nil {
-		return err
+	// 原子增量更新，避免读-改-整行写回覆盖并发写入（如返利释放对 aff_quota 的累加）
+	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
+		"aff_count":   gorm.Expr("aff_count + ?", 1),
+		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
+		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
+	})
+	if result.Error != nil {
+		return result.Error
 	}
-	user.AffCount++
-	user.AffQuota += common.QuotaForInviter
-	user.AffHistoryQuota += common.QuotaForInviter
-	return DB.Save(user).Error
+	if result.RowsAffected == 0 {
+		return errors.New("邀请人不存在")
+	}
+	return nil
 }
 
 func (user *User) TransferAffQuotaToQuota(quota int) error {
@@ -357,26 +362,28 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 
 	// 加锁查询用户以确保数据一致性
 	lockedUser := &User{}
-	err := tx.Set("gorm:query_option", "FOR UPDATE").First(lockedUser, user.Id).Error
+	err := lockForUpdate(tx).First(lockedUser, user.Id).Error
 	if err != nil {
 		return err
 	}
 
-	if _, err = releaseMatureAffiliateRebatesForLockedUserTx(tx, lockedUser, common.GetTimestamp()); err != nil {
+	// 先释放到期返利（内部已原子累加 aff_quota），再校验可划转余额
+	released, err := releaseMatureAffiliateRebatesTx(tx, lockedUser.Id, common.GetTimestamp())
+	if err != nil {
 		return err
 	}
+	lockedUser.AffQuota += released
 
 	// 再次检查用户的AffQuota是否足够
 	if lockedUser.AffQuota < quota {
 		return errors.New("邀请额度不足！")
 	}
 
-	// 更新用户额度
-	lockedUser.AffQuota -= quota
-	lockedUser.Quota += quota
-
-	// 保存用户状态
-	if err := tx.Save(lockedUser).Error; err != nil {
+	// 原子增量更新，避免整行写回覆盖并发写入的其他列
+	if err := tx.Model(&User{}).Where("id = ?", lockedUser.Id).Updates(map[string]interface{}{
+		"aff_quota": gorm.Expr("aff_quota - ?", quota),
+		"quota":     gorm.Expr("quota + ?", quota),
+	}).Error; err != nil {
 		return err
 	}
 
@@ -384,6 +391,8 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	if err := tx.Commit().Error; err != nil {
 		return err
 	}
+	lockedUser.AffQuota -= quota
+	lockedUser.Quota += quota
 	*user = *lockedUser
 	_ = invalidateUserCache(user.Id)
 	return nil

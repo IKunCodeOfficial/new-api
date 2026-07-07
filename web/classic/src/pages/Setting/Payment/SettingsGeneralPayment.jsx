@@ -39,7 +39,7 @@ export default function SettingsGeneralPayment(props) {
     PayMethods: '',
     AmountOptions: '',
     AmountDiscount: '',
-    AffiliateRebateRate: 0.05,
+    AffiliateRebateRate: 0,
   });
   const [originInputs, setOriginInputs] = useState({});
   const formApiRef = useRef(null);
@@ -53,7 +53,7 @@ export default function SettingsGeneralPayment(props) {
         PayMethods: props.options.PayMethods || '',
         AmountOptions: props.options.AmountOptions || '',
         AmountDiscount: props.options.AmountDiscount || '',
-        AffiliateRebateRate: props.options.AffiliateRebateRate ?? 0.05,
+        AffiliateRebateRate: props.options.AffiliateRebateRate ?? 0,
       };
       setInputs(currentInputs);
       setOriginInputs({ ...currentInputs });

@@ -21,10 +21,12 @@ type PaymentSetting struct {
 const CurrentComplianceTermsVersion = "v1"
 
 // 默认配置
+// AffiliateRebateRate 默认 0（关闭），必须由管理员显式开启，
+// 避免存量部署升级后返利功能在管理员不知情的情况下静默生效
 var paymentSetting = PaymentSetting{
 	AmountOptions:       []int{10, 20, 50, 100, 200, 500},
 	AmountDiscount:      map[int]float64{},
-	AffiliateRebateRate: 0.05,
+	AffiliateRebateRate: 0,
 }
 
 func init() {
@@ -36,9 +38,14 @@ func GetPaymentSetting() *PaymentSetting {
 	return &paymentSetting
 }
 
+// IsValidAffiliateRebateRate 校验邀请充值返利比例是否在合法区间 [0, 1]。
+func IsValidAffiliateRebateRate(rate float64) bool {
+	return !math.IsNaN(rate) && !math.IsInf(rate, 0) && rate >= 0 && rate <= 1
+}
+
 func GetAffiliateRebateRate() float64 {
 	rate := paymentSetting.AffiliateRebateRate
-	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || rate > 1 {
+	if !IsValidAffiliateRebateRate(rate) {
 		return 0
 	}
 	return rate

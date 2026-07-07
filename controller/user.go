@@ -383,18 +383,26 @@ func GetAffCode(c *gin.Context) {
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")
-	if _, err := model.ReleaseMatureAffiliateRebates(id); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("release affiliate rebates failed: user_id=%d error=%s", id, err.Error()))
-	}
 	user, err := model.GetUserById(id, false)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	affFrozenQuota, err := model.GetAffiliateFrozenQuota(id)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("get affiliate frozen quota failed: user_id=%d error=%s", id, err.Error()))
-		affFrozenQuota = 0
+	// 返利发放必然先累加 aff_history（同事务），aff_history 为 0 说明不存在任何返利记录，
+	// 跳过释放与冻结查询，避免高频端点空转写事务
+	affFrozenQuota := 0
+	if user.AffHistoryQuota > 0 {
+		released, err := model.ReleaseMatureAffiliateRebates(id)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("release affiliate rebates failed: user_id=%d error=%s", id, err.Error()))
+		} else if released > 0 {
+			user.AffQuota += released
+		}
+		affFrozenQuota, err = model.GetAffiliateFrozenQuota(id)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("get affiliate frozen quota failed: user_id=%d error=%s", id, err.Error()))
+			affFrozenQuota = 0
+		}
 	}
 	// Hide admin remarks: set to empty to trigger omitempty tag, ensuring the remark field is not included in JSON returned to regular users
 	user.Remark = ""

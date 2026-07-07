@@ -17,18 +17,15 @@ import (
 const affiliateRebateTradeNoPrefix = "AFFREBATE:"
 
 type AffiliateRebateResult struct {
-	InviterId     int
-	InviteeId     int
-	SourceTradeNo string
-	RewardQuota   int
-	BaseMoney     float64
-	Rate          float64
-	UnlockAt      int64
-	Inserted      bool
+	InviterId   int
+	InviteeId   int
+	RewardQuota int
+	UnlockAt    int64
+	Inserted    bool
 }
 
 func (result *AffiliateRebateResult) ShouldLog() bool {
-	return result != nil && result.Inserted && result.InviterId > 0 && result.RewardQuota > 0
+	return result != nil && result.Inserted
 }
 
 func affiliateRebateTradeNo(sourceTradeNo string) string {
@@ -39,34 +36,66 @@ func excludeAffiliateRebateTopUps(tx *gorm.DB) *gorm.DB {
 	return tx.Where("(payment_provider <> ? OR payment_provider IS NULL)", PaymentProviderAffiliateRebate)
 }
 
-func affiliateRebateQuota(paymentMoney float64) int {
+// lockForUpdate 为查询追加 SELECT ... FOR UPDATE 行锁。
+// SQLite 不支持 FOR UPDATE（单写者模型下也无需行锁），直接返回原查询。
+func lockForUpdate(tx *gorm.DB) *gorm.DB {
+	if common.UsingSQLite {
+		return tx
+	}
+	return tx.Clauses(clause.Locking{Strength: "UPDATE"})
+}
+
+// tradeNoCol 返回按当前数据库方言引号包裹的 trade_no 列名。
+func tradeNoCol() string {
+	if common.UsingPostgreSQL {
+		return `"trade_no"`
+	}
+	return "`trade_no`"
+}
+
+// affiliateRebateQuota 以订单实际入账额度为基数计算返利额度。
+// 基数与支付货币、汇率配置无关，保证所有完成路径（webhook/补单）结果一致。
+func affiliateRebateQuota(baseQuota int) int {
 	rate := operation_setting.GetAffiliateRebateRate()
-	if rate <= 0 || paymentMoney <= 0 {
+	if rate <= 0 || baseQuota <= 0 {
 		return 0
 	}
-	reward := decimal.NewFromFloat(paymentMoney).
-		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+	reward := decimal.NewFromInt(int64(baseQuota)).
 		Mul(decimal.NewFromFloat(rate)).
 		IntPart()
-	maxInt := int64(^uint(0) >> 1)
-	if reward <= 0 || reward > maxInt {
+	// 比例上限为 1，返利不可能超过基数；越界视为配置异常，直接不发放
+	if reward <= 0 || reward > int64(baseQuota) {
 		return 0
 	}
 	return int(reward)
 }
 
-func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, paymentMoney float64) (*AffiliateRebateResult, error) {
+// affiliateRebateUnlockTime 返回锁定一个自然月后的解锁时间戳。
+// 月末日期溢出时钳制到下月最后一天（如 1 月 31 日 -> 2 月 28/29 日），
+// 避免 time.AddDate 的规范化行为导致多锁数天。
+func affiliateRebateUnlockTime(now time.Time) int64 {
+	year, month, day := now.Date()
+	lastDayOfNextMonth := time.Date(year, month+2, 0, 0, 0, 0, 0, now.Location()).Day()
+	if day > lastDayOfNextMonth {
+		day = lastDayOfNextMonth
+	}
+	return time.Date(year, month+1, day, now.Hour(), now.Minute(), now.Second(), 0, now.Location()).Unix()
+}
+
+// GrantAffiliateRechargeRebateTx 在充值事务内为邀请人发放锁定返利。
+// baseQuota 为该笔订单实际入账的额度；幂等性由 trade_no 唯一索引 + OnConflict DoNothing 保证。
+func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, baseQuota int) (*AffiliateRebateResult, error) {
 	if tx == nil {
 		return nil, errors.New("transaction is nil")
 	}
-	if topUp == nil || topUp.UserId <= 0 || topUp.TradeNo == "" || paymentMoney <= 0 {
+	if topUp == nil || topUp.UserId <= 0 || topUp.TradeNo == "" || baseQuota <= 0 {
 		return nil, nil
 	}
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		return nil, nil
 	}
 
-	rewardQuota := affiliateRebateQuota(paymentMoney)
+	rewardQuota := affiliateRebateQuota(baseQuota)
 	if rewardQuota <= 0 {
 		return nil, nil
 	}
@@ -80,18 +109,15 @@ func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, paymentMoney floa
 	}
 
 	var inviter User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").
-		Select("id").
-		Where("id = ?", invitee.InviterId).
-		First(&inviter).Error; err != nil {
+	if err := tx.Select("id").Where("id = ?", invitee.InviterId).First(&inviter).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
 
-	now := common.GetTimestamp()
-	unlockAt := time.Now().AddDate(0, 1, 0).Unix()
+	now := time.Now()
+	unlockAt := affiliateRebateUnlockTime(now)
 	rewardMoney := decimal.NewFromInt(int64(rewardQuota)).
 		Div(decimal.NewFromFloat(common.QuotaPerUnit)).
 		InexactFloat64()
@@ -103,7 +129,7 @@ func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, paymentMoney floa
 		TradeNo:         affiliateRebateTradeNo(topUp.TradeNo),
 		PaymentMethod:   PaymentMethodAffiliateRebate,
 		PaymentProvider: PaymentProviderAffiliateRebate,
-		CreateTime:      now,
+		CreateTime:      now.Unix(),
 		CompleteTime:    unlockAt,
 		Status:          common.TopUpStatusPending,
 	}
@@ -114,14 +140,11 @@ func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, paymentMoney floa
 	}
 
 	rebateResult := &AffiliateRebateResult{
-		InviterId:     inviter.Id,
-		InviteeId:     invitee.Id,
-		SourceTradeNo: topUp.TradeNo,
-		RewardQuota:   rewardQuota,
-		BaseMoney:     paymentMoney,
-		Rate:          operation_setting.GetAffiliateRebateRate(),
-		UnlockAt:      unlockAt,
-		Inserted:      result.RowsAffected > 0,
+		InviterId:   inviter.Id,
+		InviteeId:   invitee.Id,
+		RewardQuota: rewardQuota,
+		UnlockAt:    unlockAt,
+		Inserted:    result.RowsAffected > 0,
 	}
 	if !rebateResult.Inserted {
 		return rebateResult, nil
@@ -136,18 +159,46 @@ func GrantAffiliateRechargeRebateTx(tx *gorm.DB, topUp *TopUp, paymentMoney floa
 	return rebateResult, nil
 }
 
-func releaseMatureAffiliateRebatesForLockedUserTx(tx *gorm.DB, user *User, now int64) (int, error) {
+// GrantAffiliateRechargeRebateSafely 在充值事务内以 SAVEPOINT 隔离发放返利：
+// 返利写入失败只回滚返利本身并记录日志，绝不影响充值订单入账。
+func GrantAffiliateRechargeRebateSafely(tx *gorm.DB, topUp *TopUp, baseQuota int) *AffiliateRebateResult {
+	if tx == nil || topUp == nil {
+		return nil
+	}
+	var result *AffiliateRebateResult
+	err := tx.Transaction(func(rtx *gorm.DB) error {
+		var grantErr error
+		result, grantErr = GrantAffiliateRechargeRebateTx(rtx, topUp, baseQuota)
+		return grantErr
+	})
+	if err != nil {
+		common.SysError(fmt.Sprintf("grant affiliate rebate failed: trade_no=%s user_id=%d base_quota=%d error=%s",
+			topUp.TradeNo, topUp.UserId, baseQuota, err.Error()))
+		return nil
+	}
+	return result
+}
+
+// releaseMatureAffiliateRebatesTx 在事务内释放到期返利：将到期的锁定流水标记为成功，
+// 并原子累加用户 aff_quota，返回释放的额度。
+//
+// 调用方必须先对该用户 users 行加锁（lockForUpdate），这既保证其读取到的 aff_quota
+// 与释放结果一致，也串行化了同一用户的并发释放。topups 的扫描刻意不加 FOR UPDATE：
+// 加锁范围扫描会在 MySQL 下对该用户全部 topups 行及间隙加 next-key 锁，与
+// 充值完成事务（先锁订单行、后更新 users 行）形成反向加锁顺序而死锁；
+// 正确性由后面按主键的守卫 UPDATE（WHERE status=pending）+ RowsAffected 校验兜底。
+func releaseMatureAffiliateRebatesTx(tx *gorm.DB, userId int, now int64) (int, error) {
 	if tx == nil {
 		return 0, errors.New("transaction is nil")
 	}
-	if user == nil || user.Id <= 0 {
+	if userId <= 0 {
 		return 0, nil
 	}
 
 	var rebates []TopUp
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").
+	if err := tx.
 		Where("user_id = ? AND payment_provider = ? AND status = ? AND complete_time <= ?",
-			user.Id, PaymentProviderAffiliateRebate, common.TopUpStatusPending, now).
+			userId, PaymentProviderAffiliateRebate, common.TopUpStatusPending, now).
 		Find(&rebates).Error; err != nil {
 		return 0, err
 	}
@@ -167,10 +218,6 @@ func releaseMatureAffiliateRebatesForLockedUserTx(tx *gorm.DB, user *User, now i
 	if released <= 0 || len(ids) == 0 {
 		return 0, nil
 	}
-	maxInt := int64(^uint(0) >> 1)
-	if released > maxInt {
-		return 0, errors.New("邀请返利金额超出有效范围")
-	}
 
 	result := tx.Model(&TopUp{}).
 		Where("id IN ? AND payment_provider = ? AND status = ?", ids, PaymentProviderAffiliateRebate, common.TopUpStatusPending).
@@ -182,7 +229,12 @@ func releaseMatureAffiliateRebatesForLockedUserTx(tx *gorm.DB, user *User, now i
 		return 0, errors.New("邀请返利释放状态已变化，请重试")
 	}
 
-	user.AffQuota += int(released)
+	if err := tx.Model(&User{}).
+		Where("id = ?", userId).
+		Update("aff_quota", gorm.Expr("aff_quota + ?", released)).Error; err != nil {
+		return 0, err
+	}
+
 	return int(released), nil
 }
 
@@ -193,17 +245,15 @@ func ReleaseMatureAffiliateRebates(userId int) (int, error) {
 	var released int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userId).Error; err != nil {
+		if err := lockForUpdate(tx).Select("id").First(&user, userId).Error; err != nil {
 			return err
 		}
-		quota, err := releaseMatureAffiliateRebatesForLockedUserTx(tx, &user, common.GetTimestamp())
-		if err != nil || quota <= 0 {
+		quota, err := releaseMatureAffiliateRebatesTx(tx, user.Id, common.GetTimestamp())
+		if err != nil {
 			return err
 		}
 		released = quota
-		return tx.Model(&User{}).
-			Where("id = ?", user.Id).
-			Update("aff_quota", gorm.Expr("aff_quota + ?", quota)).Error
+		return nil
 	})
 	return released, err
 }
@@ -221,10 +271,6 @@ func GetAffiliateFrozenQuota(userId int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	maxInt := int64(^uint(0) >> 1)
-	if frozen > maxInt {
-		return 0, errors.New("邀请返利冻结金额超出有效范围")
-	}
 	return int(frozen), nil
 }
 
@@ -232,7 +278,7 @@ func RecordAffiliateRechargeRebateLog(result *AffiliateRebateResult) {
 	if !result.ShouldLog() {
 		return
 	}
-	unlockDate := time.Unix(result.UnlockAt, 0).Format("2006-01-02")
+	unlockDate := time.Unix(result.UnlockAt, 0).Format("2006-01-02 15:04")
 	RecordLog(
 		result.InviterId,
 		LogTypeSystem,
