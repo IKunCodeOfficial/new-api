@@ -72,12 +72,14 @@ export function Home() {
     if (isUrl) {
       return (
         <PublicLayout showMainContainer={false}>
+          {/* Admin-configured trusted URL; sandbox omitted so the framed
+              site keeps same-origin storage access (matches classic UI). */}
+          {/* eslint-disable-next-line react/iframe-missing-sandbox */}
           <iframe
             ref={iframeRef}
             src={content}
             className='h-screen w-full border-none'
             title={t('Custom Home Page')}
-            sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
             onLoad={syncIframePreferences}
           />
         </PublicLayout>
