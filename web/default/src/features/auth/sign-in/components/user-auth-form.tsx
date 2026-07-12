@@ -27,7 +27,6 @@ import type { z } from 'zod'
 
 import { Dialog } from '@/components/dialog'
 import { PasswordInput } from '@/components/password-input'
-import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -65,6 +64,8 @@ export function UserAuthForm({
   const [isLoading, setIsLoading] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
   const [agreedToLegal, setAgreedToLegal] = useState(false)
+  const [legalConsentNeedsAttention, setLegalConsentNeedsAttention] =
+    useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
@@ -146,6 +147,8 @@ export function UserAuthForm({
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
+      setLegalConsentNeedsAttention(true)
+      document.querySelector<HTMLButtonElement>('#legal-consent')?.focus()
       toast.error(legalConsentErrorMessage)
       return
     }
@@ -169,10 +172,17 @@ export function UserAuthForm({
         await handleLoginSuccess(res.data as { id?: number } | null, redirectTo)
         toast.success(t('Welcome back!'))
       }
-    } catch (_error) {
+    } catch {
       // Errors are handled by global interceptor
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  function handleLegalConsentChange(nextValue: boolean) {
+    setAgreedToLegal(nextValue)
+    if (nextValue) {
+      setLegalConsentNeedsAttention(false)
     }
   }
 
@@ -209,7 +219,7 @@ export function UserAuthForm({
       } else {
         toast.error(res?.message || loginFailedMessage)
       }
-    } catch (_error) {
+    } catch {
       toast.error(loginFailedMessage)
     } finally {
       setIsWeChatSubmitting(false)
@@ -387,7 +397,7 @@ export function UserAuthForm({
             <Button
               type='submit'
               className='mt-2 w-full justify-center gap-2'
-              disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+              disabled={isLoading}
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
@@ -398,7 +408,8 @@ export function UserAuthForm({
         <LegalConsent
           status={status}
           checked={agreedToLegal}
-          onCheckedChange={setAgreedToLegal}
+          onCheckedChange={handleLegalConsentChange}
+          needsAttention={legalConsentNeedsAttention}
           className='mt-1'
         />
 
