@@ -62,18 +62,19 @@ export function LegalConsent({
         className
       )}
     >
-      {needsAttention && (
-        <Pointer
-          aria-hidden='true'
-          className='text-primary pointer-events-none absolute -top-6 left-5 h-8 w-8 -rotate-12 animate-bounce motion-reduce:animate-none'
+      <div className='relative mt-0.5 shrink-0'>
+        <Checkbox
+          id='legal-consent'
+          checked={checked}
+          onCheckedChange={handleChange}
         />
-      )}
-      <Checkbox
-        id='legal-consent'
-        checked={checked}
-        onCheckedChange={handleChange}
-        className='mt-0.5'
-      />
+        {needsAttention && (
+          <Pointer
+            aria-hidden='true'
+            className='text-primary pointer-events-none absolute top-2 left-0 z-10 h-8 w-8 -rotate-12 animate-bounce motion-reduce:animate-none'
+          />
+        )}
+      </div>
       <Label
         htmlFor='legal-consent'
         className='text-muted-foreground items-start gap-1 text-left text-xs leading-5 font-normal'

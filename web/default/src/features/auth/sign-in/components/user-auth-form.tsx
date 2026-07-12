@@ -40,8 +40,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { login, wechatLoginByCode } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
-import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
@@ -64,8 +64,6 @@ export function UserAuthForm({
   const [isLoading, setIsLoading] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
   const [agreedToLegal, setAgreedToLegal] = useState(false)
-  const [legalConsentNeedsAttention, setLegalConsentNeedsAttention] =
-    useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
@@ -147,7 +145,6 @@ export function UserAuthForm({
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
-      setLegalConsentNeedsAttention(true)
       document.querySelector<HTMLButtonElement>('#legal-consent')?.focus()
       toast.error(legalConsentErrorMessage)
       return
@@ -176,13 +173,6 @@ export function UserAuthForm({
       // Errors are handled by global interceptor
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  function handleLegalConsentChange(nextValue: boolean) {
-    setAgreedToLegal(nextValue)
-    if (nextValue) {
-      setLegalConsentNeedsAttention(false)
     }
   }
 
@@ -408,8 +398,8 @@ export function UserAuthForm({
         <LegalConsent
           status={status}
           checked={agreedToLegal}
-          onCheckedChange={handleLegalConsentChange}
-          needsAttention={legalConsentNeedsAttention}
+          onCheckedChange={setAgreedToLegal}
+          needsAttention={requiresLegalConsent && !agreedToLegal}
           className='mt-1'
         />
 
