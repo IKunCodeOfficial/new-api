@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -474,9 +475,17 @@ export function RechargeFormCard({
       ) : (
         <Alert>
           <AlertDescription>
-            {t(
-              'Online topup is not enabled. Please use redemption code or contact administrator.'
-            )}
+            <Trans
+              i18nKey='Go to <link>Redemption Code</link> recharge'
+              components={{
+                link: (
+                  <Link
+                    to='/shop'
+                    className='text-primary font-medium underline underline-offset-4 hover:opacity-80'
+                  />
+                ),
+              }}
+            />
           </AlertDescription>
         </Alert>
       )}
