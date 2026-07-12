@@ -146,12 +146,17 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         const apiKey = row.original
         if (apiKey.unlimited_quota) {
           return (
-            <StatusBadge
-              label={t('Unlimited')}
-              variant='neutral'
-              copyable={false}
-              className='-ml-1.5'
-            />
+            <div className='w-[150px] space-y-1'>
+              <StatusBadge
+                label={t('Unlimited')}
+                variant='neutral'
+                copyable={false}
+                className='-ml-1.5'
+              />
+              <div className='text-muted-foreground text-[11px] tabular-nums'>
+                {t('Used')}: {formatQuota(apiKey.used_quota)}
+              </div>
+            </div>
           )
         }
 

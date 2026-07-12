@@ -168,7 +168,12 @@ function ApiKeysMobileList({
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Quota')}</span>
               {apiKey.unlimited_quota ? (
-                <span className='font-medium'>{t('Unlimited')}</span>
+                <div className='text-right tabular-nums'>
+                  <div className='font-medium'>{t('Unlimited')}</div>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Used')}: {formatQuota(apiKey.used_quota)}
+                  </div>
+                </div>
               ) : (
                 <div className='text-right tabular-nums'>
                   <div className='font-medium'>
