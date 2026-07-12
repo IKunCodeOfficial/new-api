@@ -170,13 +170,18 @@ function ApiKeysMobileList({
               {apiKey.unlimited_quota ? (
                 <span className='font-medium'>{t('Unlimited')}</span>
               ) : (
-                <span className='font-medium tabular-nums'>
-                  {formatQuota(apiKey.remain_quota)}
-                  <span className='text-muted-foreground font-normal'>
-                    {' / '}
-                    {formatQuota(total)}
-                  </span>
-                </span>
+                <div className='text-right tabular-nums'>
+                  <div className='font-medium'>
+                    {formatQuota(apiKey.remain_quota)}
+                    <span className='text-muted-foreground font-normal'>
+                      {' / '}
+                      {formatQuota(total)}
+                    </span>
+                  </div>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Used')}: {formatQuota(apiKey.used_quota)}
+                  </div>
+                </div>
               )}
             </div>
           </div>

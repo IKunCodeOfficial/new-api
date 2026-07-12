@@ -175,6 +175,9 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
                 value={percentage}
                 className={cn('h-1.5', getQuotaProgressColor(percentage))}
               />
+              <div className='text-muted-foreground text-[11px] tabular-nums'>
+                {t('Used')}: {formatQuota(used)}
+              </div>
             </TooltipTrigger>
             <TooltipContent>
               <div className='space-y-1 text-xs'>
