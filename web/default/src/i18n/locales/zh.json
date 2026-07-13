@@ -3640,6 +3640,7 @@
     "Recharge Amount": "充值金额",
     "Recharge Amount (USD)": "充值金额 (USD)",
     "Recharge Center": "充值中心",
+    "Recharge channels are temporarily being adjusted. Please purchase a <shop>redemption code</shop>, then redeem the purchased code below.": "近期充值渠道临时调整，请前往<shop>兑换码</shop>充值，充值后将购买到的兑换码在下方进行兑换即可。",
     "Recommended": "推荐",
     "Recommended actions": "推荐操作",
     "Recommended to keep this high to avoid upstream throttling.": "建议保持此值较高，以避免上游限流。",

@@ -3640,6 +3640,7 @@
     "Recharge Amount": "Сумма пополнения",
     "Recharge Amount (USD)": "Сумма пополнения (USD)",
     "Recharge Center": "Центр пополнения",
+    "Recharge channels are temporarily being adjusted. Please purchase a <shop>redemption code</shop>, then redeem the purchased code below.": "Каналы пополнения временно изменены. Приобретите <shop>код активации</shop>, затем активируйте купленный код ниже.",
     "Recommended": "Рекомендуется",
     "Recommended actions": "Рекомендуемые действия",
     "Recommended to keep this high to avoid upstream throttling.": "Рекомендуется поддерживать это значение высоким, чтобы избежать регулирования со стороны вышестоящего поставщика.",
