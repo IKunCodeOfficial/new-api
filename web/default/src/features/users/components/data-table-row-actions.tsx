@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import type { Row } from '@tanstack/react-table'
 import {
   Pencil,
@@ -28,6 +29,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  History,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -66,6 +68,7 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
@@ -81,6 +84,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleDelete = () => {
     setCurrentRow(user)
     setOpen('delete')
+  }
+
+  const handleViewManagementRecords = () => {
+    void navigate({
+      to: '/usage-logs/$section',
+      params: { section: 'common' },
+      search: {
+        page: 1,
+        type: ['3'],
+        targetUserId: String(user.id),
+      },
+    })
   }
 
   const handleManage = async (action: Exclude<ManageUserAction, 'delete'>) => {
@@ -197,6 +212,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuItem onClick={handleViewManagementRecords}>
+          {t('View management records')}
+          <DropdownMenuShortcut>
+            <History size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
 
         <DropdownMenuItem
           onSelect={(event) => {

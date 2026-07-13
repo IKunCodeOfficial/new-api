@@ -43,6 +43,11 @@ const usageLogsSearchSchema = z.object({
   channel: z.string().optional().catch(''),
   group: z.string().optional().catch(''),
   username: z.string().optional().catch(''),
+  targetUserId: z
+    .string()
+    .regex(/^[1-9]\d*$/)
+    .optional()
+    .catch(''),
   requestId: z.string().optional().catch(''),
   upstreamRequestId: z.string().optional().catch(''),
   startTime: z.number().optional(),

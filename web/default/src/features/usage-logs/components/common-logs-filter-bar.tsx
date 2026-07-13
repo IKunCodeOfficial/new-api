@@ -57,6 +57,7 @@ type LogTypeValue = (typeof LOG_TYPE_FILTERS)[number]['value']
 const logTypeValueSet = new Set<string>(
   LOG_TYPE_FILTERS.map((type) => type.value)
 )
+const positiveIntegerPattern = /^[1-9]\d*$/
 
 type CommonLogDraft = {
   sourceKey: string
@@ -85,6 +86,7 @@ function buildSearchSourceKey(values: {
   token?: unknown
   group?: unknown
   username?: unknown
+  targetUserId?: unknown
   requestId?: unknown
   upstreamRequestId?: unknown
   type?: unknown
@@ -97,6 +99,7 @@ function buildSearchSourceKey(values: {
     values.token,
     values.group,
     values.username,
+    values.targetUserId,
     values.requestId,
     values.upstreamRequestId,
     Array.isArray(values.type) ? values.type.join(',') : values.type,
@@ -130,6 +133,7 @@ export function CommonLogsFilterBar<TData>(
       token: searchParams.token,
       group: searchParams.group,
       username: searchParams.username,
+      targetUserId: searchParams.targetUserId,
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
       type: searchParams.type,
@@ -144,6 +148,7 @@ export function CommonLogsFilterBar<TData>(
       token: searchParams.token || undefined,
       group: searchParams.group || undefined,
       username: searchParams.username || undefined,
+      targetUserId: searchParams.targetUserId || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
     }
@@ -160,6 +165,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.token,
     searchParams.group,
     searchParams.username,
+    searchParams.targetUserId,
     searchParams.requestId,
     searchParams.upstreamRequestId,
     searchParams.type,
@@ -186,7 +192,12 @@ export function CommonLogsFilterBar<TData>(
   )
 
   const handleApply = useCallback(() => {
-    const filterParams = buildSearchParams(filters, 'common')
+    const filterParams = buildSearchParams(
+      isAdmin && logType === '3'
+        ? filters
+        : { ...filters, targetUserId: undefined },
+      'common'
+    )
     navigate({
       to: '/usage-logs/$section',
       params: { section: 'common' },
@@ -198,7 +209,7 @@ export function CommonLogsFilterBar<TData>(
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
     queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+  }, [filters, isAdmin, logType, navigate, queryClient])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -235,8 +246,10 @@ export function CommonLogsFilterBar<TData>(
 
   const hasExpandedFilters =
     !!filters.token ||
-    !!filters.username ||
-    !!filters.channel ||
+    (isAdmin &&
+      (!!filters.username ||
+        (logType === '3' && !!filters.targetUserId) ||
+        !!filters.channel)) ||
     !!filters.requestId ||
     !!filters.upstreamRequestId
 
@@ -247,6 +260,7 @@ export function CommonLogsFilterBar<TData>(
   const expandedFilterCount = [
     filters.token,
     isAdmin ? filters.username : undefined,
+    isAdmin && logType === '3' ? filters.targetUserId : undefined,
     isAdmin ? filters.channel : undefined,
     filters.requestId,
     filters.upstreamRequestId,
@@ -337,7 +351,10 @@ export function CommonLogsFilterBar<TData>(
                 : searchState
             return {
               sourceKey: searchState.sourceKey,
-              filters: base.filters,
+              filters:
+                nextLogType === '3'
+                  ? base.filters
+                  : { ...base.filters, targetUserId: undefined },
               logType: nextLogType,
             }
           })
@@ -376,6 +393,25 @@ export function CommonLogsFilterBar<TData>(
             type={sensitiveType}
             value={filters.username || ''}
             onChange={(e) => handleChange('username', e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </LogsFilterField>
+      )}
+      {isAdmin && logType === '3' && (
+        <LogsFilterField>
+          <LogsFilterInput
+            placeholder={t('Target User ID')}
+            type='number'
+            inputMode='numeric'
+            min={1}
+            step={1}
+            value={filters.targetUserId || ''}
+            onChange={(e) => {
+              const value = e.target.value
+              if (value === '' || positiveIntegerPattern.test(value)) {
+                handleChange('targetUserId', value)
+              }
+            }}
             onKeyDown={handleKeyDown}
           />
         </LogsFilterField>

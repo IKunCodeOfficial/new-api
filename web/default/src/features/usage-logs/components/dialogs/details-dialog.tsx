@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import {
   Copy,
   Check,
@@ -31,7 +32,6 @@ import {
   Info,
   LogIn,
 } from 'lucide-react'
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -179,7 +179,9 @@ function getUsageBillingPathLabel(
   }
 }
 
-function isUsageBillingPathLocal(adminInfo: LogOtherData['admin_info']): boolean {
+function isUsageBillingPathLocal(
+  adminInfo: LogOtherData['admin_info']
+): boolean {
   if (adminInfo?.usage_billing_path) {
     return adminInfo.usage_billing_path === USAGE_BILLING_PATH.LOCAL
   }
@@ -523,6 +525,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
     if (hasUsername && hasId) return `${username} (ID: ${id})`
     if (hasUsername) return String(username)
     return `ID: ${id}`
+  })()
+  const manageTargetUserId = (() => {
+    if (!isManage) return null
+    const targetUserId = other?.op?.params?.target_user_id
+    if (typeof targetUserId === 'number' && Number.isFinite(targetUserId)) {
+      return String(targetUserId)
+    }
+    if (typeof targetUserId === 'string' && targetUserId.trim() !== '') {
+      return targetUserId
+    }
+    return null
   })()
   const authMethodLabel = (() => {
     if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
@@ -887,6 +900,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
               </span>
             }
             value={manageOperator}
+            mono
+          />
+        )}
+
+        {manageTargetUserId && (
+          <DetailRow
+            label={t('Target User')}
+            value={`ID: ${manageTargetUserId}`}
             mono
           />
         )}
