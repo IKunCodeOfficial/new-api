@@ -52,6 +52,11 @@ export function CommonLogsStats() {
   const { isAdminView: isAdmin } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
+  const hasTargetUserFilter =
+    isAdmin &&
+    searchParams.type?.length === 1 &&
+    searchParams.type[0] === '3' &&
+    Boolean(searchParams.targetUserId)
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['usage-logs-stats', isAdmin, searchParams],
@@ -72,8 +77,11 @@ export function CommonLogsStats() {
         ? result.data || DEFAULT_LOG_STATS
         : DEFAULT_LOG_STATS
     },
+    enabled: !hasTargetUserFilter,
     placeholderData: (previousData) => previousData,
   })
+
+  if (hasTargetUserFilter) return null
 
   if (isLoading) {
     return (

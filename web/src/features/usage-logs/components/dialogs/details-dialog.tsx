@@ -544,6 +544,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
     if (hasUsername) return String(username)
     return `ID: ${id}`
   })()
+  const manageTargetUserId = (() => {
+    if (!isManage) return null
+    const targetUserId = other?.op?.params?.target_user_id
+    if (typeof targetUserId === 'number' && Number.isFinite(targetUserId)) {
+      return String(targetUserId)
+    }
+    if (typeof targetUserId === 'string' && targetUserId.trim() !== '') {
+      return targetUserId
+    }
+    return null
+  })()
   const authMethodLabel = (() => {
     if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
     if (adminInfo.auth_method === 'access_token') return t('Access Token')
@@ -907,6 +918,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
               </span>
             }
             value={manageOperator}
+            mono
+          />
+        )}
+
+        {manageTargetUserId && (
+          <DetailRow
+            label={t('Target User')}
+            value={`ID: ${manageTargetUserId}`}
             mono
           />
         )}

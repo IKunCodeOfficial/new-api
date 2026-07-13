@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,12 +114,30 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 	}
 }
 
-func formatUserLogs(logs []*Log, startIdx int) {
+func formatUserLogs(logs []*Log, startIdx int, viewingUserId int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
+		isManageLog := viewingUserId > 0 && logs[i].Type == LogTypeManage
+		if isManageLog {
+			logs[i].Ip = ""
+		}
+		isTargetManageLog := isManageLog && logs[i].UserId != viewingUserId
+		if isTargetManageLog {
+			logs[i].UserId = viewingUserId
+			logs[i].Username = ""
+		}
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
+			if isTargetManageLog {
+				if op, ok := otherMap["op"].(map[string]interface{}); ok {
+					if params, ok := op["params"].(map[string]interface{}); ok {
+						if targetUsername, ok := params["username"].(string); ok {
+							logs[i].Username = targetUsername
+						}
+					}
+				}
+			}
 			// Remove admin-only debug fields.
 			delete(otherMap, "admin_info")
 			// Remove operation-audit details (operator/route info), admin-only.
@@ -137,7 +156,7 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 		order = clickHouseLogOrder("")
 	}
 	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
-	formatUserLogs(logs, 0)
+	formatUserLogs(logs, 0, 0)
 	return logs, err
 }
 
@@ -465,9 +484,42 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func managedUserLogsQuery(targetUserId int) (*gorm.DB, error) {
+	targetUserIdText := strconv.Itoa(targetUserId)
+	opCondition, opPattern, err := buildLogLikeCondition("logs.other", `%"op":%`)
+	if err != nil {
+		return nil, err
+	}
+	adminInfoCondition, adminInfoPattern, err := buildLogLikeCondition("logs.other", `%"admin_info":%`)
+	if err != nil {
+		return nil, err
+	}
+	commaCondition, commaPattern, err := buildLogLikeCondition("logs.other", `%"target_user_id":`+targetUserIdText+`,%`)
+	if err != nil {
+		return nil, err
+	}
+	objectEndCondition, objectEndPattern, err := buildLogLikeCondition("logs.other", `%"target_user_id":`+targetUserIdText+`}%`)
+	if err != nil {
+		return nil, err
+	}
+	return LOG_DB.Where("logs.type = ?", LogTypeManage).Where(
+		"((logs.user_id = ? AND (logs.other IS NULL OR NOT (("+opCondition+") AND ("+adminInfoCondition+")))) OR "+commaCondition+" OR "+objectEndCondition+")",
+		targetUserId,
+		opPattern,
+		adminInfoPattern,
+		commaPattern,
+		objectEndPattern,
+	), nil
+}
+
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, targetUserId int) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
-	if logType == LogTypeUnknown {
+	if targetUserId > 0 {
+		tx, err = managedUserLogsQuery(targetUserId)
+		if err != nil {
+			return nil, 0, err
+		}
+	} else if logType == LogTypeUnknown {
 		tx = LOG_DB
 	} else {
 		tx = LOG_DB.Where("logs.type = ?", logType)
@@ -563,8 +615,14 @@ const logSearchCountLimit = 10000
 
 func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
+	managedUserTx, err := managedUserLogsQuery(userId)
+	if err != nil {
+		return nil, 0, err
+	}
 	if logType == LogTypeUnknown {
-		tx = LOG_DB.Where("logs.user_id = ?", userId)
+		tx = LOG_DB.Where(LOG_DB.Where("logs.user_id = ? AND logs.type <> ?", userId, LogTypeManage).Or(managedUserTx))
+	} else if logType == LogTypeManage {
+		tx = managedUserTx
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
@@ -605,7 +663,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		return nil, 0, errors.New("查询日志失败")
 	}
 
-	formatUserLogs(logs, startIdx)
+	formatUserLogs(logs, startIdx, userId)
 	return logs, total, err
 }
 

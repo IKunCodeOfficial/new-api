@@ -52,6 +52,7 @@ export interface CommonLogFilters extends CommonFilters {
   token?: string
   group?: string
   username?: string
+  targetUserId?: string
   requestId?: string
   upstreamRequestId?: string
 }
@@ -320,6 +321,7 @@ export interface GetLogsParams {
   end_timestamp?: number
   channel?: number
   group?: string
+  target_user_id?: number
   request_id?: string
   upstream_request_id?: string
 }
