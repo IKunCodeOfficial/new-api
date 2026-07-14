@@ -34,6 +34,9 @@ export {
 // Filter utilities
 export { buildSearchParams, getLogCategoryLabel } from './filter'
 
+// Query-string utilities
+export { buildQueryParams } from './query'
+
 // General utilities
 export {
   isDisplayableLogType,
@@ -41,7 +44,6 @@ export {
   getLogTypeConfig,
   isPerCallBilling,
   getDefaultTimeRange,
-  buildQueryParams,
   buildBaseParams,
   buildApiParams,
   fetchLogsByCategory,

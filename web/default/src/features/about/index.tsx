@@ -148,11 +148,13 @@ export function About() {
   if (isUrl) {
     return (
       <PublicLayout showMainContainer={false}>
+        {/* Admin-configured trusted URL; sandbox omitted so the framed
+            site keeps same-origin storage access (matches classic UI). */}
+        {/* eslint-disable-next-line react/iframe-missing-sandbox */}
         <iframe
           src={rawContent}
           className='h-[calc(100vh-3.5rem)] w-full border-0'
           title={t('About')}
-          sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
         />
       </PublicLayout>
     )

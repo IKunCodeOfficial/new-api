@@ -20,9 +20,9 @@ var auditContentTemplates = map[string]string{
 	"user.update":           "Updated user ${username} (ID: ${id})",
 	"user.delete":           "Deleted user ${username} (ID: ${id})",
 	"user.manage":           "Performed ${action} on user ${username} (ID: ${id})",
-	"user.quota_add":        "Increased user quota by ${quota}",
-	"user.quota_subtract":   "Decreased user quota by ${quota}",
-	"user.quota_override":   "Overrode user quota from ${from} to ${to}",
+	"user.quota_add":        "Increased quota for user ${username} (ID: ${target_user_id}) by ${quota}",
+	"user.quota_subtract":   "Decreased quota for user ${username} (ID: ${target_user_id}) by ${quota}",
+	"user.quota_override":   "Overrode quota for user ${username} (ID: ${target_user_id}) from ${from} to ${to}",
 	"user.binding_clear":    "Cleared ${bindingType} binding for user ${username}",
 	"user.2fa_disable":      "Force-disabled two-factor authentication for the user",
 	"user.passkey_register": "Registered a passkey",
@@ -46,6 +46,9 @@ var auditContentTemplates = map[string]string{
 	"channel.upstream_apply_all": "Applied upstream model changes to ${count} channels",
 
 	"redemption.create": "Created ${count} redemption codes named ${name} (${quota} each)",
+
+	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
+	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。

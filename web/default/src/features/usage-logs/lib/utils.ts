@@ -92,24 +92,6 @@ function timestampToSeconds(ms: number): number {
 }
 
 /**
- * Build query parameters from filters
- */
-export function buildQueryParams(
-  params: Record<string, unknown>
-): URLSearchParams {
-  const queryParams = new URLSearchParams()
-
-  Object.entries(params).forEach(([key, value]) => {
-    // Keep 0 as a valid value, only filter out undefined, null, and empty string
-    if (value !== undefined && value !== null && value !== '') {
-      queryParams.append(key, String(value))
-    }
-  })
-
-  return queryParams
-}
-
-/**
  * Build time range parameters with default values
  * Shared logic for all log types
  */
@@ -178,6 +160,7 @@ export function buildApiParams(config: {
   isAdmin: boolean
 }): GetLogsParams {
   const { page, pageSize, searchParams, columnFilters = [], isAdmin } = config
+  const targetUserId = Number(searchParams.targetUserId)
 
   // Helper to process type parameter (single value from array)
   const processType = (value: unknown): number | undefined => {
@@ -244,6 +227,15 @@ export function buildApiParams(config: {
           break
       }
     })
+  }
+
+  if (
+    isAdmin &&
+    params.type === 3 &&
+    Number.isSafeInteger(targetUserId) &&
+    targetUserId > 0
+  ) {
+    params.target_user_id = targetUserId
   }
 
   return params

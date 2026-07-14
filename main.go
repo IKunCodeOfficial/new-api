@@ -102,6 +102,10 @@ func main() {
 		go model.SyncChannelCache(common.SyncFrequency)
 	}
 
+	// Warm pricing after channel cache initialization so Advanced Custom
+	// endpoint inference can read cached route settings on first request.
+	model.GetPricing()
+
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
 
@@ -181,7 +185,7 @@ func main() {
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
-	server.Use(middleware.PoweredBy())
+	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
 	// Initialize session store
@@ -190,7 +194,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   common.SessionCookieSecure,
 		SameSite: http.SameSiteStrictMode,
 	})
 	server.Use(sessions.Sessions("session", store))
@@ -220,6 +224,8 @@ func main() {
 			common.FatalLog("failed to start HTTP server: " + err.Error())
 		}
 	}()
+
+	time.Sleep(100 * time.Millisecond)
 
 	common.LogStartupSuccess(startTime, port)
 
@@ -327,9 +333,6 @@ func InitResources() error {
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
-
-	// 初始化模型
-	model.GetPricing()
 
 	// Initialize SQL Database
 	err = model.InitLogDB()

@@ -65,6 +65,34 @@ export function getParamOverrideActionLabel(
   return key ? t(key) : action
 }
 
+export function formatAuditTargetUser(
+  other: LogOtherData | null | undefined
+): string | null {
+  const params = other?.op?.params
+  if (!params) return null
+
+  let targetUserId = params.target_user_id
+  if (targetUserId == null && other?.op?.action?.startsWith('user.')) {
+    targetUserId = params.id
+  }
+  const targetUsername =
+    typeof params.username === 'string' ? params.username.trim() : ''
+
+  let targetUserIdText = ''
+  if (typeof targetUserId === 'number' && Number.isFinite(targetUserId)) {
+    targetUserIdText = String(targetUserId)
+  } else if (typeof targetUserId === 'string' && targetUserId.trim() !== '') {
+    targetUserIdText = targetUserId.trim()
+  }
+
+  if (targetUsername && targetUserIdText) {
+    return `${targetUsername} (ID: ${targetUserIdText})`
+  }
+  if (targetUsername) return targetUsername
+  if (targetUserIdText) return `ID: ${targetUserIdText}`
+  return null
+}
+
 /**
  * Parse a param override audit line into action and content
  */

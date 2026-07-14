@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Pointer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Checkbox } from '@/components/ui/checkbox'
@@ -28,6 +29,7 @@ interface LegalConsentProps {
   status: SystemStatus | null
   checked: boolean
   onCheckedChange: (nextValue: boolean) => void
+  needsAttention?: boolean
   className?: string
 }
 
@@ -35,6 +37,7 @@ export function LegalConsent({
   status,
   checked,
   onCheckedChange,
+  needsAttention = false,
   className,
 }: LegalConsentProps) {
   const { t } = useTranslation()
@@ -52,16 +55,26 @@ export function LegalConsent({
   return (
     <div
       className={cn(
-        'border-border/60 bg-muted/40 flex items-start gap-3 rounded-md border p-3',
+        'relative flex items-start gap-3 rounded-md border p-3 transition-[background-color,border-color,box-shadow] duration-200',
+        needsAttention
+          ? 'border-primary bg-primary/5 ring-primary/20 animate-pulse ring-2'
+          : 'border-border/60 bg-muted/40',
         className
       )}
     >
-      <Checkbox
-        id='legal-consent'
-        checked={checked}
-        onCheckedChange={handleChange}
-        className='mt-0.5'
-      />
+      <div className='relative mt-0.5 shrink-0'>
+        <Checkbox
+          id='legal-consent'
+          checked={checked}
+          onCheckedChange={handleChange}
+        />
+        {needsAttention && (
+          <Pointer
+            aria-hidden='true'
+            className='text-primary pointer-events-none absolute top-2 left-0 z-10 h-8 w-8 -rotate-12 animate-bounce motion-reduce:animate-none'
+          />
+        )}
+      </div>
       <Label
         htmlFor='legal-consent'
         className='text-muted-foreground items-start gap-1 text-left text-xs leading-5 font-normal'

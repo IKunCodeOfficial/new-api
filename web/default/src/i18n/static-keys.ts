@@ -141,6 +141,8 @@ export const STATIC_I18N_KEYS = [
   'Expired time cannot be earlier than current time',
   'Quota must be a positive number',
   'Successfully created {{count}} redemption codes',
+  'Go to ',
+  ' recharge',
 
   // Home page (constants-driven labels)
   'Cost Tracking',
@@ -228,6 +230,20 @@ export const STATIC_I18N_KEYS = [
   'Match models starting with this name',
   'Match models containing this name',
   'Match models ending with this name',
+
+  // Playground parameter controls
+  'Temperature',
+  'Top P',
+  'Frequency Penalty',
+  'Presence Penalty',
+  'Max Tokens',
+  'Seed',
+  'Controls randomness and creativity',
+  'Limits token selection to a probability mass',
+  'Reduces repeated wording',
+  'Encourages new topics',
+  'Caps the response length',
+  'Keeps compatible responses more repeatable',
   'All Status',
   'All Sync Status',
   'Official Sync',

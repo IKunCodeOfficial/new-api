@@ -74,6 +74,8 @@ var DefaultCollapseSidebar = false // default value of collapse sidebar
 
 var SessionSecret = uuid.New().String()
 var CryptoSecret = uuid.New().String()
+var SessionCookieSecure = false
+var SessionCookieTrustedURLs []string
 
 var OptionMap map[string]string
 var OptionMapRWMutex sync.RWMutex
@@ -235,6 +237,11 @@ var (
 
 	DownloadRateLimitNum            = 10
 	DownloadRateLimitDuration int64 = 60
+
+	// Public shop reverse-proxy (SHOP_PROXY_HOST mode); one page load fetches
+	// several assets plus captcha round-trips, so keep this generous.
+	ShopProxyRateLimitNum            = 180
+	ShopProxyRateLimitDuration int64 = 60
 
 	// Per-user search rate limit (applies after authentication, keyed by user ID)
 	SearchRateLimitEnable         = true

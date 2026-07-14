@@ -112,6 +112,12 @@ func DownloadRateLimit() func(c *gin.Context) {
 	return rateLimitFactory(common.DownloadRateLimitNum, common.DownloadRateLimitDuration, "DW")
 }
 
+// ShopProxyRateLimit protects the public (SHOP_PROXY_HOST mode) shop reverse
+// proxy from being used to flood the upstream shop through our egress IP.
+func ShopProxyRateLimit() func(c *gin.Context) {
+	return rateLimitFactory(common.ShopProxyRateLimitNum, common.ShopProxyRateLimitDuration, "SP")
+}
+
 func UploadRateLimit() func(c *gin.Context) {
 	return rateLimitFactory(common.UploadRateLimitNum, common.UploadRateLimitDuration, "UP")
 }

@@ -37,7 +37,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -112,6 +112,10 @@ export function useSidebarData(): SidebarData {
           {
             title: t('Recharge Center'),
             url: '/shop',
+            // The shop is embedded in-app again (the backend reverse proxy
+            // fixes the cross-site captcha cookie); uncomment to roll back to
+            // opening it in a new tab.
+            // externalUrl: 'https://9.plus/shop/2F7A86NF',
             icon: Store,
           },
           {
