@@ -17,50 +17,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import { Spin } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import { StatusContext } from '../../context/Status';
 
-const SHOP_CODE = '2F7A86NF';
-// Direct cross-site embed of https://9.plus/shop/2F7A86NF breaks the shop's
-// captcha (its PHPSESSID cookie is dropped inside a cross-site iframe), so
-// the backend reverse-proxies the shop and the iframe loads it same-origin —
-// or from the dedicated SHOP_PROXY_HOST when the operator configured one.
+const SHOP_URL = 'https://9.plus/shop/2F7A86NF';
 
 const Shop = () => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
-  const [statusState] = useContext(StatusContext);
-
-  const proxyHost = statusState?.status?.shop_proxy_host || '';
-  const shopUrl = proxyHost
-    ? `${window.location.protocol}//${proxyHost}/shop/${SHOP_CODE}`
-    : `/shop/${SHOP_CODE}`;
-
-  // Only mount the iframe once /api/status has resolved: the proxy host is
-  // known only then, and mounting earlier would first navigate to the panel
-  // origin (which serves the SPA index in dedicated-host mode) and dismiss
-  // the spinner for the wrong document.
-  const statusReady = statusState?.status !== undefined;
 
   return (
     <div className='w-full max-w-7xl mx-auto relative mt-[60px] px-2'>
-      {(loading || !statusReady) && (
+      {loading && (
         <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
           <Spin size='large' />
         </div>
       )}
-      {statusReady && (
-        <iframe
-          src={shopUrl}
-          title={t('充值中心')}
-          onLoad={() => setLoading(false)}
-          className='w-full rounded-2xl'
-          style={{ height: 'calc(100vh - 110px)', border: 'none' }}
-          allow='payment; clipboard-write'
-        />
-      )}
+      <iframe
+        src={SHOP_URL}
+        title={t('充值中心')}
+        onLoad={() => setLoading(false)}
+        className='w-full rounded-2xl'
+        style={{ height: 'calc(100vh - 110px)', border: 'none' }}
+        allow='payment; clipboard-write'
+      />
     </div>
   );
 };
