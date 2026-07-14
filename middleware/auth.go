@@ -184,6 +184,25 @@ func UserAuth() func(c *gin.Context) {
 	}
 }
 
+// WebSessionAuth gates browser-loaded resources (an iframe page, its assets
+// and XHR calls) on a logged-in web session only. Unlike UserAuth it cannot
+// require the New-Api-User header, because browsers do not attach custom
+// headers to iframe navigations or subresource requests.
+func WebSessionAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		session := sessions.Default(c)
+		if session.Get("id") == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func AdminAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleAdminUser)

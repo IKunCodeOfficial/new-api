@@ -112,7 +112,10 @@ export function useSidebarData(): SidebarData {
           {
             title: t('Recharge Center'),
             url: '/shop',
-            externalUrl: 'https://9.plus/shop/2F7A86NF',
+            // The shop is embedded in-app again (the backend reverse proxy
+            // fixes the cross-site captcha cookie); uncomment to roll back to
+            // opening it in a new tab.
+            // externalUrl: 'https://9.plus/shop/2F7A86NF',
             icon: Store,
           },
           {

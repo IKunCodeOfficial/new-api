@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
@@ -478,10 +479,11 @@ export function RechargeFormCard({
               i18nKey='Recharge channels are temporarily being adjusted. Please purchase a <shop>redemption code</shop>, then redeem the purchased code below.'
               components={{
                 shop: (
-                  <a
-                    href='https://9.plus/shop/2F7A86NF'
-                    target='_blank'
-                    rel='noopener noreferrer'
+                  // The shop is embedded in-app again; uncomment to roll back
+                  // to opening the external shop in a new tab.
+                  // <a href='https://9.plus/shop/2F7A86NF' target='_blank' rel='noopener noreferrer' className='text-primary font-medium underline underline-offset-4 hover:opacity-80' />
+                  <Link
+                    to='/shop'
                     className='text-primary font-medium underline underline-offset-4 hover:opacity-80'
                   />
                 ),
