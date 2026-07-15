@@ -93,7 +93,7 @@ func TestGetAllLogsRequiresManageTypeForTargetUserId(t *testing.T) {
 	}
 }
 
-func TestGetUserLogsIgnoresTargetUserIdQuery(t *testing.T) {
+func TestGetUserLogsIgnoresTargetUserIdAndReturnsOnlyOwnedLogs(t *testing.T) {
 	db := setupLogControllerTestDB(t)
 	logs := []*model.Log{
 		{
@@ -139,15 +139,6 @@ func TestGetUserLogsIgnoresTargetUserIdQuery(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
-	assert.Equal(t, 1, response.Data.Total)
-	require.Len(t, response.Data.Items, 1)
-	log := response.Data.Items[0]
-	assert.Equal(t, "target-42", log.Content)
-	assert.Equal(t, 42, log.UserId)
-	assert.Equal(t, "target-42", log.Username)
-	assert.Empty(t, log.Ip)
-	other, err := common.StrToMap(log.Other)
-	require.NoError(t, err)
-	assert.NotContains(t, other, "admin_info")
-	assert.NotContains(t, other, "audit_info")
+	assert.Zero(t, response.Data.Total)
+	assert.Empty(t, response.Data.Items)
 }

@@ -125,21 +125,21 @@ func TestGetAllLogsFiltersManagementLogsByTargetUser(t *testing.T) {
 	assert.NotContains(t, logContents(logs), "new-operator-different-target")
 }
 
-func TestGetUserLogsIncludesOldAndNewManagementLogFormats(t *testing.T) {
+func TestGetUserLogsReturnsOnlyLogsOwnedByUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
 	manageLogs, manageTotal, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), manageTotal)
-	assert.ElementsMatch(t, []string{"old-owner", "new-target-comma", "new-target-object-end"}, logContents(manageLogs))
+	assert.ElementsMatch(t, []string{"old-owner", "new-operator-resource", "new-operator-different-target"}, logContents(manageLogs))
 
 	allLogs, allTotal, err := GetUserLogs(42, LogTypeUnknown, 0, 0, "", "", 0, 100, "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), allTotal)
-	assert.ElementsMatch(t, []string{"old-owner", "new-target-comma", "new-target-object-end", "owned-consume"}, logContents(allLogs))
-	assert.NotContains(t, logContents(allLogs), "new-operator-resource")
-	assert.NotContains(t, logContents(allLogs), "new-operator-different-target")
+	assert.ElementsMatch(t, []string{"old-owner", "new-operator-resource", "new-operator-different-target", "owned-consume"}, logContents(allLogs))
+	assert.NotContains(t, logContents(allLogs), "new-target-comma")
+	assert.NotContains(t, logContents(allLogs), "new-target-object-end")
 
 	consumeLogs, consumeTotal, err := GetUserLogs(42, LogTypeConsume, 0, 0, "", "", 0, 100, "", "", "")
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestGetUserLogsIncludesOldAndNewManagementLogFormats(t *testing.T) {
 	assert.Equal(t, []string{"owned-consume"}, logContents(consumeLogs))
 }
 
-func TestGetUserLogsAllTypesAppliesFiltersToOwnerAndTargetBranches(t *testing.T) {
+func TestGetUserLogsAllTypesAppliesFiltersToOwnedLogs(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	logs := []*Log{
 		{
@@ -225,43 +225,23 @@ func TestGetUserLogsAllTypesAppliesFiltersToOwnerAndTargetBranches(t *testing.T)
 	)
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), total)
-	assert.ElementsMatch(t, []string{"matching-owner", "matching-target"}, logContents(filteredLogs))
+	assert.Equal(t, int64(1), total)
+	assert.Equal(t, []string{"matching-owner"}, logContents(filteredLogs))
 }
 
-func TestGetUserLogsRedactsOperatorIdentityFromTargetManagementLogs(t *testing.T) {
+func TestGetUserLogsExcludesManagementLogsTargetingUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
 	logs, _, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
 	require.NoError(t, err)
 
-	byContent := make(map[string]*Log, len(logs))
-	for _, log := range logs {
-		byContent[log.Content] = log
-	}
-	newLog := byContent["new-target-comma"]
-	require.NotNil(t, newLog)
-	assert.Equal(t, 42, newLog.UserId)
-	assert.Equal(t, "target-42", newLog.Username)
-	assert.Empty(t, newLog.Ip)
-
-	other, err := common.StrToMap(newLog.Other)
-	require.NoError(t, err)
-	assert.NotContains(t, other, "admin_info")
-	assert.NotContains(t, other, "audit_info")
-	op, ok := other["op"].(map[string]interface{})
-	require.True(t, ok)
-	params, ok := op["params"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, float64(42), params["target_user_id"])
-
-	oldLog := byContent["old-owner"]
-	require.NotNil(t, oldLog)
-	assert.Empty(t, oldLog.Ip)
+	assert.NotContains(t, logContents(logs), "new-target-comma")
+	assert.NotContains(t, logContents(logs), "new-target-object-end")
+	assert.ElementsMatch(t, []string{"old-owner", "new-operator-resource", "new-operator-different-target"}, logContents(logs))
 }
 
-func TestFormatUserLogsDropsMalformedTargetLogMetadata(t *testing.T) {
+func TestFormatUserLogsDropsMalformedMetadata(t *testing.T) {
 	logs := []*Log{{
 		UserId:   1,
 		Type:     LogTypeManage,
@@ -270,10 +250,10 @@ func TestFormatUserLogsDropsMalformedTargetLogMetadata(t *testing.T) {
 		Other:    `{"admin_info":{"admin_id":1},"target_user_id":42`,
 	}}
 
-	formatUserLogs(logs, 0, 42)
+	formatUserLogs(logs, 0)
 
-	assert.Equal(t, 42, logs[0].UserId)
-	assert.Empty(t, logs[0].Username)
-	assert.Empty(t, logs[0].Ip)
+	assert.Equal(t, 1, logs[0].UserId)
+	assert.Equal(t, "admin-1", logs[0].Username)
+	assert.Equal(t, "198.51.100.1", logs[0].Ip)
 	assert.Equal(t, "null", logs[0].Other)
 }

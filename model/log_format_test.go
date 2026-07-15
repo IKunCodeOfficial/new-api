@@ -24,7 +24,7 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	})
 	logs := []*Log{{Other: other}}
 
-	formatUserLogs(logs, 0, 0)
+	formatUserLogs(logs, 0)
 
 	parsed, err := common.StrToMap(logs[0].Other)
 	require.NoError(t, err)
