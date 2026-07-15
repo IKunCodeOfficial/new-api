@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "引き換えコードが正常に作成されました",
     "Redemption Codes": "引き換えコード",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "管理者がコンプライアンス条件を確認するまで、引換コードは無効です。",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "引き換えコードに有効期限はありませんが、残高に反映するには引き換えが必要です。",
     "redemption codes.": "引き換えコード。",
     "Redemption failed": "交換に失敗しました",
     "Redemption successful! Added: {{quota}}": "引き換え成功！追加：{{quota}}",

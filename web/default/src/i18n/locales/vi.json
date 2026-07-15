@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "Mã đổi thưởng đã tạo thành công",
     "Redemption Codes": "Mã đổi thưởng",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "Mã đổi thưởng bị tắt cho đến khi quản trị viên xác nhận điều khoản tuân thủ.",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "Mã đổi thưởng không hết hạn, nhưng phải được đổi thì tiền mới được ghi có.",
     "redemption codes.": "Mã đổi thưởng",
     "Redemption failed": "Đổi thưởng thất bại",
     "Redemption successful! Added: {{quota}}": "Đổi mã thành công! Đã thêm: {{quota}}",

@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "Код(ы) активации успешно создан(ы)",
     "Redemption Codes": "Коды активации",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "Коды пополнения отключены, пока администратор не подтвердит условия соответствия.",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "Коды активации не имеют срока действия, но средства будут зачислены только после активации.",
     "redemption codes.": "коды активации.",
     "Redemption failed": "Погашение не удалось",
     "Redemption successful! Added: {{quota}}": "Погашение успешно! Добавлено: {{quota}}",

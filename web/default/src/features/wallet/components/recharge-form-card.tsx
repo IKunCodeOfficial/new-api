@@ -487,6 +487,12 @@ export function RechargeFormCard({
                 ),
               }}
             />
+            <strong className='text-destructive font-semibold'>
+              {' '}
+              {t(
+                'Redemption codes do not expire and must be redeemed before funds are credited.'
+              )}
+            </strong>
           </AlertDescription>
         </Alert>
       )}

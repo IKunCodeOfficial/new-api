@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "Code(s) d'échange créé(s) avec succès",
     "Redemption Codes": "Codes d'échange",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "Les codes de兑换 sont désactivés jusqu’à ce que l’administrateur confirme les conditions de conformité.",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "Les codes d'échange n'expirent pas et doivent être utilisés pour que les fonds soient crédités.",
     "redemption codes.": "codes de rachat.",
     "Redemption failed": "Rédemption échouée",
     "Redemption successful! Added: {{quota}}": "Échange réussi ! Ajouté : {{quota}}",

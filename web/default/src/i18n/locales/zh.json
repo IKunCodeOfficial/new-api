@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "兑换码创建成功",
     "Redemption Codes": "兑换码",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "管理员确认合规条款之前，兑换码功能不可用。",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "兑换码不会过期，必须兑换才会到账。",
     "redemption codes.": "兑换码。",
     "Redemption failed": "兑换失败",
     "Redemption successful! Added: {{quota}}": "兑换成功！已添加：{{quota}}",

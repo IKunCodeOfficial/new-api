@@ -3664,6 +3664,7 @@
     "Redemption code(s) created successfully": "Redemption code(s) created successfully",
     "Redemption Codes": "Redemption Codes",
     "Redemption codes are disabled until the administrator confirms compliance terms.": "Redemption codes are disabled until the administrator confirms compliance terms.",
+    "Redemption codes do not expire and must be redeemed before funds are credited.": "Redemption codes do not expire and must be redeemed before funds are credited.",
     "redemption codes.": "redemption codes.",
     "Redemption failed": "Redemption failed",
     "Redemption successful! Added: {{quota}}": "Redemption successful! Added: {{quota}}",
