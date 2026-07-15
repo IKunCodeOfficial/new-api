@@ -311,6 +311,14 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 	}
 }
 
+func abortTokenDailyQuotaExceeded(c *gin.Context, limit int) {
+	abortWithOpenAiMessage(c, http.StatusForbidden,
+		common.TranslateMessage(c, i18n.MsgTokenDailyQuotaExceeded, map[string]any{
+			"Limit": logger.FormatQuota(limit),
+		}),
+		types.ErrorCodeInsufficientUserQuota)
+}
+
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 先检测是否为ws
@@ -403,13 +411,8 @@ func TokenAuth() func(c *gin.Context) {
 		}
 
 		// 令牌每日限额检查：达到当日上限则拒绝后续请求，次日 0 点自动重置。
-		if exceeded, used, limit := model.CheckTokenDailyQuota(token.Id); exceeded {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests,
-				common.TranslateMessage(c, i18n.MsgTokenDailyQuotaExceeded, map[string]any{
-					"Used":  logger.FormatQuota(int(used)),
-					"Limit": logger.FormatQuota(limit),
-				}),
-				types.ErrorCodeInsufficientUserQuota)
+		if exceeded, _, limit := model.CheckTokenDailyQuota(token.Id); exceeded {
+			abortTokenDailyQuotaExceeded(c, limit)
 			return
 		}
 
