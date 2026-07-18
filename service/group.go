@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -34,6 +35,20 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 		}
 	}
 	return groupsCopy
+}
+
+func GetUserUsableGroupsForRole(userGroup string, role int) map[string]string {
+	groups := GetUserUsableGroups(userGroup)
+	if role < common.RoleAdminUser {
+		return groups
+	}
+
+	for group := range ratio_setting.GetGroupRatioCopy() {
+		if _, ok := groups[group]; !ok {
+			groups[group] = setting.GetUsableGroupDescription(group)
+		}
+	}
+	return groups
 }
 
 func GroupInUserUsableGroups(userGroup, groupName string) bool {
