@@ -4,11 +4,13 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
-	"github.com/samber/lo"
 )
 
 func GetPerfMetricsSummary(c *gin.Context) {
@@ -19,7 +21,11 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		}
 	}
 
-	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
+	usableGroups := getUsablePerfMetricGroups(c)
+	activeGroups := make([]string, 0, len(usableGroups))
+	for group := range usableGroups {
+		activeGroups = append(activeGroups, group)
+	}
 	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -65,7 +71,7 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 
-	result.Groups = filterActiveGroups(result.Groups)
+	result.Groups = filterPerfMetricGroupsByUsableGroups(result.Groups, getUsablePerfMetricGroups(c))
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -73,10 +79,35 @@ func GetPerfMetrics(c *gin.Context) {
 	})
 }
 
-func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupResult {
+func getUsablePerfMetricGroups(c *gin.Context) map[string]struct{} {
+	userGroup := ""
+	role := common.RoleGuestUser
+	if userID := c.GetInt("id"); userID != 0 {
+		if group, err := model.GetUserGroup(userID, false); err == nil {
+			userGroup = group
+		}
+		if model.IsAdmin(userID) {
+			role = common.RoleAdminUser
+		}
+	}
+
 	activeRatios := ratio_setting.GetGroupRatioCopy()
-	return lo.Filter(groups, func(g perfmetrics.GroupResult, _ int) bool {
-		_, ok := activeRatios[g.Group]
-		return ok || g.Group == "auto"
-	})
+	usableGroups := service.GetUserUsableGroupsForRole(userGroup, role)
+	groups := make(map[string]struct{}, len(usableGroups))
+	for group := range usableGroups {
+		if _, ok := activeRatios[group]; ok || group == "auto" {
+			groups[group] = struct{}{}
+		}
+	}
+	return groups
+}
+
+func filterPerfMetricGroupsByUsableGroups(groups []perfmetrics.GroupResult, usableGroups map[string]struct{}) []perfmetrics.GroupResult {
+	filtered := make([]perfmetrics.GroupResult, 0, len(groups))
+	for _, group := range groups {
+		if _, ok := usableGroups[group.Group]; ok {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
 }

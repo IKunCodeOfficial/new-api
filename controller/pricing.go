@@ -42,6 +42,7 @@ func GetPricing(c *gin.Context) {
 		groupRatio[s] = f
 	}
 	var group string
+	role := common.RoleGuestUser
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
@@ -53,9 +54,12 @@ func GetPricing(c *gin.Context) {
 				}
 			}
 		}
+		if model.IsAdmin(userId.(int)) {
+			role = common.RoleAdminUser
+		}
 	}
 
-	usableGroup = service.GetUserUsableGroups(group)
+	usableGroup = service.GetUserUsableGroupsForRole(group, role)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {

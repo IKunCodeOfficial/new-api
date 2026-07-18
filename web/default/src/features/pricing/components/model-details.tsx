@@ -1197,7 +1197,10 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
         </TabsContent>
 
         <TabsContent value='performance' className='outline-none'>
-          <ModelDetailsPerformance model={props.model} />
+          <ModelDetailsPerformance
+            model={props.model}
+            usableGroup={props.usableGroup}
+          />
         </TabsContent>
 
         <TabsContent value='api' className='outline-none'>
