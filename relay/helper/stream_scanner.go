@@ -290,15 +290,29 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	})
 
 	// 主循环等待完成或超时
-	select {
-	case <-ticker.C:
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
-	case <-stopChan:
-		// EndReason already set by the goroutine that triggered stopChan
-	case <-c.Request.Context().Done():
-		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
-		// 避免为已放弃的请求继续消费上游 token。
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+	clientGoneCh := c.Request.Context().Done()
+waitLoop:
+	for {
+		select {
+		case <-ticker.C:
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
+		case <-stopChan:
+			// EndReason already set by the goroutine that triggered stopChan
+		case <-clientGoneCh:
+			if operation_setting.GetInterruptBillingSetting().DrainOnClientDisconnect {
+				// 客户端断开但继续读完上游流：后续写给客户端的数据被静默丢弃
+				// （见 relay/helper/common.go 的写入守卫），流正常结束后按上游
+				// 真实 usage 结算，避免用本地估算值扣费。
+				info.StreamStatus.MarkClientDisconnected()
+				logger.LogInfo(c, "client disconnected, draining upstream stream for accurate billing")
+				clientGoneCh = nil // 该 case 不再触发，继续等待流结束/超时
+				continue
+			}
+			// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
+			// 避免为已放弃的请求继续消费上游 token。
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		}
+		break waitLoop
 	}
 
 	cleanup()

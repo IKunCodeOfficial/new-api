@@ -326,6 +326,10 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		// 客户端已断开：不再向新渠道发起重试，避免为无人接收的响应消耗上游并向用户扣费。
+		return false
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}

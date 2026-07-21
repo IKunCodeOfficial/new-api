@@ -217,6 +217,11 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 // pooled reuse), the upstream body must be closed to stop token generation,
 // and no data received after the disconnect may be processed or written.
 func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T) {
+	ib := operation_setting.GetInterruptBillingSetting()
+	oldDrain := ib.DrainOnClientDisconnect
+	ib.DrainOnClientDisconnect = false
+	t.Cleanup(func() { ib.DrainOnClientDisconnect = oldDrain })
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -281,6 +286,84 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 	body := recorder.Body.String()
 	assert.Contains(t, body, "first")
 	assert.NotContains(t, body, "second")
+}
+
+// TestStreamScannerHandler_ClientCancelDrainsUpstreamForBilling covers the
+// drain path: with DrainOnClientDisconnect enabled, a client disconnect must
+// NOT abort the upstream stream — remaining chunks are still processed (so the
+// handler can capture real usage), client writes are silently dropped, and the
+// stream ends with its natural end reason plus a client_disconnected marker.
+func TestStreamScannerHandler_ClientCancelDrainsUpstreamForBilling(t *testing.T) {
+	ib := operation_setting.GetInterruptBillingSetting()
+	oldDrain := ib.DrainOnClientDisconnect
+	ib.DrainOnClientDisconnect = true
+	t.Cleanup(func() { ib.DrainOnClientDisconnect = oldDrain })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pr.Close()
+		_ = pw.Close()
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+
+	resp := &http.Response{Body: pr}
+	info := &relaycommon.RelayInfo{
+		DisablePing: true,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	var received []string
+	firstHandled := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+			received = append(received, data)
+			_ = StringData(c, data)
+			if data == "first" {
+				close(firstHandled)
+			}
+		})
+		close(done)
+	}()
+
+	_, err := fmt.Fprint(pw, "data: first\n")
+	require.NoError(t, err)
+
+	select {
+	case <-firstHandled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first chunk")
+	}
+
+	cancel()
+
+	// Upstream must stay open after the client disconnect; later chunks are
+	// still consumed so real usage can be billed.
+	_, err = fmt.Fprint(pw, "data: second\n")
+	require.NoError(t, err, "upstream body must stay open while draining")
+	_, err = fmt.Fprint(pw, "data: [DONE]\n")
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after upstream completed")
+	}
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+	assert.True(t, info.StreamStatus.IsClientDisconnected())
+	assert.Equal(t, []string{"first", "second"}, received)
+
+	body := recorder.Body.String()
+	assert.Contains(t, body, "first")
+	assert.NotContains(t, body, "second", "writes after disconnect must be dropped")
 }
 
 // ---------- Ping tests ----------

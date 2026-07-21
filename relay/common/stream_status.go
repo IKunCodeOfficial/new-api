@@ -29,13 +29,16 @@ type StreamErrorEntry struct {
 }
 
 type StreamStatus struct {
-	EndReason  StreamEndReason
-	EndError   error
-	endOnce    sync.Once
+	EndReason StreamEndReason
+	EndError  error
+	endOnce   sync.Once
 
 	mu         sync.Mutex
 	Errors     []StreamErrorEntry
 	ErrorCount int
+	// clientDisconnected 记录客户端在流结束前已断开,但上游流被继续读完用于真实计费。
+	// 它不结束流,仅用于日志/审计与结算时区分“客户端不在了”和“上游出问题了”。
+	clientDisconnected bool
 }
 
 func NewStreamStatus() *StreamStatus {
@@ -65,6 +68,24 @@ func (s *StreamStatus) RecordError(msg string) {
 			Timestamp: time.Now(),
 		})
 	}
+}
+
+func (s *StreamStatus) MarkClientDisconnected() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clientDisconnected = true
+}
+
+func (s *StreamStatus) IsClientDisconnected() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.clientDisconnected
 }
 
 func (s *StreamStatus) HasErrors() bool {
@@ -106,6 +127,9 @@ func (s *StreamStatus) Summary() string {
 	s.mu.Lock()
 	if s.ErrorCount > 0 {
 		fmt.Fprintf(b, " soft_errors=%d", s.ErrorCount)
+	}
+	if s.clientDisconnected {
+		fmt.Fprintf(b, " client_disconnected=true")
 	}
 	s.mu.Unlock()
 	return b.String()

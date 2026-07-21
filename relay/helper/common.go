@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,9 @@ func FlushWriter(c *gin.Context) (err error) {
 	}
 
 	if requestContextDone(c) {
+		if clientGoneButDraining(c) {
+			return nil
+		}
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
@@ -40,6 +44,13 @@ func FlushWriter(c *gin.Context) (err error) {
 
 func requestContextDone(c *gin.Context) bool {
 	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
+}
+
+// clientGoneButDraining 表示客户端已断开，但按配置继续读完上游流用于真实计费。
+// 此时对客户端的写入应被静默丢弃（返回 nil 而非错误），让各渠道 handler 继续
+// 解析上游数据直到拿到真实 usage。
+func clientGoneButDraining(c *gin.Context) bool {
+	return requestContextDone(c) && operation_setting.GetInterruptBillingSetting().DrainOnClientDisconnect
 }
 
 func SetEventStreamHeaders(c *gin.Context) {
@@ -86,6 +97,9 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
 	if requestContextDone(c) {
+		if clientGoneButDraining(c) {
+			return nil
+		}
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
@@ -100,6 +114,9 @@ func StringData(c *gin.Context, str string) error {
 	}
 
 	if requestContextDone(c) {
+		if clientGoneButDraining(c) {
+			return nil
+		}
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
@@ -113,6 +130,9 @@ func PingData(c *gin.Context) error {
 	}
 
 	if requestContextDone(c) {
+		if clientGoneButDraining(c) {
+			return nil
+		}
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 

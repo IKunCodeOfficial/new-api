@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -203,6 +204,12 @@ func (w *cancelAfterWriter) WriteString(s string) (int, error) {
 
 func newDisconnectingImageStream(t *testing.T, sseBody, disconnectAfter string) (*gin.Context, *httptest.ResponseRecorder, *http.Response, *relaycommon.RelayInfo) {
 	t.Helper()
+	// 这些用例覆盖“客户端断开立即中断上游”的旧路径及其防降费护栏；
+	// drain 模式下流会被读完（eof），按真实完成数计费，不再走该护栏。
+	ib := operation_setting.GetInterruptBillingSetting()
+	oldDrain := ib.DrainOnClientDisconnect
+	ib.DrainOnClientDisconnect = false
+	t.Cleanup(func() { ib.DrainOnClientDisconnect = oldDrain })
 	c, recorder, resp, info := newImageTestContext(t, "", "text/event-stream", true)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	t.Cleanup(cancel)

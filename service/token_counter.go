@@ -157,12 +157,18 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 	fitW := int(math.Round(float64(width) / fitScale))
 	fitH := int(math.Round(float64(height) / fitScale))
 
-	// Step 2: scale so that shortest side is exactly 768
+	// Step 2: scale so that shortest side is at most 768.
+	// OpenAI 的算法只缩小、从不放大；若允许放大，极端宽高比（如 2048x1）会把
+	// 长边放大到百万像素级，瓦片数（计费乘数）随之膨胀到 ~6000，估算出百万级
+	// token。只缩不放时瓦片数天然有界（长边≤2048、短边≤768 → 最多 4x2=8 块）。
 	minSide := math.Min(float64(fitW), float64(fitH))
 	if minSide == 0 {
 		return baseTokens, nil
 	}
 	shortScale := 768.0 / minSide
+	if shortScale > 1 {
+		shortScale = 1
+	}
 	finalW := int(math.Round(float64(fitW) * shortScale))
 	finalH := int(math.Round(float64(fitH) * shortScale))
 
@@ -225,7 +231,9 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 	if meta.TokenType == types.TokenTypeTextNumber {
 		tkm += utf8.RuneCountInString(meta.CombineText)
 	} else {
-		tkm += CountTextToken(meta.CombineText, model)
+		// 排除内嵌 base64 的图片/文件数据，避免把二进制内容按纯文本估算成天量 token。
+		// 注意不能改写 meta.CombineText 本身，敏感词检查还要用原文。
+		tkm += CountTextToken(StripBase64LongRuns(meta.CombineText), model)
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
@@ -235,66 +243,10 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 		tkm += 3
 	}
 
-	shouldFetchFiles := true
-
-	if info.RelayFormat == types.RelayFormatGemini {
-		shouldFetchFiles = false
-	}
-
-	// 是否本地计算媒体token数量
-	if !constant.GetMediaToken {
-		shouldFetchFiles = false
-	}
-
-	// 是否在非流模式下本地计算媒体token数量
-	if !constant.GetMediaTokenNotStream && !info.IsStream {
-		shouldFetchFiles = false
-	}
-
-	// 使用统一的文件服务获取文件类型
-	for _, file := range meta.Files {
-		if file.Source == nil {
-			continue
-		}
-
-		// 如果文件类型未知且需要获取，通过 MIME 类型检测
-		if file.FileType == "" || (file.Source.IsURL() && shouldFetchFiles) {
-			// 注意：这里我们直接调用 LoadFileSource 而不是 GetMimeType
-			// 因为 GetMimeType 内部可能会调用 GetFileTypeFromUrl (HEAD 请求)
-			// 而我们这里既然要计算 token，通常需要完整数据
-			cachedData, err := LoadFileSource(c, file.Source, "token_counter")
-			if err != nil {
-				if shouldFetchFiles {
-					return 0, fmt.Errorf("error getting file type: %v", err)
-				}
-				continue
-			}
-			file.FileType = DetectFileType(cachedData.MimeType)
-		}
-	}
-
-	for i, file := range meta.Files {
-		switch file.FileType {
-		case types.FileTypeImage:
-			if common.IsOpenAITextModel(model) {
-				token, err := getImageToken(c, file, model, info.IsStream)
-				if err != nil {
-					return 0, fmt.Errorf("error counting image token, media index[%d], identifier[%s], err: %v", i, file.GetIdentifier(), err)
-				}
-				tkm += token
-			} else {
-				tkm += 520
-			}
-		case types.FileTypeAudio:
-			tkm += 256
-		case types.FileTypeVideo:
-			tkm += 4096 * 2
-		case types.FileTypeFile:
-			tkm += 4096
-		default:
-			tkm += 4096 // Default case for unknown file types
-		}
-	}
+	// 文件/图片/音视频不参与本地估算：媒体内容的真实费用以上游返回的 usage 为准，
+	// 本地估算只覆盖文本部分。历史实现按媒体逐个累加 token（图片瓦片计算对病态
+	// 宽高比可膨胀到百万级），在上游无 usage 的兜底计费里造成过巨额扣费；估算
+	// 阶段也不再为计数下载远程文件。
 
 	common.SetContextKey(c, constant.ContextKeyPromptTokens, tkm)
 	return tkm, nil
