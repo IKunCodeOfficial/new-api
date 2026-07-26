@@ -28,6 +28,7 @@ const redemptionsSearchSchema = z.object({
   page: z.number().optional().catch(1),
   pageSize: z.number().optional().catch(10),
   filter: z.string().optional().catch(''),
+  code: z.string().optional().catch(''),
   status: z.array(z.enum(REDEMPTION_FILTER_VALUES)).optional().catch([]),
 })
 

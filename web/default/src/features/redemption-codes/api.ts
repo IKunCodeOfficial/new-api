@@ -40,13 +40,14 @@ export async function getRedemptions(
   return res.data
 }
 
-// Search redemption codes by keyword
+// Search redemption codes by keyword, redemption code or status
 export async function searchRedemptions(
   params: SearchRedemptionsParams
 ): Promise<GetRedemptionsResponse> {
-  const { keyword = '', status = '', p = 1, page_size = 10 } = params
+  const { keyword = '', code = '', status = '', p = 1, page_size = 10 } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
+  if (code) queryParams.set('code', code)
   if (status) queryParams.set('status', status)
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))

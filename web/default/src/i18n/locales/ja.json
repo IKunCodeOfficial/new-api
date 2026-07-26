@@ -1974,6 +1974,7 @@
     "Filter by node": "ノードでフィルター",
     "Filter by price field": "価格フィールドでフィルター",
     "Filter by ratio type": "倍率タイプで絞り込み",
+    "Filter by redemption code...": "引き換えコードでフィルター...",
     "Filter by request ID": "リクエストIDで絞り込み",
     "Filter by task ID": "タスクIDでフィルター",
     "Filter by token name": "トークン名でフィルター",

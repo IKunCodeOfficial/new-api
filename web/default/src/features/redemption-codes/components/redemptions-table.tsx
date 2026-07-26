@@ -27,7 +27,9 @@ import {
   DISABLED_ROW_MOBILE,
   DataTablePage,
   useDataTable,
+  useDebouncedColumnFilter,
 } from '@/components/data-table'
+import { Input } from '@/components/ui/input'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
@@ -72,13 +74,26 @@ export function RedemptionsTable() {
     navigate: route.useNavigate(),
     pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
     globalFilter: { enabled: true, key: 'filter' },
-    columnFilters: [{ columnId: 'status', searchKey: 'status', type: 'array' }],
+    columnFilters: [
+      { columnId: 'status', searchKey: 'status', type: 'array' },
+      { columnId: '_codeSearch', searchKey: 'code', type: 'string' },
+    ],
   })
   const statusFilter =
     (columnFilters.find((filter) => filter.id === 'status')?.value as
       | string[]
       | undefined) ?? []
   const statusFilterValue = statusFilter[0] ?? ''
+
+  const {
+    value: codeFilter,
+    inputValue: codeFilterInput,
+    setInputValue: setCodeFilterInput,
+  } = useDebouncedColumnFilter({
+    columnFilters,
+    columnId: '_codeSearch',
+    onColumnFiltersChange,
+  })
 
   // Fetch data with React Query
   const { data, isLoading, isFetching } = useQuery({
@@ -87,31 +102,33 @@ export function RedemptionsTable() {
       pagination.pageIndex + 1,
       pagination.pageSize,
       globalFilter,
+      codeFilter,
       statusFilterValue,
       refreshTrigger,
     ],
     queryFn: async () => {
-      const hasFilter = globalFilter?.trim()
-      const hasStatusFilter = statusFilterValue !== ''
+      const shouldSearch = Boolean(
+        globalFilter?.trim() || codeFilter.trim() || statusFilterValue !== ''
+      )
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
       }
 
-      const result =
-        hasFilter || hasStatusFilter
-          ? await searchRedemptions({
-              ...params,
-              keyword: globalFilter,
-              status: statusFilterValue,
-            })
-          : await getRedemptions(params)
+      const result = shouldSearch
+        ? await searchRedemptions({
+            ...params,
+            keyword: globalFilter,
+            code: codeFilter,
+            status: statusFilterValue,
+          })
+        : await getRedemptions(params)
 
       if (!result.success) {
         toast.error(
           result.message ||
             t(
-              hasFilter || hasStatusFilter
+              shouldSearch
                 ? ERROR_MESSAGES.SEARCH_FAILED
                 : ERROR_MESSAGES.LOAD_FAILED
             )
@@ -171,6 +188,16 @@ export function RedemptionsTable() {
       applyHeaderSize
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
+        additionalSearch: (
+          <Input
+            placeholder={t('Filter by redemption code...')}
+            aria-label={t('Filter by redemption code...')}
+            value={codeFilterInput}
+            onChange={(e) => setCodeFilterInput(e.target.value)}
+            className='w-full sm:w-50 lg:w-60'
+          />
+        ),
+        hasAdditionalFilters: codeFilter !== '',
         filters: [
           {
             columnId: 'status',

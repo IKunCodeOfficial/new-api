@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -60,7 +61,10 @@ func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total 
 	return redemptions, total, nil
 }
 
-func SearchRedemptions(keyword string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+// SearchRedemptions 按名称/ID、兑换码本身以及状态检索兑换码。
+// code 为空时不参与过滤；不含 % 时按兑换码精确匹配，含 % 时按 LIKE 模糊匹配。
+// 该查询仅供管理员接口调用，会返回完整兑换码。
+func SearchRedemptions(keyword string, code string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -79,6 +83,15 @@ func SearchRedemptions(keyword string, status string, startIdx int, num int) (re
 		} else {
 			query = query.Where("name LIKE ?", keyword+"%")
 		}
+	}
+
+	if code = strings.TrimSpace(code); code != "" {
+		codePattern, err := sanitizeLikePattern(code)
+		if err != nil {
+			tx.Rollback()
+			return nil, 0, err
+		}
+		query = query.Where(commonKeyCol+" LIKE ? ESCAPE '!'", codePattern)
 	}
 
 	if status != "" {

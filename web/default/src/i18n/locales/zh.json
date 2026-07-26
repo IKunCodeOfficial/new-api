@@ -1974,6 +1974,7 @@
     "Filter by node": "按节点筛选",
     "Filter by price field": "按价格字段筛选",
     "Filter by ratio type": "按倍率类型筛选",
+    "Filter by redemption code...": "按兑换码筛选...",
     "Filter by request ID": "按请求 ID 筛选",
     "Filter by task ID": "按任务 ID 筛选",
     "Filter by token name": "按 Token 名称筛选",

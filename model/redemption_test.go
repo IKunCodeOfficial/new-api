@@ -30,6 +30,7 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 	tests := []struct {
 		name      string
 		keyword   string
+		code      string
 		status    string
 		startIdx  int
 		num       int
@@ -78,6 +79,43 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 			wantIds:   []int{5},
 		},
 		{
+			name:      "code matches a full redemption key exactly",
+			code:      "00000000000000000000000000000003",
+			num:       10,
+			wantTotal: 1,
+			wantIds:   []int{3},
+		},
+		{
+			name:      "code trims surrounding spaces",
+			code:      "  00000000000000000000000000000004  ",
+			num:       10,
+			wantTotal: 1,
+			wantIds:   []int{4},
+		},
+		{
+			name:      "code without wildcard does not match a prefix",
+			code:      "0000000000000000000000000000000",
+			num:       10,
+			wantTotal: 0,
+			wantIds:   []int{},
+		},
+		{
+			name:      "code supports explicit wildcard search",
+			code:      "%0000001",
+			num:       10,
+			wantTotal: 1,
+			wantIds:   []int{1},
+		},
+		{
+			name:      "code combines with keyword and status",
+			keyword:   "alpha",
+			code:      "%00000%",
+			status:    "1",
+			num:       10,
+			wantTotal: 2,
+			wantIds:   []int{2, 1},
+		},
+		{
 			name:      "pagination keeps unpaged total",
 			startIdx:  1,
 			num:       2,
@@ -88,7 +126,7 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rows, total, err := SearchRedemptions(tt.keyword, tt.status, tt.startIdx, tt.num)
+			rows, total, err := SearchRedemptions(tt.keyword, tt.code, tt.status, tt.startIdx, tt.num)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTotal, total)
 			gotIds := make([]int, 0, len(rows))
@@ -98,6 +136,13 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 			assert.Equal(t, tt.wantIds, gotIds)
 		})
 	}
+
+	t.Run("code rejects abusive wildcard patterns", func(t *testing.T) {
+		rows, total, err := SearchRedemptions("", "%%", "", 0, 10)
+		require.Error(t, err)
+		assert.Nil(t, rows)
+		assert.Zero(t, total)
+	})
 }
 
 func setupRedeemFixture(t *testing.T, quota int) (userId int, key string) {
