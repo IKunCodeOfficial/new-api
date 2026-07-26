@@ -26,6 +26,8 @@ const (
 	MsgAlreadyExists     = "common.already_exists"
 	MsgNameCannotBeEmpty = "common.name_cannot_be_empty"
 	MsgBatchTooMany      = "common.batch_too_many"
+	// MsgTimeSpanExceedsMonths 需要 Months 参数
+	MsgTimeSpanExceedsMonths = "common.time_span_exceeds_months"
 )
 
 // Auth middleware messages

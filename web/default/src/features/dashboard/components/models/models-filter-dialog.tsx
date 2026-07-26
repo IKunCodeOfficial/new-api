@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { DateTimePicker } from '@/components/datetime-picker'
 import { Dialog } from '@/components/dialog'
@@ -35,6 +36,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  MAX_SELF_TIME_RANGE_DAYS,
+  MAX_SELF_TIME_RANGE_MONTHS,
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
@@ -124,6 +127,20 @@ export function ModelsFilter(props: ModelsFilterProps) {
   }
 
   const handleApply = () => {
+    const start = filters.start_timestamp
+    const end = filters.end_timestamp
+    if (!isAdmin && start && end) {
+      const days = (end.getTime() - start.getTime()) / 86_400_000
+      if (days > MAX_SELF_TIME_RANGE_DAYS) {
+        toast.error(
+          t('Time span cannot exceed {{months}} months', {
+            months: MAX_SELF_TIME_RANGE_MONTHS,
+          })
+        )
+        return
+      }
+    }
+
     props.onFilterChange(
       cleanFilters(
         filters as unknown as Record<string, unknown>

@@ -22,6 +22,7 @@ common.delete_failed: "Deletion failed"
 common.already_exists: "Already exists"
 common.name_cannot_be_empty: "Name cannot be empty"
 common.batch_too_many: "Too many items in batch request, maximum is {{.Max}}"
+common.time_span_exceeds_months: "Time span cannot exceed {{.Months}} months"
 
 # Auth middleware messages
 auth.not_logged_in: "Unauthorized, not logged in and no access token provided"

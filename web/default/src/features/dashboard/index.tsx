@@ -31,7 +31,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import dayjs from '@/lib/dayjs'
 import { ROLE } from '@/lib/roles'
+import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -245,6 +247,19 @@ export function Dashboard() {
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.overview
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
+  // Surface the range that is actually queried (same computation as the charts)
+  // next to the page title, because the filter dialog hides it otherwise.
+  const appliedRangeLabel = useMemo(() => {
+    if (activeSection !== 'models' && activeSection !== 'flow') return null
+    const range = computeTimeRange(
+      getDefaultDays(modelFilters.time_granularity),
+      modelFilters.start_timestamp,
+      modelFilters.end_timestamp
+    )
+    const start = dayjs(range.start_timestamp * 1000).format('YYYY-MM-DD HH:mm')
+    const end = dayjs(range.end_timestamp * 1000).format('YYYY-MM-DD HH:mm')
+    return `${start} ~ ${end}`
+  }, [activeSection, modelFilters])
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
@@ -319,7 +334,16 @@ export function Dashboard() {
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
+      <SectionPageLayout.Title>
+        <span className='flex flex-wrap items-baseline gap-x-2 gap-y-0.5'>
+          <span className='truncate'>{t(meta.titleKey)}</span>
+          {appliedRangeLabel != null && (
+            <span className='text-muted-foreground text-xs font-normal whitespace-nowrap'>
+              {t('Time Range')}: {appliedRangeLabel}
+            </span>
+          )}
+        </span>
+      </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='space-y-3 sm:space-y-4'>
           {activeSection !== 'overview' && (

@@ -48,7 +48,14 @@ export const TIME_RANGE_PRESETS = [
   { label: '7 Days', days: 7 },
   { label: '14 Days', days: 14 },
   { label: '29 Days', days: 29 },
+  { label: '3 Months', days: 90 },
 ] as const
+
+// Non-admin dashboard queries are capped at 3 months server side (see
+// selfQuotaDateRange* in controller/usedata.go), so reject longer custom ranges
+// in the filter dialog instead of letting the request fail.
+export const MAX_SELF_TIME_RANGE_MONTHS = 3
+export const MAX_SELF_TIME_RANGE_DAYS = 92
 
 export const CONSUMPTION_DISTRIBUTION_CHART_OPTIONS = [
   { value: 'bar', labelKey: 'Bar Chart' },

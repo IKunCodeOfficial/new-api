@@ -532,6 +532,13 @@ export const STATIC_I18N_KEYS = [
   'Batch detection failed',
   'Batch detection complete: {{channels}} channels, {{add}} to add, {{remove}} to remove, {{fails}} failed',
 
+  // Dashboard time range presets (labels passed to t at runtime)
+  '1 Day',
+  '7 Days',
+  '14 Days',
+  '29 Days',
+  '3 Months',
+
   // Dashboard flow stages (labels/descriptions passed to t at runtime)
   'User',
   'Node',

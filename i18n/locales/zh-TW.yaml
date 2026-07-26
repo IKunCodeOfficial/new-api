@@ -23,6 +23,7 @@ common.delete_failed: "刪除失敗"
 common.already_exists: "已存在"
 common.name_cannot_be_empty: "名稱不能為空"
 common.batch_too_many: "批次請求數量過多，最多 {{.Max}} 條"
+common.time_span_exceeds_months: "時間跨度不能超過 {{.Months}} 個月"
 
 # Auth middleware messages
 auth.not_logged_in: "無權進行此操作，未登入且未提供 access token"
