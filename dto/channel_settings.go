@@ -52,6 +52,7 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastDetectedModels []string              `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
+	UnavailableMessage                    string                `json:"unavailable_message,omitempty"`                        // 渠道不可用（主动禁用/自动禁用）时替换默认提示的自定义消息
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
 }
 

@@ -146,6 +146,7 @@ func InitOptionMap() {
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
+	common.OptionMap["GroupUnavailableMessage"] = setting.GroupUnavailableMessage2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
 	common.OptionMap["AudioRatio"] = ratio_setting.AudioRatio2JSONString()
@@ -212,6 +213,10 @@ func SyncOptions(frequency int) {
 func validateOptionValue(key string, value string) error {
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
+	}
+	if key == "GroupUnavailableMessage" {
+		_, err := setting.ParseGroupUnavailableMessages(value)
+		return err
 	}
 	return nil
 }
@@ -558,6 +563,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
 	case "UserUsableGroups":
 		err = setting.UpdateUserUsableGroupsByJSONString(value)
+	case "GroupUnavailableMessage":
+		err = setting.UpdateGroupUnavailableMessageByJSONString(value)
 	case "CompletionRatio":
 		err = ratio_setting.UpdateCompletionRatioByJSONString(value)
 	case "ModelPrice":

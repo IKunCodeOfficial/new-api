@@ -27,6 +27,7 @@ import {
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { JsonCodeEditor } from '@/components/json-code-editor'
+import { JsonEditor } from '@/components/json-editor'
 import {
   Accordion,
   AccordionContent,
@@ -67,6 +68,7 @@ type GroupFormValues = {
   TopupGroupRatio: string
   UserUsableGroups: string
   GroupGroupRatio: string
+  GroupUnavailableMessage: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
   GroupSpecialUsableGroup: string
@@ -181,6 +183,38 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               onChange={(value) =>
                 handleFieldChange('GroupSpecialUsableGroup', value)
               }
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupUnavailableMessage'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Group unavailable messages')}</FormLabel>
+                  <FormControl>
+                    <JsonEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      keyPlaceholder={t('Group name')}
+                      valuePlaceholder={t(
+                        'e.g. This service is under maintenance, please try again later'
+                      )}
+                      keyLabel={t('Group')}
+                      valueLabel={t('Message')}
+                      emptyMessage={t(
+                        'No group unavailable messages configured.'
+                      )}
+                      valueType='string'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Fallback text returned when a group has no usable channel for the requested model. Used only when the unavailable channel itself has no message. The HTTP status code is unchanged.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
 
             <FormField
@@ -306,6 +340,32 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     {`{ targetGroup: ratio }`}{' '}
                     {t(
                       'to override billing when a user in one group uses a token of another group.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupUnavailableMessage'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Group unavailable messages')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                      heightClassName='h-40 min-h-40 max-h-40'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Fallback text returned when a group has no usable channel for the requested model. Used only when the unavailable channel itself has no message. The HTTP status code is unchanged.'
                     )}
                   </FormDescription>
                   <FormMessage />

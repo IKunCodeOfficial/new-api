@@ -298,6 +298,7 @@ const SENSITIVE_FORM_FIELDS = [
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_ignored_models',
+  'unavailable_message',
 ] satisfies (keyof ChannelFormValues)[]
 
 function readAdvancedSettingsPreference(): boolean {
@@ -342,7 +343,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
-    values.upstream_model_update_ignored_models?.trim()
+    values.upstream_model_update_ignored_models?.trim() ||
+    values.unavailable_message?.trim()
   )
 }
 
@@ -733,6 +735,7 @@ export function ChannelMutateDrawer({
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
+  const currentUnavailableMessage = form.watch('unavailable_message')
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentStatusCodeMapping = form.watch('status_code_mapping')
@@ -997,7 +1000,8 @@ export function ChannelMutateDrawer({
     currentPriority ||
     currentWeight ||
     currentTestModel?.trim() ||
-    (currentAutoBan ?? 1) !== 1
+    (currentAutoBan ?? 1) !== 1 ||
+    currentUnavailableMessage?.trim()
   )
   const internalNotesConfigured = Boolean(
     currentTag?.trim() || currentRemark?.trim()
@@ -3720,6 +3724,33 @@ export function ChannelMutateDrawer({
                                       }
                                     />
                                   </FormControl>
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='unavailable_message'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Unavailable Message')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Textarea
+                                      placeholder={t(
+                                        'e.g. This service is under maintenance, please try again later'
+                                      )}
+                                      rows={2}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(
+                                      'Replaces the default error text returned to callers while this channel is disabled (manually or automatically). Only the message changes; the HTTP status code stays the same. Leave empty to use the default text.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
                                 </FormItem>
                               )}
                             />
