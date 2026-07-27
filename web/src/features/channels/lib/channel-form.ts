@@ -245,6 +245,8 @@ export const channelFormSchema = z
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_ignored_models: z.string().optional(),
+    // Message returned to callers while this channel is unavailable (stored in settings JSON)
+    unavailable_message: z.string().max(500).optional(),
   })
   .superRefine((data, ctx) => {
     if ([3, 8, 36, 45].includes(data.type) && !data.base_url?.trim()) {
@@ -394,6 +396,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  unavailable_message: '',
   advanced_custom: '',
 }
 
@@ -450,6 +453,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
+  let unavailableMessage = ''
   let advancedCustom = ''
 
   if (channel.settings) {
@@ -476,6 +480,10 @@ export function transformChannelToFormDefaults(
       )
         ? parsed.upstream_model_update_ignored_models.join(',')
         : ''
+      unavailableMessage =
+        typeof parsed.unavailable_message === 'string'
+          ? parsed.unavailable_message
+          : ''
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
@@ -529,6 +537,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    unavailable_message: unavailableMessage,
     advanced_custom: advancedCustom,
   }
 }
@@ -664,6 +673,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     if (typeof settingsObj.upstream_model_update_last_check_time !== 'number') {
       settingsObj.upstream_model_update_last_check_time = 0
     }
+  }
+
+  const unavailableMessage = formData.unavailable_message?.trim() || ''
+  if (unavailableMessage) {
+    settingsObj.unavailable_message = unavailableMessage
+  } else if ('unavailable_message' in settingsObj) {
+    delete settingsObj.unavailable_message
   }
 
   if (formData.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {

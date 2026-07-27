@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
@@ -50,7 +51,11 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if channel.Status != common.ChannelStatusEnabled {
-				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
+				message := channel.GetOtherSettings().UnavailableMessage
+				if message == "" {
+					message = i18n.T(c, i18n.MsgDistributorChannelDisabled)
+				}
+				abortWithOpenAiMessage(c, http.StatusForbidden, message)
 				return
 			}
 		} else {
@@ -144,7 +149,14 @@ func Distribute() func(c *gin.Context) {
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 						}
-						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
+						message := service.ResolveUnavailableMessage(c, usingGroup, modelRequest.Model, c.Request.URL.Path)
+						if message == "" {
+							message = i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
+						} else {
+							// The custom message hides the selection failure from the caller,
+							// so keep the real cause in the backend log for administrators.
+							logger.LogError(c.Request.Context(), fmt.Sprintf("get channel failed, group: %s, model: %s, error: %s", showGroup, modelRequest.Model, err.Error()))
+						}
 						// 如果错误，但是渠道不为空，说明是数据库一致性问题
 						//if channel != nil {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
@@ -154,7 +166,11 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 					if channel == nil {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+						message := service.ResolveUnavailableMessage(c, usingGroup, modelRequest.Model, c.Request.URL.Path)
+						if message == "" {
+							message = i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model})
+						}
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
 						return
 					}
 				}
