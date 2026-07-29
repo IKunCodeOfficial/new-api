@@ -221,6 +221,8 @@ func newDisconnectingImageStream(t *testing.T, sseBody, disconnectAfter string) 
 // all requested images, so a disconnect after the first completed event keeps
 // the requested n instead of dropping it to 1.
 func TestOpenaiImageStreamHandlerClientDisconnectKeepsRequestedCount(t *testing.T) {
+	disableStreamDrainForTest(t)
+
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
 	t.Cleanup(func() { gin.SetMode(oldMode) })
@@ -252,6 +254,8 @@ func TestOpenaiImageStreamHandlerClientDisconnectKeepsRequestedCount(t *testing.
 // direction of the abort guard: when completed events already exceed the
 // recorded n, the higher actual count is billed even though the client aborted.
 func TestOpenaiImageStreamHandlerClientDisconnectRaisesCount(t *testing.T) {
+	disableStreamDrainForTest(t)
+
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
 	t.Cleanup(func() { gin.SetMode(oldMode) })

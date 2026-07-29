@@ -25,6 +25,10 @@ func FlushWriter(c *gin.Context) (err error) {
 		return nil
 	}
 
+	if clientGoneButDraining(c) {
+		return nil
+	}
+
 	if requestContextDone(c) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
@@ -85,6 +89,11 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
+	// 排空模式下跳过写入且不报错，让 handler 继续消费上游数据以获取真实 usage
+	if clientGoneButDraining(c) {
+		return nil
+	}
+
 	if requestContextDone(c) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
@@ -99,6 +108,11 @@ func StringData(c *gin.Context, str string) error {
 		return errors.New("context or writer is nil")
 	}
 
+	// 排空模式下跳过写入且不报错，让 handler 继续消费上游数据以获取真实 usage
+	if clientGoneButDraining(c) {
+		return nil
+	}
+
 	if requestContextDone(c) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
@@ -110,6 +124,10 @@ func StringData(c *gin.Context, str string) error {
 func PingData(c *gin.Context) error {
 	if c == nil || c.Writer == nil {
 		return errors.New("context or writer is nil")
+	}
+
+	if clientGoneButDraining(c) {
+		return nil
 	}
 
 	if requestContextDone(c) {
