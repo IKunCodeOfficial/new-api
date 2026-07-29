@@ -82,6 +82,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// 无条件新建 StreamStatus
 	info.StreamStatus = relaycommon.NewStreamStatus()
+	// 必须在下方任何 goroutine 启动前冻结排空决定（见 stream_drain.go）
+	markStreamDrainEligible(c)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -296,9 +298,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
 	case <-c.Request.Context().Done():
-		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
-		// 避免为已放弃的请求继续消费上游 token。
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		if clientGoneButDraining(c) {
+			// 客户端断开但处于排空模式：不关闭上游，继续读流直到自然结束，
+			// 用真实 usage 计费（写路径守卫会跳过对死连接的写入）。
+			waitForUpstreamAfterClientGone(c, info, stopChan, ticker)
+		} else {
+			// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
+			// 避免为已放弃的请求继续消费上游 token。
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		}
 	}
 
 	cleanup()

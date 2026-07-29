@@ -217,6 +217,8 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 // pooled reuse), the upstream body must be closed to stop token generation,
 // and no data received after the disconnect may be processed or written.
 func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T) {
+	disableStreamDrainForTest(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
