@@ -1145,7 +1145,7 @@
     "Create Model": "モデルを作成",
     "Create multiple API keys at once (random suffix will be added to names)": "一度に複数のAPIキーを一括作成（名前にランダムな接尾辞が追加されます）",
     "Create multiple channels from multiple keys": "複数のキーから複数のチャネルを作成",
-    "Create multiple redemption codes at once (1-100)": "複数の引き換えコードを一度に作成します (1-100)",
+    "Create multiple redemption codes at once (1-500)": "複数の引き換えコードを一度に作成します (1-500)",
     "Create new subscription plan": "新しいサブスクリプションプランを作成",
     "Create or update frequently asked questions for users": "ユーザー向けのよくある質問を作成または更新します",
     "Create or update system announcements for the dashboard": "ダッシュボードのシステムアナウンスを作成または更新します",

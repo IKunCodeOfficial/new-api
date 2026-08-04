@@ -55,7 +55,7 @@ token.auto_groups_invalid: "Auto group {{.Group}} is unavailable or unauthorized
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"
 redemption.count_positive: "Redemption code count must be greater than 0"
-redemption.count_max: "Maximum 100 redemption codes can be generated at once"
+redemption.count_max: "Maximum 500 redemption codes can be generated at once"
 redemption.create_failed: "Failed to create redemption code, please try again later"
 redemption.invalid: "Invalid redemption code"
 redemption.used: "This redemption code has been used"

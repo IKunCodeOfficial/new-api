@@ -91,7 +91,7 @@ export const REDEMPTION_VALIDATION = {
   NAME_MIN_LENGTH: 1,
   NAME_MAX_LENGTH: 20,
   COUNT_MIN: 1,
-  COUNT_MAX: 100,
+  COUNT_MAX: 500,
 } as const
 
 // ============================================================================

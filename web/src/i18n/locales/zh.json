@@ -1145,7 +1145,7 @@
     "Create Model": "创建模型",
     "Create multiple API keys at once (random suffix will be added to names)": "一次性创建多个 API 密钥（名称将添加随机后缀）",
     "Create multiple channels from multiple keys": "从多个密钥创建多个渠道",
-    "Create multiple redemption codes at once (1-100)": "一次创建多个兑换码 (1-100)",
+    "Create multiple redemption codes at once (1-500)": "一次创建多个兑换码 (1-500)",
     "Create new subscription plan": "创建新的订阅套餐",
     "Create or update frequently asked questions for users": "创建或更新用户的常见问题",
     "Create or update system announcements for the dashboard": "创建或更新仪表板的系统公告",

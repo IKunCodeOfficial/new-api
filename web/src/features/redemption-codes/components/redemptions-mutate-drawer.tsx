@@ -311,7 +311,7 @@ export function RedemptionsMutateDrawer({
                           {...field}
                           type='number'
                           min='1'
-                          max='100'
+                          max='500'
                           placeholder={t('Number of codes to create')}
                           onChange={(e) =>
                             field.onChange(parseInt(e.target.value, 10) || 1)
@@ -319,7 +319,7 @@ export function RedemptionsMutateDrawer({
                         />
                       </FormControl>
                       <FormDescription>
-                        {t('Create multiple redemption codes at once (1-100)')}
+                        {t('Create multiple redemption codes at once (1-500)')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
