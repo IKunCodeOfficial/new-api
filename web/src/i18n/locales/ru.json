@@ -4956,6 +4956,7 @@
     "Usage guide": "Руководство",
     "Usage logs": "Журналы использования",
     "Usage Logs": "Журнал использования",
+    "Usage logs are periodically deleted, so statistics may be inaccurate.": "Журналы использования периодически удаляются, поэтому статистика может быть неточной.",
     "Usage mode": "Режим использования",
     "Usage-based": "На основе использования",
     "USD": "USD",

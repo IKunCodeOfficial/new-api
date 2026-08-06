@@ -4956,6 +4956,7 @@
     "Usage guide": "Guide d'utilisation",
     "Usage logs": "Journaux d'utilisation",
     "Usage Logs": "Journaux d'utilisation",
+    "Usage logs are periodically deleted, so statistics may be inaccurate.": "Les journaux de consommation sont supprimés périodiquement, les statistiques peuvent donc être inexactes.",
     "Usage mode": "Mode d'utilisation",
     "Usage-based": "Basé sur l'utilisation",
     "USD": "USD",
