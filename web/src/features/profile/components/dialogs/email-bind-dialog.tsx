@@ -25,6 +25,8 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
+import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { useCountdown } from '@/hooks/use-countdown'
 
 import { sendEmailVerification, bindEmail } from '../../api'
@@ -51,6 +53,15 @@ export function EmailBindDialog({
   const [sendingCode, setSendingCode] = useState(false)
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const {
+    isTurnstileEnabled,
+    turnstileSiteKey,
+    turnstileToken,
+    setTurnstileToken,
+    validateTurnstile,
+  } = useTurnstile()
+  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
   const {
     secondsLeft,
     isActive,
@@ -66,9 +77,16 @@ export function EmailBindDialog({
       return
     }
 
+    if (!validateTurnstile()) {
+      return
+    }
+
     try {
       setSendingCode(true)
-      const response = await sendEmailVerification(email)
+      const response = await sendEmailVerification(
+        email,
+        turnstileToken || undefined
+      )
 
       if (response.success) {
         toast.success(t('Verification code sent! Please check your email.'))
@@ -79,6 +97,13 @@ export function EmailBindDialog({
     } catch (_error) {
       toast.error(t('Failed to send verification code'))
     } finally {
+      // Turnstile tokens are single-use: once the request reached the
+      // backend, siteverify has consumed the token, so a fresh challenge
+      // is required for the next attempt regardless of the outcome.
+      if (isTurnstileEnabled) {
+        setTurnstileToken('')
+        setTurnstileWidgetKey((current) => current + 1)
+      }
       setSendingCode(false)
     }
   }
@@ -118,6 +143,8 @@ export function EmailBindDialog({
         // Reset form when closing
         setEmail('')
         setCode('')
+        setTurnstileToken('')
+        setTurnstileWidgetKey((current) => current + 1)
         resetCountdown()
       }
     }
@@ -160,6 +187,15 @@ export function EmailBindDialog({
       }
     >
       <div className='space-y-4 py-4'>
+        {isTurnstileEnabled && (
+          <TurnstileField
+            key={turnstileWidgetKey}
+            siteKey={turnstileSiteKey}
+            token={turnstileToken}
+            onVerify={setTurnstileToken}
+          />
+        )}
+
         <div className='space-y-2'>
           <Label htmlFor='email'>{t('Email Address')}</Label>
           <Input
@@ -187,7 +223,7 @@ export function EmailBindDialog({
               type='button'
               variant='outline'
               onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              disabled={sendingCode || isActive || !email || !turnstileReady}
             >
               {isActive
                 ? `${secondsLeft}s`
