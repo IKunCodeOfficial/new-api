@@ -40,6 +40,7 @@ type OAuthProvidersProps = {
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
   redirectTo?: string
+  onLoginRequest?: (login: () => void) => void
 }
 
 type ProviderButton = {
@@ -57,6 +58,7 @@ export function OAuthProviders({
   onWeChatLogin,
   isWeChatLoading = false,
   redirectTo,
+  onLoginRequest,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
   const {
@@ -171,7 +173,13 @@ export function OAuthProviders({
                 variant='outline'
                 type='button'
                 disabled={disabled || isLoading || extraDisabled}
-                onClick={onClick}
+                onClick={() => {
+                  if (onLoginRequest) {
+                    onLoginRequest(onClick)
+                    return
+                  }
+                  onClick()
+                }}
                 className='h-11 w-full justify-center gap-2 rounded-lg'
               >
                 {icon}
