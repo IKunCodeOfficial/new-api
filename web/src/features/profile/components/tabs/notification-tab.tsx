@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { formatQuota } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 
 import { updateUserSettings } from '../../api'
@@ -185,6 +186,16 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         />
         <p className='text-muted-foreground text-xs'>
           {t('Get notified when balance falls below this value')}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {t('Quota is stored in units; 500,000 quota equals {{amount}}.', {
+            amount: formatQuota(500000),
+          })}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {t('Current amount: {{amount}}', {
+            amount: formatQuota(settings.quota_warning_threshold ?? 0),
+          })}
         </p>
       </div>
 
