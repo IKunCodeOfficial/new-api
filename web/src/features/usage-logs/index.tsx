@@ -140,7 +140,18 @@ function UsageLogsContent() {
     <>
       <SectionPageLayout fixedContent={isLogCategory}>
         <SectionPageLayout.Title>
-          {t(pageMeta.titleKey)}
+          {activeCategory === 'common' ? (
+            <div className='flex flex-col gap-0.5'>
+              <span>{t(pageMeta.titleKey)}</span>
+              <span className='text-muted-foreground text-xs font-normal'>
+                {t(
+                  'Usage logs are periodically deleted, so statistics may be inaccurate.'
+                )}
+              </span>
+            </div>
+          ) : (
+            t(pageMeta.titleKey)
+          )}
         </SectionPageLayout.Title>
         {canManageScope && isLogCategory && (
           <SectionPageLayout.Actions>

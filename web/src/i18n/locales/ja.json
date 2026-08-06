@@ -4925,6 +4925,7 @@
     "Usage guide": "使用ガイド",
     "Usage logs": "使用ログ",
     "Usage Logs": "利用履歴",
+    "Usage logs are periodically deleted, so statistics may be inaccurate.": "利用ログは定期的に削除されるため、統計が正確でない場合があります。",
     "Usage mode": "利用モード",
     "Usage Trend": "使用量の推移",
     "Usage-based": "使用量ベース",
