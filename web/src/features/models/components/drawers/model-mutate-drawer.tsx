@@ -328,6 +328,7 @@ export function ModelMutateDrawer({
       RetryTimes: 0,
       ChannelDisableThreshold: '',
       AutomaticDisableChannelEnabled: false,
+      AutomaticDisableConsecutiveThreshold: 1,
       AutomaticEnableChannelEnabled: false,
       AutomaticDisableKeywords: '',
       AutomaticDisableStatusCodes: '401',

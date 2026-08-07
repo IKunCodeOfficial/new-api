@@ -29,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 
@@ -951,6 +952,14 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		if newAPIError == nil {
 			summary.Succeeded++
+			if operation_setting.GetAutomaticDisableConsecutiveThreshold() > 1 {
+				channelId := channel.Id
+				isMultiKey := channel.ChannelInfo.IsMultiKey
+				usingKey := common.GetContextKeyString(result.context, constant.ContextKeyChannelKey)
+				gopool.Go(func() {
+					service.ResetChannelAutoDisableCounter(channelId, isMultiKey, usingKey)
+				})
+			}
 		} else {
 			summary.Failed++
 		}
@@ -963,7 +972,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		// enable channel
 		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
-			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+			service.EnableChannel(channel.Id, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
 			summary.Enabled++
 		}
 

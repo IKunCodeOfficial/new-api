@@ -228,6 +228,7 @@ export type ModelSettings = {
   RetryTimes: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
+  AutomaticDisableConsecutiveThreshold: number
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string

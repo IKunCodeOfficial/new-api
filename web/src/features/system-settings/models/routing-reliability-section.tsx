@@ -21,7 +21,6 @@ import { useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import * as z from 'zod'
 
 import {
   Form,
@@ -56,70 +55,19 @@ import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { safeNumberFieldProps } from '../utils/numeric-field'
-
-const numericString = z.string().refine((value) => {
-  const trimmed = value.trim()
-  if (!trimmed) return true
-  return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
-}, 'Enter a non-negative number or leave empty')
-
-const channelTestModes = ['scheduled_all', 'passive_recovery'] as const
-type ChannelTestMode = (typeof channelTestModes)[number]
-
-const routingReliabilitySchema = z
-  .object({
-    RetryTimes: z.coerce.number().min(0).max(10),
-    ChannelDisableThreshold: numericString,
-    AutomaticDisableChannelEnabled: z.boolean(),
-    AutomaticEnableChannelEnabled: z.boolean(),
-    AutomaticDisableKeywords: z.string(),
-    AutomaticDisableStatusCodes: z.string(),
-    AutomaticRetryStatusCodes: z.string(),
-    monitor_setting: z.object({
-      auto_test_channel_enabled: z.boolean(),
-      auto_test_channel_minutes: z.coerce
-        .number()
-        .int()
-        .min(1, 'Interval must be at least 1 minute'),
-      channel_test_mode: z.enum(channelTestModes),
-    }),
-  })
-  .superRefine((values, ctx) => {
-    const disableParsed = parseHttpStatusCodeRules(
-      values.AutomaticDisableStatusCodes
-    )
-    if (!disableParsed.ok) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AutomaticDisableStatusCodes'],
-        message: `Invalid status code rules: ${disableParsed.invalidTokens.join(
-          ', '
-        )}`,
-      })
-    }
-
-    const retryParsed = parseHttpStatusCodeRules(
-      values.AutomaticRetryStatusCodes
-    )
-    if (!retryParsed.ok) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AutomaticRetryStatusCodes'],
-        message: `Invalid status code rules: ${retryParsed.invalidTokens.join(
-          ', '
-        )}`,
-      })
-    }
-  })
-
-type RoutingReliabilityFormValues = z.output<typeof routingReliabilitySchema>
-type RoutingReliabilityFormInput = z.input<typeof routingReliabilitySchema>
+import {
+  routingReliabilitySchema,
+  type ChannelTestMode,
+  type RoutingReliabilityFormInput,
+  type RoutingReliabilityFormValues,
+} from './routing-reliability-schema'
 
 type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
+    AutomaticDisableConsecutiveThreshold: number
     AutomaticEnableChannelEnabled: boolean
     AutomaticDisableKeywords: string
     AutomaticDisableStatusCodes: string
@@ -138,6 +86,7 @@ type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
+  AutomaticDisableConsecutiveThreshold: number
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
@@ -157,6 +106,8 @@ const buildFormDefaults = (
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
+  AutomaticDisableConsecutiveThreshold:
+    defaults.AutomaticDisableConsecutiveThreshold ?? 1,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
@@ -180,6 +131,8 @@ const normalizeDefaults = (
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
+  AutomaticDisableConsecutiveThreshold:
+    defaults.AutomaticDisableConsecutiveThreshold ?? 1,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
@@ -205,6 +158,8 @@ const normalizeFormValues = (
   RetryTimes: values.RetryTimes,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
+  AutomaticDisableConsecutiveThreshold:
+    values.AutomaticDisableConsecutiveThreshold,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     values.AutomaticDisableKeywords
@@ -503,6 +458,32 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                   </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AutomaticDisableConsecutiveThreshold'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Consecutive failures to disable')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Disable a channel (or key) only after it hits the auto-disable rules this many times in a row. Any successful request resets the counter; the counter also expires 30 minutes after the last hit. Set 1 to disable immediately (default).'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
 
