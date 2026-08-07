@@ -156,7 +156,23 @@ func ResetChannelAutoDisableCounter(channelId int, isMultiKey bool, usingKey str
 	lastReset := value.(*atomic.Int64)
 	for {
 		previous := lastReset.Load()
-		if previous > 0 && now-previous < autoDisableResetThrottle.Nanoseconds() {
+		if previous < 0 {
+			// A delayed reset is already pending; it will clear the counter.
+			return
+		}
+		remaining := autoDisableResetThrottle.Nanoseconds() - (now - previous)
+		if previous > 0 && remaining > 0 {
+			// Throttled. Dropping the reset outright would let a hit recorded
+			// since the last reset survive for the whole counter window, so
+			// schedule the reset for when the throttle expires instead.
+			if !lastReset.CompareAndSwap(previous, -1) {
+				continue
+			}
+			gopool.Go(func() {
+				time.Sleep(time.Duration(remaining))
+				resetAutoDisableCounter(key)
+				lastReset.Store(time.Now().UnixNano())
+			})
 			return
 		}
 		if lastReset.CompareAndSwap(previous, now) {
