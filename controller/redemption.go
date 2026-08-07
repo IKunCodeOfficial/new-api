@@ -91,27 +91,27 @@ func AddRedemption(c *gin.Context) {
 		return
 	}
 	var keys []string
+	redemptions := make([]*model.Redemption, 0, redemption.Count)
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
-		cleanRedemption := model.Redemption{
+		redemptions = append(redemptions, &model.Redemption{
 			UserId:      c.GetInt("id"),
 			Name:        redemption.Name,
 			Key:         key,
 			CreatedTime: common.GetTimestamp(),
 			Quota:       redemption.Quota,
 			ExpiredTime: redemption.ExpiredTime,
-		}
-		err = cleanRedemption.Insert()
-		if err != nil {
-			common.SysError("failed to insert redemption: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
-				"data":    keys,
-			})
-			return
-		}
+		})
 		keys = append(keys, key)
+	}
+	if err := model.BatchInsertRedemptions(redemptions); err != nil {
+		common.SysError("failed to insert redemptions: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
+			"data":    []string{},
+		})
+		return
 	}
 	recordManageAudit(c, "redemption.create", map[string]interface{}{
 		"name":  redemption.Name,

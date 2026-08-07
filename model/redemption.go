@@ -204,6 +204,19 @@ func (redemption *Redemption) Insert() error {
 	return err
 }
 
+// BatchInsertRedemptions inserts the generated codes atomically: either every
+// code is persisted or none is, so a mid-batch failure cannot leave codes in
+// the database while the API reports failure. 50 rows per statement keeps the
+// bind-variable count below SQLite's historical 999-variable limit.
+func BatchInsertRedemptions(redemptions []*Redemption) error {
+	if len(redemptions) == 0 {
+		return nil
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return tx.CreateInBatches(redemptions, 50).Error
+	})
+}
+
 func (redemption *Redemption) SelectUpdate() error {
 	// This can update zero values
 	return DB.Model(redemption).Select("redeemed_time", "status").Updates(redemption).Error
