@@ -235,6 +235,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		if newAPIError == nil {
+			if operation_setting.GetAutomaticDisableConsecutiveThreshold() > 1 {
+				channelId := channel.Id
+				isMultiKey := channel.ChannelInfo.IsMultiKey
+				usingKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+				gopool.Go(func() {
+					service.ResetChannelAutoDisableCounter(channelId, isMultiKey, usingKey)
+				})
+			}
 			relayInfo.LastError = nil
 			return
 		}
@@ -375,8 +383,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+		reason := err.ErrorWithStatusCode()
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.ProcessChannelDisableHit(channelError, reason)
 		})
 	}
 
@@ -566,6 +575,14 @@ func RelayTask(c *gin.Context) {
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			if operation_setting.GetAutomaticDisableConsecutiveThreshold() > 1 {
+				channelId := channel.Id
+				isMultiKey := channel.ChannelInfo.IsMultiKey
+				usingKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+				gopool.Go(func() {
+					service.ResetChannelAutoDisableCounter(channelId, isMultiKey, usingKey)
+				})
+			}
 			break
 		}
 
