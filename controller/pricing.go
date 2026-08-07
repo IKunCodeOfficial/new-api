@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
+func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string, hideUnusableGroups bool) []model.Pricing {
 	if len(pricing) == 0 {
 		return pricing
 	}
@@ -23,12 +23,22 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 			filtered = append(filtered, item)
 			continue
 		}
+		visibleGroups := make([]string, 0, len(item.EnableGroup))
 		for _, group := range item.EnableGroup {
 			if _, ok := usableGroup[group]; ok {
-				filtered = append(filtered, item)
-				break
+				visibleGroups = append(visibleGroups, group)
 			}
 		}
+		if len(visibleGroups) == 0 {
+			continue
+		}
+		if hideUnusableGroups {
+			// The cached pricing slice is shared, so replace the slice instead
+			// of mutating it: groups the caller cannot use must not leak
+			// through enable_groups.
+			item.EnableGroup = visibleGroups
+		}
+		filtered = append(filtered, item)
 	}
 	return filtered
 }
@@ -60,7 +70,7 @@ func GetPricing(c *gin.Context) {
 	}
 
 	usableGroup = service.GetUserUsableGroupsForRole(group, role)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	pricing = filterPricingByUsableGroups(pricing, usableGroup, role < common.RoleAdminUser)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
