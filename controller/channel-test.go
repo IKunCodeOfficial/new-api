@@ -952,7 +952,10 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		if newAPIError == nil {
 			summary.Succeeded++
-			if operation_setting.GetAutomaticDisableConsecutiveThreshold() > 1 {
+			// result.context is nil when the test never ran (unsupported channel
+			// type or user-cache failure); that is not a successful request, so
+			// it must not reset the consecutive-failure counter.
+			if result.context != nil && operation_setting.GetAutomaticDisableConsecutiveThreshold() > 1 {
 				channelId := channel.Id
 				isMultiKey := channel.ChannelInfo.IsMultiKey
 				usingKey := common.GetContextKeyString(result.context, constant.ContextKeyChannelKey)
