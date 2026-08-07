@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -89,10 +91,19 @@ func WeChatAuth(c *gin.Context) {
 		}
 	} else {
 		if common.RegisterEnabled {
+			// WeChat login auto-creates accounts, so the legal-terms
+			// confirmation must be enforced server-side here as well.
+			if system_setting.GetLegalSettings().ConsentRequired() && c.Query("terms_accepted") != "true" {
+				common.ApiErrorI18n(c, i18n.MsgUserTermsAcceptanceRequired)
+				return
+			}
 			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
 			user.DisplayName = "WeChat User"
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
+			if c.Query("terms_accepted") == "true" {
+				user.TermsAcceptedAt = common.GetTimestamp()
+			}
 
 			if err := user.Insert(0); err != nil {
 				c.JSON(http.StatusOK, gin.H{

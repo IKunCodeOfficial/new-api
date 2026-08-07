@@ -145,7 +145,14 @@ export async function createOAuthFlow(
   const aff = intent === 'login' ? getAffiliateCode() : ''
   const res = await api.post(
     '/api/oauth/state',
-    { provider, intent, aff: aff || undefined },
+    {
+      provider,
+      intent,
+      aff: aff || undefined,
+      // Login flows are only reachable after the legal-consent gate, and the
+      // server refuses to issue a login state without this confirmation.
+      terms_accepted: intent === 'login' ? true : undefined,
+    },
     { skipAuthRefresh: intent === 'login' }
   )
   if (res.data?.success) {
@@ -159,7 +166,11 @@ export async function createOAuthFlow(
 
 // WeChat login by authorization code
 export async function wechatLoginByCode(code: string): Promise<ApiResponse> {
-  const res = await api.get('/api/oauth/wechat', { params: { code } })
+  // The WeChat dialog is only reachable after the legal-consent gate; the
+  // server requires this confirmation before it will auto-create an account.
+  const res = await api.get('/api/oauth/wechat', {
+    params: { code, terms_accepted: 'true' },
+  })
   return res.data
 }
 

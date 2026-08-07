@@ -179,6 +179,7 @@ export function SignUpForm({
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
+        terms_accepted: agreedToLegal,
       })
 
       if (res?.success) {

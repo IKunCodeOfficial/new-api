@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -20,13 +21,15 @@ import (
 const oauthAuthFlowTTL = 10 * time.Minute
 
 type oauthStateRequest struct {
-	Provider string `json:"provider"`
-	Intent   string `json:"intent"`
-	Aff      string `json:"aff,omitempty"`
+	Provider      string `json:"provider"`
+	Intent        string `json:"intent"`
+	Aff           string `json:"aff,omitempty"`
+	TermsAccepted bool   `json:"terms_accepted,omitempty"`
 }
 
 type oauthFlowPayload struct {
-	AffiliateCode string `json:"affiliate_code,omitempty"`
+	AffiliateCode   string `json:"affiliate_code,omitempty"`
+	TermsAcceptedAt int64  `json:"terms_accepted_at,omitempty"`
 }
 
 // providerParams returns map with Provider key for i18n templates
@@ -51,6 +54,14 @@ func GenerateOAuthCode(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	// Terms confirmation is enforced here, not only in the web UI: an OAuth
+	// login can create an account, so a state token for the login intent is
+	// only issued once the caller has explicitly accepted the legal terms.
+	if request.Intent == model.AuthFlowIntentLogin &&
+		system_setting.GetLegalSettings().ConsentRequired() && !request.TermsAccepted {
+		common.ApiErrorI18n(c, i18n.MsgUserTermsAcceptanceRequired)
+		return
+	}
 	userID := 0
 	sessionID := ""
 	if request.Intent == model.AuthFlowIntentBind {
@@ -62,7 +73,11 @@ func GenerateOAuthCode(c *gin.Context) {
 		userID = identity.UserID
 		sessionID = identity.SessionID
 	}
-	payload, err := common.Marshal(oauthFlowPayload{AffiliateCode: request.Aff})
+	flowPayload := oauthFlowPayload{AffiliateCode: request.Aff}
+	if request.TermsAccepted {
+		flowPayload.TermsAcceptedAt = common.GetTimestamp()
+	}
+	payload, err := common.Marshal(flowPayload)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -193,7 +208,7 @@ func HandleOAuth(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	user, err := findOrCreateOAuthUser(c, provider, oauthUser, payload.AffiliateCode)
+	user, err := findOrCreateOAuthUser(c, provider, oauthUser, payload)
 	if err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
@@ -294,7 +309,7 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 }
 
 // findOrCreateOAuthUser finds existing user or creates new user
-func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, affiliateCode string) (*model.User, error) {
+func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, payload oauthFlowPayload) (*model.User, error) {
 	user := &model.User{}
 
 	// Check if user already exists with new ID
@@ -365,11 +380,13 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
+	// Consent was collected and stamped when the login flow token was issued.
+	user.TermsAcceptedAt = payload.TermsAcceptedAt
 
 	// Handle affiliate code
 	inviterId := 0
-	if affiliateCode != "" {
-		inviterId, _ = model.GetUserIdByAffCode(affiliateCode)
+	if payload.AffiliateCode != "" {
+		inviterId, _ = model.GetUserIdByAffCode(payload.AffiliateCode)
 	}
 
 	// Use transaction to ensure user creation and OAuth binding are atomic

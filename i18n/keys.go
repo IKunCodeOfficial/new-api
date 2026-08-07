@@ -81,6 +81,7 @@ const (
 	MsgUserPasswordLoginDisabled     = "user.password_login_disabled"
 	MsgUserRegisterDisabled          = "user.register_disabled"
 	MsgUserPasswordRegisterDisabled  = "user.password_register_disabled"
+	MsgUserTermsAcceptanceRequired   = "user.terms_acceptance_required"
 	MsgUserUsernameOrPasswordEmpty   = "user.username_or_password_empty"
 	MsgUserUsernameOrPasswordError   = "user.username_or_password_error"
 	MsgUserEmailOrPasswordEmpty      = "user.email_or_password_empty"

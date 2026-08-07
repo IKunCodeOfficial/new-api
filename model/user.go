@@ -108,6 +108,8 @@ type User struct {
 	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	TermsAcceptedAt  int64                      `json:"terms_accepted_at" gorm:"type:bigint;default:0;column:terms_accepted_at"` // when the user confirmed the user agreement / privacy policy at sign-up
+	TermsAccepted    bool                       `json:"terms_accepted" gorm:"-:all"`                                             // request-level consent flag, never persisted
 	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }

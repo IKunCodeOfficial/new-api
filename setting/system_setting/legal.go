@@ -19,3 +19,9 @@ func init() {
 func GetLegalSettings() *LegalSettings {
 	return &defaultLegalSettings
 }
+
+// ConsentRequired reports whether the operator has published a user agreement
+// or privacy policy, i.e. whether new sign-ups must confirm the legal terms.
+func (s *LegalSettings) ConsentRequired() bool {
+	return s.UserAgreement != "" || s.PrivacyPolicy != ""
+}
