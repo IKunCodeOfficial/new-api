@@ -84,6 +84,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	hasDeliveredOutput := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -94,7 +95,17 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		// 已有输出后不再改写：整轮重放会导致客户端会话内容重复与重复计费
+		if streamResponse.Type == "response.failed" && !hasDeliveredOutput {
+			if rewritten, originalCode, ok := rewriteOverloadedResponsesFailure(data); ok {
+				logger.LogWarn(c, fmt.Sprintf("upstream responses stream failed with %s, rewriting error code to rate_limit_exceeded so the client retries", originalCode))
+				data = rewritten
+			}
+		}
 		sendResponsesStreamData(c, streamResponse, data)
+		if streamResponse.Item != nil || streamResponse.Delta != "" {
+			hasDeliveredOutput = true
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
