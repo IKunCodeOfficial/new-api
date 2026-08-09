@@ -25,7 +25,7 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { TurnstileField } from '@/features/auth/components/turnstile-field'
+import { Turnstile } from '@/components/turnstile'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { useCountdown } from '@/hooks/use-countdown'
 
@@ -188,10 +188,9 @@ export function EmailBindDialog({
     >
       <div className='space-y-4 py-4'>
         {isTurnstileEnabled && (
-          <TurnstileField
+          <Turnstile
             key={turnstileWidgetKey}
             siteKey={turnstileSiteKey}
-            token={turnstileToken}
             onVerify={setTurnstileToken}
           />
         )}
