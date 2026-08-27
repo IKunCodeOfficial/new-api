@@ -20,65 +20,82 @@ import * as z from 'zod'
 
 import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
 
-const numericString = z.string().refine((value) => {
-  const trimmed = value.trim()
-  if (!trimmed) return true
-  return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
-}, 'Enter a non-negative number or leave empty')
+type Translate = (key: string, options?: Record<string, unknown>) => string
 
-const channelTestModes = ['scheduled_all', 'passive_recovery'] as const
+const channelTestModes = [
+  'scheduled_all',
+  'auto_ban_only',
+  'passive_recovery',
+] as const
 export type ChannelTestMode = (typeof channelTestModes)[number]
+export const MAX_CHANNEL_TEST_CONCURRENCY = 32
 
-export const routingReliabilitySchema = z
-  .object({
-    RetryTimes: z.coerce.number().min(0).max(10),
-    ChannelDisableThreshold: numericString,
-    AutomaticDisableChannelEnabled: z.boolean(),
-    AutomaticDisableConsecutiveThreshold: z.coerce.number().int().min(1),
-    AutomaticEnableChannelEnabled: z.boolean(),
-    AutomaticDisableKeywords: z.string(),
-    AutomaticDisableStatusCodes: z.string(),
-    AutomaticRetryStatusCodes: z.string(),
-    monitor_setting: z.object({
-      auto_test_channel_enabled: z.boolean(),
-      auto_test_channel_minutes: z.coerce
-        .number()
-        .int()
-        .min(1, 'Interval must be at least 1 minute'),
-      channel_test_mode: z.enum(channelTestModes),
-    }),
-  })
-  .superRefine((values, ctx) => {
-    const disableParsed = parseHttpStatusCodeRules(
-      values.AutomaticDisableStatusCodes
-    )
-    if (!disableParsed.ok) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AutomaticDisableStatusCodes'],
-        message: `Invalid status code rules: ${disableParsed.invalidTokens.join(
-          ', '
-        )}`,
-      })
-    }
+export const createRoutingReliabilitySchema = (t: Translate) => {
+  const numericString = z.string().refine((value) => {
+    const trimmed = value.trim()
+    if (!trimmed) return true
+    return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
+  }, t('Enter a non-negative number or leave empty'))
 
-    const retryParsed = parseHttpStatusCodeRules(
-      values.AutomaticRetryStatusCodes
-    )
-    if (!retryParsed.ok) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AutomaticRetryStatusCodes'],
-        message: `Invalid status code rules: ${retryParsed.invalidTokens.join(
-          ', '
-        )}`,
-      })
-    }
-  })
+  return z
+    .object({
+      RetryTimes: z.coerce.number().min(0).max(10),
+      ChannelDisableThreshold: numericString,
+      AutomaticDisableChannelEnabled: z.boolean(),
+      AutomaticDisableConsecutiveThreshold: z.coerce.number().int().min(1),
+      AutomaticEnableChannelEnabled: z.boolean(),
+      AutomaticDisableKeywords: z.string(),
+      AutomaticDisableStatusCodes: z.string(),
+      AutomaticRetryStatusCodes: z.string(),
+      monitor_setting: z.object({
+        auto_test_channel_enabled: z.boolean(),
+        auto_test_channel_minutes: z.coerce
+          .number()
+          .int()
+          .min(1, t('Interval must be at least 1 minute')),
+        channel_test_concurrency: z.coerce
+          .number()
+          .int(t('Enter a positive integer'))
+          .min(1, t('Channel test concurrency must be between 1 and 32'))
+          .max(
+            MAX_CHANNEL_TEST_CONCURRENCY,
+            t('Channel test concurrency must be between 1 and 32')
+          ),
+        channel_test_mode: z.enum(channelTestModes),
+      }),
+    })
+    .superRefine((values, ctx) => {
+      const disableParsed = parseHttpStatusCodeRules(
+        values.AutomaticDisableStatusCodes
+      )
+      if (!disableParsed.ok) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AutomaticDisableStatusCodes'],
+          message: t('Invalid status code rules: {{tokens}}', {
+            tokens: disableParsed.invalidTokens.join(', '),
+          }),
+        })
+      }
 
-export type RoutingReliabilityFormValues = z.output<
-  typeof routingReliabilitySchema
+      const retryParsed = parseHttpStatusCodeRules(
+        values.AutomaticRetryStatusCodes
+      )
+      if (!retryParsed.ok) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AutomaticRetryStatusCodes'],
+          message: t('Invalid status code rules: {{tokens}}', {
+            tokens: retryParsed.invalidTokens.join(', '),
+          }),
+        })
+      }
+    })
+}
+
+type RoutingReliabilitySchema = ReturnType<
+  typeof createRoutingReliabilitySchema
 >
-export type RoutingReliabilityFormInput = z.input<
-  typeof routingReliabilitySchema
->
+
+export type RoutingReliabilityFormValues = z.output<RoutingReliabilitySchema>
+export type RoutingReliabilityFormInput = z.input<RoutingReliabilitySchema>

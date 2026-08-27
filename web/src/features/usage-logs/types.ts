@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Type definitions for usage logs
  */
-import type { UsageLog } from './data/schema'
+import type { RequestRuleTrace } from '@/features/pricing/lib/billing-expr'
 
+import type { UsageLog } from './data/schema'
 // ============================================================================
 // Log Category Types
 // ============================================================================
@@ -135,7 +136,7 @@ export interface LogOtherData {
     admin_role?: number
     auth_method?: 'session' | 'access_token' | string
     // Quota saturation marker: set when a quota conversion clamped at the
-    // int32 bound (overflow/underflow) or hit a NaN fallback while computing
+    // supported single-request bound (overflow/underflow) or hit a NaN fallback while computing
     // this request's charge. Admin-only (nested under admin_info).
     quota_saturation?: {
       op: string
@@ -191,10 +192,12 @@ export interface LogOtherData {
   frt?: number
   // Tiered (expression-based) billing fields, set by backend when
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing
-  // expression and matched_tier is the label of the tier that fired.
+  // expression; the matched tier and request-rule traces come from the actual
+  // settlement run.
   billing_mode?: string
   expr_b64?: string
   matched_tier?: string
+  request_rules?: RequestRuleTrace[]
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number

@@ -19,7 +19,7 @@ func TestTokenAutoGroupsRoundTripThroughRedisHashCache(t *testing.T) {
 		AutoGroups: `["vip","default"]`,
 	}
 
-	require.NoError(t, cacheSetToken(token))
+	require.NoError(t, cacheSetTokenForTest(token))
 	cached, err := cacheGetTokenByKey(token.Key)
 	require.NoError(t, err)
 	assert.Equal(t, token.AutoGroups, cached.AutoGroups)
@@ -43,7 +43,7 @@ func TestTokenUpdateSynchronouslyNarrowsPreheatedAutoGroupsCache(t *testing.T) {
 		AutoGroups:      `["default","vip"]`,
 	}
 	require.NoError(t, token.Insert())
-	require.NoError(t, cacheSetToken(token))
+	require.NoError(t, cacheSetTokenForTest(token))
 
 	preheated, err := cacheGetTokenByKey(token.Key)
 	require.NoError(t, err)
@@ -51,7 +51,53 @@ func TestTokenUpdateSynchronouslyNarrowsPreheatedAutoGroupsCache(t *testing.T) {
 
 	require.NoError(t, token.SetAutoGroups([]string{"vip"}))
 	require.NoError(t, token.Update())
-	immediate, err := cacheGetTokenByKey(token.Key)
+	// Update 是限制性变更：写库前删除缓存并设置 fence。缓存不再提供旧的
+	// 宽分组值，下一次读取必须看到收紧后的分组。
+	_, cacheErr := cacheGetTokenByKey(token.Key)
+	require.Error(t, cacheErr, "the pre-update cache entry must be invalidated")
+	reloaded, err := GetTokenByKey(token.Key, false)
 	require.NoError(t, err)
-	assert.JSONEq(t, `["vip"]`, immediate.AutoGroups)
+	assert.JSONEq(t, `["vip"]`, reloaded.AutoGroups)
+}
+
+func TestTokenDailyQuotaUpdateInvalidatesPreheatedTokenCache(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	require.NoError(t, DB.AutoMigrate(&Option{}))
+	require.NoError(t, DB.Exec("DELETE FROM options").Error)
+
+	token := Token{
+		UserId:         7,
+		Key:            "token-daily-quota-update-cache-key",
+		Name:           "daily-quota-cache-update",
+		Status:         common.TokenStatusEnabled,
+		ExpiredTime:    -1,
+		RemainQuota:    100,
+		Group:          "default",
+		UnlimitedQuota: false,
+	}
+	require.NoError(t, token.Insert())
+	require.NoError(t, cacheSetTokenForTest(token))
+
+	result, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, -70)
+	require.NoError(t, err)
+	require.Equal(t, cacheQuotaOK, result)
+
+	token.Name = "daily-quota-cache-updated"
+	limit := 50
+	require.NoError(t, UpdateTokenWithDailyQuotaLimit(&token, &limit))
+
+	_, cacheErr := cacheGetTokenByKey(token.Key)
+	assert.Error(t, cacheErr, "the transactional update must leave the fenced cache invalidated")
+	var stored Token
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	assert.Equal(t, "daily-quota-cache-updated", stored.Name)
+	assert.Equal(t, limit, GetTokenDailyQuotaLimit(token.Id))
+}
+
+// cacheSetTokenForTest 以测试身份写入完整 token 缓存（含额度字段），
+// 模拟“已水合”的缓存状态。
+func cacheSetTokenForTest(token Token) error {
+	_, err := cacheInitToken(token)
+	return err
 }

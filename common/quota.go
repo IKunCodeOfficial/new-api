@@ -1,5 +1,7 @@
 package common
 
+import "github.com/shopspring/decimal"
+
 func GetTrustQuota() int {
 	return int(10 * QuotaPerUnit)
 }
@@ -8,5 +10,11 @@ func GetTrustQuota() int {
 // cap per day. QuotaPerUnit is a runtime-configurable var, so this must be a func, not a
 // const (mirrors GetTrustQuota).
 func GetMaxTokenQuota() int {
-	return int(1000000000 * QuotaPerUnit)
+	quota, err := WalletQuotaFromDecimalStrict(
+		decimal.NewFromInt(1_000_000_000).Mul(decimal.NewFromFloat(QuotaPerUnit)),
+	)
+	if err != nil {
+		return MaxWalletQuota
+	}
+	return quota
 }

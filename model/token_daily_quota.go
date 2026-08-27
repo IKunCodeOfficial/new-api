@@ -9,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
 )
@@ -420,6 +419,11 @@ func InsertTokenWithDailyQuotaLimit(token *Token, dailyLimit *int) error {
 // The single transaction avoids the partial commit that two separate writes would leave if
 // one of them failed.
 func UpdateTokenWithDailyQuotaLimit(token *Token, dailyLimit *int) error {
+	// Match Token.Update's cache fence: the transactional write must not let a
+	// stale database snapshot overwrite Redis quota changes made concurrently.
+	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
+		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(token).Select(tokenUpdateFields).Updates(token).Error; err != nil {
 			return err
@@ -431,13 +435,6 @@ func UpdateTokenWithDailyQuotaLimit(token *Token, dailyLimit *int) error {
 	})
 	if err != nil {
 		return err
-	}
-	if shouldUpdateRedis(true, nil) {
-		gopool.Go(func() {
-			if err := cacheSetToken(*token); err != nil {
-				common.SysLog("failed to update token cache: " + err.Error())
-			}
-		})
 	}
 	if dailyLimit != nil {
 		normalized := *dailyLimit

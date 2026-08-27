@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, it } from 'vitest'
 
-import { routingReliabilitySchema } from '../routing-reliability-schema'
+import { createRoutingReliabilitySchema } from '../routing-reliability-schema'
+
+const routingReliabilitySchema = createRoutingReliabilitySchema((key) => key)
 
 const validSettings = {
   RetryTimes: 0,
@@ -33,28 +34,29 @@ const validSettings = {
   monitor_setting: {
     auto_test_channel_enabled: true,
     auto_test_channel_minutes: 10,
+    channel_test_concurrency: 4,
     channel_test_mode: 'scheduled_all',
   },
 }
 
 describe('routing reliability validation', () => {
-  test('accepts positive integer auto-disable thresholds', () => {
+  it('accepts positive integer auto-disable thresholds', () => {
     for (const threshold of [1, 3, 100]) {
       const result = routingReliabilitySchema.safeParse({
         ...validSettings,
         AutomaticDisableConsecutiveThreshold: threshold,
       })
-      assert.equal(result.success, true)
+      expect(result.success).toBe(true)
     }
   })
 
-  test('rejects non-positive and fractional auto-disable thresholds', () => {
+  it('rejects non-positive and fractional auto-disable thresholds', () => {
     for (const threshold of [0, -1, 1.5]) {
       const result = routingReliabilitySchema.safeParse({
         ...validSettings,
         AutomaticDisableConsecutiveThreshold: threshold,
       })
-      assert.equal(result.success, false)
+      expect(result.success).toBe(false)
     }
   })
 })

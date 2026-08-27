@@ -16,13 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, it } from 'vitest'
 
 import { buildApiParams } from './utils'
 
 describe('usage log target user filters', () => {
-  test('sends a positive target user ID for an admin view', () => {
+  it('sends a positive target user ID for an admin view', () => {
     const params = buildApiParams({
       page: 1,
       pageSize: 20,
@@ -30,10 +29,10 @@ describe('usage log target user filters', () => {
       isAdmin: true,
     })
 
-    assert.equal(params.target_user_id, 38703)
+    expect(params.target_user_id).toBe(38703)
   })
 
-  test('does not send a target user ID for a self view', () => {
+  it('does not send a target user ID for a self view', () => {
     const params = buildApiParams({
       page: 1,
       pageSize: 20,
@@ -41,10 +40,10 @@ describe('usage log target user filters', () => {
       isAdmin: false,
     })
 
-    assert.equal(params.target_user_id, undefined)
+    expect(params.target_user_id).toBeUndefined()
   })
 
-  test('does not send invalid target user IDs', () => {
+  it('does not send invalid target user IDs', () => {
     for (const targetUserId of ['0', '-1', '1.5', 'not-a-user']) {
       const params = buildApiParams({
         page: 1,
@@ -53,11 +52,11 @@ describe('usage log target user filters', () => {
         isAdmin: true,
       })
 
-      assert.equal(params.target_user_id, undefined)
+      expect(params.target_user_id).toBeUndefined()
     }
   })
 
-  test('does not send a target user ID for non-management log types', () => {
+  it('does not send a target user ID for non-management log types', () => {
     for (const type of ['2', '0']) {
       const params = buildApiParams({
         page: 1,
@@ -66,7 +65,7 @@ describe('usage log target user filters', () => {
         isAdmin: true,
       })
 
-      assert.equal(params.target_user_id, undefined)
+      expect(params.target_user_id).toBeUndefined()
     }
   })
 })
