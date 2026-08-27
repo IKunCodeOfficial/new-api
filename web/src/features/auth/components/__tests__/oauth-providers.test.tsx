@@ -16,40 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import { createInstance } from 'i18next'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { I18nextProvider, initReactI18next } from 'react-i18next'
+import { describe, expect, it } from 'vitest'
 
-import { Window } from 'happy-dom'
-
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'HTMLButtonElement',
-  'SVGElement',
-  'Node',
-  'Element',
-  'Event',
-  'CustomEvent',
-  'MutationObserver',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-
-const { act } = await import('react')
-const { createRoot } = await import('react-dom/client')
-const { createInstance } = await import('i18next')
-const { I18nextProvider, initReactI18next } = await import('react-i18next')
-const { createMemoryHistory, createRootRoute, createRouter, RouterProvider } =
-  await import('@tanstack/react-router')
-const { OAuthProviders } = await import('../oauth-providers')
+import { OAuthProviders } from '../oauth-providers'
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -65,17 +44,8 @@ await i18n.use(initReactI18next).init({
   },
 })
 
-const reactTestGlobals = globalThis as typeof globalThis & {
-  IS_REACT_ACT_ENVIRONMENT?: boolean
-}
-reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
-
 describe('OAuth providers', () => {
-  after(() => {
-    domWindow.close()
-  })
-
-  test('keeps LinuxDO enabled and sends its login through the consent gate', async () => {
+  it('keeps LinuxDO enabled and sends its login through the consent gate', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -102,11 +72,11 @@ describe('OAuth providers', () => {
     const linuxDOButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.includes('Continue with LinuxDO')
     )
-    assert.ok(linuxDOButton)
-    assert.equal(linuxDOButton.disabled, false)
+    expect(linuxDOButton).toBeDefined()
+    expect(linuxDOButton).toBeEnabled()
 
-    await act(async () => linuxDOButton.click())
-    assert.equal(typeof requestedLogin, 'function')
+    await act(async () => linuxDOButton?.click())
+    expect(requestedLogin).toBeTypeOf('function')
 
     await act(async () => root.unmount())
     container.remove()

@@ -16,38 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { act, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { describe, expect, it } from 'vitest'
 
-import { Window } from 'happy-dom'
-
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'HTMLButtonElement',
-  'Node',
-  'Element',
-  'Event',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-
-const { act, useState } = await import('react')
-const { createRoot } = await import('react-dom/client')
-const { useLegalConsentGate } = await import('../use-legal-consent-gate')
-
-const reactTestGlobals = globalThis as typeof globalThis & {
-  IS_REACT_ACT_ENVIRONMENT?: boolean
-}
-reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
+import { useLegalConsentGate } from '../use-legal-consent-gate'
 
 function ConsentGateHarness() {
   const [agreed, setAgreed] = useState(false)
@@ -77,11 +50,7 @@ function ConsentGateHarness() {
 }
 
 describe('legal consent gate', () => {
-  after(() => {
-    domWindow.close()
-  })
-
-  test('waits for confirmation before starting a third-party login', async () => {
+  it('waits for confirmation before starting a third-party login', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -89,23 +58,23 @@ describe('legal consent gate', () => {
     await act(async () => root.render(<ConsentGateHarness />))
 
     const loginButton = container.querySelector<HTMLButtonElement>('button')
-    assert.ok(loginButton)
-    await act(async () => loginButton.click())
+    expect(loginButton).toBeTruthy()
+    await act(async () => loginButton?.click())
 
     const stateBeforeConsent = container.querySelector('span')
-    assert.equal(stateBeforeConsent?.dataset.agreed, 'false')
-    assert.equal(stateBeforeConsent?.dataset.loginStarted, 'false')
+    expect(stateBeforeConsent).toHaveAttribute('data-agreed', 'false')
+    expect(stateBeforeConsent).toHaveAttribute('data-login-started', 'false')
 
     const confirmButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent === 'Agree and continue'
     )
-    assert.ok(confirmButton)
-    await act(async () => confirmButton.click())
+    expect(confirmButton).toBeDefined()
+    await act(async () => confirmButton?.click())
 
     const stateAfterConsent = container.querySelector('span')
-    assert.equal(stateAfterConsent?.dataset.agreed, 'true')
-    assert.equal(stateAfterConsent?.dataset.loginStarted, 'true')
-    assert.equal(container.textContent?.includes('Agree and continue'), false)
+    expect(stateAfterConsent).toHaveAttribute('data-agreed', 'true')
+    expect(stateAfterConsent).toHaveAttribute('data-login-started', 'true')
+    expect(container).not.toHaveTextContent('Agree and continue')
 
     await act(async () => root.unmount())
     container.remove()

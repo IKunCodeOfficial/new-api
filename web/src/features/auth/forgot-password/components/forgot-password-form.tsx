@@ -34,8 +34,8 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import { sendPasswordResetEmail } from '@/features/auth/api'
+import { TurnstileField } from '@/features/auth/components/turnstile-field'
 import {
   forgotPasswordFormSchema,
   PASSWORD_RESET_COUNTDOWN,

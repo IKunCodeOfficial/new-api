@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
-import { routingReliabilitySchema } from '../routing-reliability-schema'
+import { createRoutingReliabilitySchema } from '../routing-reliability-schema'
+
+const routingReliabilitySchema = createRoutingReliabilitySchema(
+  (key, options) =>
+    key.replace('{{tokens}}', String(options?.tokens ?? '{{tokens}}'))
+)
 
 const validSettings = {
   RetryTimes: 0,
@@ -33,6 +37,7 @@ const validSettings = {
   monitor_setting: {
     auto_test_channel_enabled: true,
     auto_test_channel_minutes: 10,
+    channel_test_concurrency: 4,
     channel_test_mode: 'scheduled_all',
   },
 }
@@ -44,7 +49,7 @@ describe('routing reliability validation', () => {
         ...validSettings,
         AutomaticDisableConsecutiveThreshold: threshold,
       })
-      assert.equal(result.success, true)
+      expect(result.success).toBe(true)
     }
   })
 
@@ -54,7 +59,7 @@ describe('routing reliability validation', () => {
         ...validSettings,
         AutomaticDisableConsecutiveThreshold: threshold,
       })
-      assert.equal(result.success, false)
+      expect(result.success).toBe(false)
     }
   })
 })

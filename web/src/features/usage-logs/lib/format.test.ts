@@ -1,52 +1,47 @@
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, it } from 'vitest'
 
 import { formatAuditTargetUser } from './format'
 
 describe('formatAuditTargetUser', () => {
-  test('formats the target username and ID from new quota audit metadata', () => {
-    assert.equal(
+  it('formats the target username and ID from new quota audit metadata', () => {
+    expect(
       formatAuditTargetUser({
         op: {
           action: 'user.quota_add',
           params: { target_user_id: 42, username: 'target-user' },
         },
-      }),
-      'target-user (ID: 42)'
-    )
+      })
+    ).toBe('target-user (ID: 42)')
   })
 
-  test('keeps ID-only management logs readable', () => {
-    assert.equal(
+  it('keeps ID-only management logs readable', () => {
+    expect(
       formatAuditTargetUser({
         op: {
           action: 'user.quota_subtract',
           params: { target_user_id: 42 },
         },
-      }),
-      'ID: 42'
-    )
+      })
+    ).toBe('ID: 42')
   })
 
-  test('uses the legacy user action ID without treating resource IDs as users', () => {
-    assert.equal(
+  it('uses the legacy user action ID without treating resource IDs as users', () => {
+    expect(
       formatAuditTargetUser({
         op: {
           action: 'user.update',
           params: { id: 42, username: 'target-user' },
         },
-      }),
-      'target-user (ID: 42)'
-    )
+      })
+    ).toBe('target-user (ID: 42)')
 
-    assert.equal(
+    expect(
       formatAuditTargetUser({
         op: {
           action: 'channel.update',
           params: { id: 42 },
         },
-      }),
-      null
-    )
+      })
+    ).toBeNull()
   })
 })

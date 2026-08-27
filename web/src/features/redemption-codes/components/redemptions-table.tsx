@@ -188,6 +188,7 @@ export function RedemptionsTable() {
       applyHeaderSize
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
+        searchDebounceMs: 500,
         additionalSearch: (
           <Input
             placeholder={t('Filter by redemption code...')}
