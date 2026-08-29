@@ -33,6 +33,13 @@ func GenerateVerificationCode(length int) string {
 }
 
 func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
+	if RedisEnabled {
+		err := redisRegisterVerificationCode(key, code, purpose)
+		if err == nil {
+			return
+		}
+		SysError("failed to store verification code in Redis, falling back to memory: " + err.Error())
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	verificationMap[purpose+key] = verificationValue{
@@ -45,6 +52,18 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 }
 
 func VerifyCodeWithKey(key string, code string, purpose string) bool {
+	if RedisEnabled {
+		matched, found, err := redisVerifyCode(key, code, purpose)
+		if err == nil {
+			if found {
+				return matched
+			}
+			// Not in Redis: fall through to the in-memory store, which may
+			// hold codes registered while Redis was unavailable.
+		} else {
+			SysError("failed to read verification code from Redis, falling back to memory: " + err.Error())
+		}
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	value, okay := verificationMap[purpose+key]
@@ -56,6 +75,11 @@ func VerifyCodeWithKey(key string, code string, purpose string) bool {
 }
 
 func DeleteKey(key string, purpose string) {
+	if RedisEnabled {
+		if err := redisDeleteVerificationCode(key, purpose); err != nil {
+			SysError("failed to delete verification code from Redis: " + err.Error())
+		}
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	delete(verificationMap, purpose+key)
