@@ -1396,9 +1396,24 @@ func TopUp(c *gin.Context) {
 	}
 	quota, err := model.Redeem(req.Key, id)
 	if err != nil {
-		// 不向用户暴露兑换失败的细分原因，避免攻击者根据错误类型判断兑换码状态。
-		common.ApiErrorI18n(c, i18n.MsgRedeemFailed)
-		logger.LogError(c, fmt.Sprintf("failed to redeem key %s for user %d: %s", req.Key, id, err.Error()))
+		// 兑换码状态可以告知用户，内部错误统一返回可重试的通用提示。
+		msg := i18n.MsgRedeemFailed
+		switch {
+		case errors.Is(err, model.ErrRedeemCodeNotGiven):
+			msg = i18n.MsgRedeemCodeNotGiven
+		case errors.Is(err, model.ErrRedeemCodeInvalid):
+			msg = i18n.MsgRedeemCodeInvalid
+		case errors.Is(err, model.ErrRedeemCodeUsed):
+			msg = i18n.MsgRedeemCodeUsed
+		case errors.Is(err, model.ErrRedeemCodeExpired):
+			msg = i18n.MsgRedeemCodeExpired
+		case errors.Is(err, model.ErrRedeemCodeDisabled):
+			msg = i18n.MsgRedeemCodeDisabled
+		}
+		common.ApiErrorI18n(c, msg)
+		// 不记录兑换码原文：内部错误时该码仍然有效，日志中的明文可被再次兑换；
+		// 而且 key 完全由用户控制，原样写入会带来换行注入与日志放大。
+		logger.LogError(c, fmt.Sprintf("failed to redeem for user %d: %s", id, err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

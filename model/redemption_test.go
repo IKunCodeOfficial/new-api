@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -188,9 +189,37 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 
 	// Redeeming the same code again must fail and must not credit quota.
 	_, err = Redeem(key, userId)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRedeemCodeUsed)
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
 	assert.Equal(t, 500, user.Quota)
+}
+
+func TestRedeemReportsCodeState(t *testing.T) {
+	userId, key := setupRedeemFixture(t, 500)
+
+	_, err := Redeem("", userId)
+	assert.ErrorIs(t, err, ErrRedeemCodeNotGiven)
+
+	_, err = Redeem("10000000000000000000000000009999", userId)
+	assert.ErrorIs(t, err, ErrRedeemCodeInvalid)
+
+	// An oversized key can never match a stored 32-char code and must be
+	// rejected before it reaches the database query or the error log.
+	_, err = Redeem(strings.Repeat("a", maxRedemptionKeyLength+1), userId)
+	assert.ErrorIs(t, err, ErrRedeemCodeInvalid)
+
+	require.NoError(t, DB.Model(&Redemption{}).Where("key = ?", key).
+		Update("status", common.RedemptionCodeStatusDisabled).Error)
+	_, err = Redeem(key, userId)
+	assert.ErrorIs(t, err, ErrRedeemCodeDisabled)
+
+	require.NoError(t, DB.Model(&Redemption{}).Where("key = ?", key).
+		Updates(map[string]interface{}{
+			"status":       common.RedemptionCodeStatusEnabled,
+			"expired_time": common.GetTimestamp() - 60,
+		}).Error)
+	_, err = Redeem(key, userId)
+	assert.ErrorIs(t, err, ErrRedeemCodeExpired)
 }
 
 func TestRedeemRejectsWalletOverflow(t *testing.T) {

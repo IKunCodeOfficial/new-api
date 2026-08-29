@@ -259,6 +259,11 @@ oauth.trust_level_low: "Linux DO 信任等級未達到管理員設定的最低�
 
 # Model layer error messages
 redeem.failed: "兌換失敗，請稍後重試"
+redeem.code_invalid: "無效的兌換碼"
+redeem.code_used: "該兌換碼已被使用"
+redeem.code_expired: "該兌換碼已過期"
+redeem.code_disabled: "該兌換碼已被停用"
+redeem.code_not_given: "未提供兌換碼"
 user.create_default_token_error: "建立預設令牌失敗"
 common.uuid_duplicate: "請重試，系統生成的 UUID 竟然重複了！"
 common.invalid_input: "輸入不合法"

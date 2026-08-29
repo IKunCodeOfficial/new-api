@@ -307,6 +307,11 @@ const (
 // Model layer error messages (for translation in controller)
 const (
 	MsgRedeemFailed          = "redeem.failed"
+	MsgRedeemCodeInvalid     = "redeem.code_invalid"
+	MsgRedeemCodeUsed        = "redeem.code_used"
+	MsgRedeemCodeExpired     = "redeem.code_expired"
+	MsgRedeemCodeDisabled    = "redeem.code_disabled"
+	MsgRedeemCodeNotGiven    = "redeem.code_not_given"
 	MsgCreateDefaultTokenErr = "user.create_default_token_error"
 	MsgUuidDuplicate         = "common.uuid_duplicate"
 	MsgInvalidInput          = "common.invalid_input"

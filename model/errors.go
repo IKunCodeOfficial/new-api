@@ -23,7 +23,16 @@ var (
 )
 
 // Redemption errors
-var ErrRedeemFailed = errors.New("redeem.failed")
+var (
+	// ErrRedeemFailed covers internal failures (database errors, quota
+	// overflow) where the caller should retry later.
+	ErrRedeemFailed       = errors.New("redeem.failed")
+	ErrRedeemCodeInvalid  = errors.New("redeem.code_invalid")
+	ErrRedeemCodeUsed     = errors.New("redeem.code_used")
+	ErrRedeemCodeExpired  = errors.New("redeem.code_expired")
+	ErrRedeemCodeDisabled = errors.New("redeem.code_disabled")
+	ErrRedeemCodeNotGiven = errors.New("redeem.code_not_given")
+)
 
 // 2FA errors
 var ErrTwoFANotEnabled = errors.New("2fa not enabled")

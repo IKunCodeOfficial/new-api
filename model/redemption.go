@@ -147,9 +147,17 @@ func GetRedemptionById(id int) (*Redemption, error) {
 	return &redemption, err
 }
 
+// maxRedemptionKeyLength bounds the user-supplied code before it reaches the
+// database query and the error log. Codes are always 32-char UUIDs
+// (see AddRedemption), so anything longer can never match a stored row.
+const maxRedemptionKeyLength = 64
+
 func Redeem(key string, userId int) (quota int, err error) {
 	if key == "" {
-		return 0, errors.New("未提供兑换码")
+		return 0, ErrRedeemCodeNotGiven
+	}
+	if len(key) > maxRedemptionKeyLength {
+		return 0, ErrRedeemCodeInvalid
 	}
 	if userId == 0 {
 		return 0, errors.New("无效的 user id")
@@ -164,13 +172,16 @@ func Redeem(key string, userId int) (quota int, err error) {
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := lockForUpdate(tx).Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
-			return errors.New("无效的兑换码")
+			return ErrRedeemCodeInvalid
+		}
+		if redemption.Status == common.RedemptionCodeStatusDisabled {
+			return ErrRedeemCodeDisabled
 		}
 		if redemption.Status != common.RedemptionCodeStatusEnabled {
-			return errors.New("该兑换码已被使用")
+			return ErrRedeemCodeUsed
 		}
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
-			return errors.New("该兑换码已过期")
+			return ErrRedeemCodeExpired
 		}
 		// Compare-and-swap on status: only the transaction that flips
 		// enabled -> used may credit quota, so a concurrent redeem of the
@@ -186,11 +197,17 @@ func Redeem(key string, userId int) (quota int, err error) {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return errors.New("该兑换码已被使用")
+			return ErrRedeemCodeUsed
 		}
 		return creditTopUpQuota(tx, userId, redemption.Quota, nil)
 	})
 	if err != nil {
+		// Code-state errors are safe to surface to the user; anything else is
+		// an internal failure and is reported as a generic retryable error.
+		if errors.Is(err, ErrRedeemCodeInvalid) || errors.Is(err, ErrRedeemCodeUsed) ||
+			errors.Is(err, ErrRedeemCodeExpired) || errors.Is(err, ErrRedeemCodeDisabled) {
+			return 0, err
+		}
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
 	}
