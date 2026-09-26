@@ -22,12 +22,13 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Spinner } from '@/components/ui/spinner'
-
-const SHOP_URL = 'https://9.plus/shop/2F7A86NF'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 export function Shop() {
   const { t } = useTranslation()
-  const [loading, setLoading] = useState(true)
+  const topUpLink = useSystemConfigStore((state) => state.config.topUpLink)
+  const [loadedUrl, setLoadedUrl] = useState('')
+  const loading = Boolean(topUpLink) && loadedUrl !== topUpLink
 
   return (
     <SectionPageLayout fixedContent>
@@ -42,9 +43,9 @@ export function Shop() {
           {/* allow-same-origin is required for the shop's localStorage-based
               visitor session; top navigation stays gated on user activation */}
           <iframe
-            src={SHOP_URL}
+            src={topUpLink || undefined}
             title={t('Recharge Center')}
-            onLoad={() => setLoading(false)}
+            onLoad={() => setLoadedUrl(topUpLink)}
             className='h-full w-full rounded-xl border-0'
             allow='payment; clipboard-write'
             sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation'

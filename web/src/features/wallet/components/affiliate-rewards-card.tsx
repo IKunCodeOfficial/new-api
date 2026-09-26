@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Share2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -25,9 +26,42 @@ import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { api } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
+
+// Fork-only (ikun): the invite-rebate promo line is shown only when the
+// settlement job's config is enabled. Any failure (disabled, missing config,
+// network/parse error) hides the promise so the UI never advertises a rebate
+// the settlement side would refuse to pay.
+function useRebateInfo() {
+  const [ratePercent, setRatePercent] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get('/api/rebate_info', { skipErrorHandler: true })
+      .then((res) => {
+        const data = res.data as { enabled?: boolean; rate?: number }
+        if (
+          !cancelled &&
+          data?.enabled === true &&
+          typeof data.rate === 'number' &&
+          data.rate > 0 &&
+          data.rate < 1
+        ) {
+          setRatePercent(Number((data.rate * 100).toFixed(2)))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return ratePercent
+}
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
@@ -45,6 +79,7 @@ export function AffiliateRewardsCard({
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
+  const rebatePercent = useRebateInfo()
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -123,6 +158,14 @@ export function AffiliateRewardsCard({
             </Button>
           )}
         </div>
+        {rebatePercent !== null ? (
+          <p className='text-muted-foreground text-xs lg:col-span-3'>
+            {t(
+              'Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is automatically credited to your balance at 00:00 the next day.',
+              { percent: rebatePercent }
+            )}
+          </p>
+        ) : null}
         {!complianceConfirmed ? (
           <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(

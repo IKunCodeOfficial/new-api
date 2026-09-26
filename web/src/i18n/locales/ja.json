@@ -2423,6 +2423,7 @@
     "Invert match": "一致を反転",
     "Invitation Code": "招待コード",
     "Invitation Quota": "招待クォータ",
+    "Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is automatically credited to your balance at 00:00 the next day.": "お友達を招待して登録してもらい、そのお友達がチャージして実際に消費すると、消費金額の {{percent}}% が翌日 0 時に自動的にあなたの残高へ還元されます。",
     "Invite Info": "招待情報",
     "Invited": "招待済み",
     "Invited by user ID": "ユーザーIDによる招待",

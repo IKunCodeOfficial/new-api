@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -48,6 +49,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const topUpLink = useSystemConfigStore((state) => state.config.topUpLink)
 
   return {
     navGroups: [
@@ -112,7 +114,7 @@ export function useSidebarData(): SidebarData {
           {
             title: t('Recharge Center'),
             url: '/shop',
-            externalUrl: 'https://9.plus/shop/2F7A86NF',
+            externalUrl: topUpLink || undefined,
             icon: Store,
           },
           {

@@ -41,6 +41,7 @@ export interface CurrencyConfig {
 export interface SystemConfig {
   systemName: string
   logo: string
+  topUpLink: string
   footerHtml?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
@@ -75,6 +76,7 @@ export const useSystemConfigStore = create<SystemConfigState>()(
       config: {
         systemName: DEFAULT_SYSTEM_NAME,
         logo: DEFAULT_LOGO,
+        topUpLink: '',
         currency: { ...DEFAULT_CURRENCY_CONFIG },
       },
       loading: true,
