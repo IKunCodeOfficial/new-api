@@ -485,7 +485,7 @@ export function RechargeFormCard({
               components={{
                 shop: (
                   <a
-                    href='https://9.plus/shop/2F7A86NF'
+                    href={topupLink || undefined}
                     target='_blank'
                     rel='noopener noreferrer'
                     className='text-primary font-medium underline underline-offset-4 hover:opacity-80'
