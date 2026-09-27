@@ -311,10 +311,7 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 					texts = append(texts, string(b))
 				}
 			case "tool_result":
-				if media.Content != nil {
-					b, _ := kitutil.Marshal(media.Content)
-					texts = append(texts, string(b))
-				}
+				texts = appendClaudeToolResultTexts(media.Content, texts)
 			}
 		}
 	}
