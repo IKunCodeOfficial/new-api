@@ -221,13 +221,19 @@ settled_base += delta
 
 实现方式：**复刻** `formatQuota`（`web/src/lib/format.ts:73`，参数 `digitsLarge: 2, digitsSmall: 4, abbreviate: true`）→ `formatQuotaWithCurrency`（`web/src/lib/currency.ts:516`）→ `formatCurrencyFromUSD` → `formatCurrencyValue`，不要按"两位小数"简化。
 
-**与前端唯一的、故意的差异：locale 必须钉死。** 前端 `DEFAULT_FORMAT_OPTIONS.locale` 是 `undefined`（`web/src/lib/currency.ts:140`），`Intl.NumberFormat(undefined)` 跟随访问者的浏览器语言，同一个金额在不同浏览器会渲染成 `$1,234.56` / `1 234,56 $` / `1.234,56 $`——没有唯一正确的输出可对标。所以日志统一按**邀请人语言**取一个固定 locale（与 §5 的文案语言一致）：
+**基准不是浏览器，而是 Node 生成的夹具。** 前端 `DEFAULT_FORMAT_OPTIONS.locale` 是 `undefined`（`web/src/lib/currency.ts:140`），`Intl.NumberFormat(undefined)` 跟随访问者的浏览器语言，同一个金额在不同浏览器会渲染成 `$1,234.56` / `1 234,56 $` / `1.234,56 $`；连字节都不稳定——`fr-FR` 的千分位在 CLDR 34 从 U+00A0 换成了 U+202F，新旧浏览器输出不同。所以：
+
+- 日志一律按**邀请人语言**取一个固定 locale（与 §5 的文案语言一致）；
+- 目标是"与夹具一致"，不是"与某个用户的浏览器一致"。夹具由 Node 跑 `Intl` 生成（本次生成环境：Node v24.15.0 / ICU 78.2 / CLDR 48.0），随代码入库并作为测试期望值；locale 数据升级导致夹具变化时，重跑生成脚本并一并更新测试。
+
+locale 映射：
 
 常量取自数据库（不能写死，`QuotaPerUnit` 与汇率都可被管理后台覆盖）：
 
 | 值 | 来源 | 缺省 |
 |---|---|---|
 | locale | 由 §5 归一化后的语言映射：`zhCN`→`zh-CN`、`zhTW`→`zh-TW`、`en`→`en-US`、`fr`→`fr-FR`、`ru`→`ru-RU`、`ja`→`ja-JP`、`vi`→`vi-VN` | 同左 |
+| 分组符 / 小数符 / 货币符号 | **由 Node 生成并入库的夹具**（见下表） | 夹具 |
 | `quotaPerUnit` | options `QuotaPerUnit`（`model/option.go:596`） | 500000 |
 | `displayType` | options `general_setting.quota_display_type` | 见下方回退 |
 | `usdExchangeRate` | options `USDExchangeRate`（`model/option.go:439`） | 7.3 |
@@ -236,20 +242,49 @@ settled_base += delta
 
 `displayType` 的回退链（直读表时这些行可能缺失或曾是内存态）：`general_setting.quota_display_type`（合法值 `USD`/`CNY`/`TOKENS`/`CUSTOM`）→ 旧开关 `DisplayInCurrencyEnabled`（`true`→`USD`，`false`→`TOKENS`；该开关只在内存生效，`model/option.go:345-353` 不写库）→ `USD`。
 
-算法：
+**Python 侧没有 `Intl`，所以符号与分组符必须来自夹具，不能指望 Python 库自己推断。**（`babel` 只有标准符号、没有 `narrowSymbol`：`fr-FR` 会给 `$US`，而前端实际输出 `$`。）夹具内容（Node 生成，随代码入库）：
+
+| locale | USD | CNY | 分组符 | 小数符 |
+|---|---|---|---|---|
+| `zh-CN` / `zh-TW` / `en-US` | 前缀 `$` | 前缀 `¥` U+00A5 | `,` U+002C | `.` U+002E |
+| `ja-JP` | 前缀 `$` | 前缀 `￥` U+FFE5（全角） | `,` U+002C | `.` U+002E |
+| `fr-FR` | 后缀 ` $` | 后缀 ` ¥` | U+202F 窄不换行空格 | `,` |
+| `ru-RU` | 后缀 ` $` | 后缀 ` ¥` | U+00A0 不换行空格 | `,` |
+| `vi-VN` | 后缀 ` $` | 后缀 ` ¥` | `.` U+002E | `,` U+002C |
+
+`fr-FR`/`ru-RU`/`vi-VN` 的符号是**后缀**（`1 234,56 $`）而不是前缀。逗号、句点这类 ASCII 字符也照夹具的码位抄，别按"看起来一样"处理。
+
+算法（`usd` 为 double）：
 
 ```
 usd = rebate / quotaPerUnit
-USD:    currency(usd, USD, rate 1)
-CNY:    currency(usd, CNY, rate = usdExchangeRate)
-CUSTOM: 无货币符号前缀：f"{customSymbol} {number(usd * customRate)}"
-TOKENS: shorten(rebate)   # abbreviate: >=1000 → 保留 1 位小数的 k；否则按值取 2 位(<1 用 4 位)小数、去尾零
+USD:    currency(usd, digits=2/4)
+CNY:    currency(usd * usdExchangeRate, digits=2/4)
+CUSTOM: f"{customSymbol} " + decimal(usd * customRate)      # 符号不受 locale 影响，数字部分受
+TOKENS: shorten((rebate / quotaPerUnit) * quotaPerUnit)     # 必须做这一次浮点往返
 
-currency 分支（Intl.NumberFormat style=currency, currencyDisplay=narrowSymbol, locale 见上）：
+currency(value, digits):   # Intl.NumberFormat, currencyDisplay=narrowSymbol, locale 见上
   digits = |value| >= 1 ? 2 : 4
   value = adjustForMinimum(value, digits, minimumNonZero=0)  # 0<|v|<10^-digits 时钳到 ±10^-digits
   number = 按 locale 分组 + 最多 digits 位小数 + 去尾零
 ```
+
+**TOKENS 的浮点往返不能省。** 前端格式化的不是 `rebate` 本身，而是 `amountUSD * quotaPerUnit`（`web/src/lib/currency.ts:417-431` 的 tokens 分支），对整数 `rebate` 来说多了一次 `/qpu` 再 `*qpu` 的往返。在 1..3,000,000 内逐一比对，省掉往返有 **468 个值与前端不同**：
+
+| rebate | 前端实际 | 省掉往返 |
+|---|---|---|
+| 8150 | `8.1k` | `8.2k` |
+| 16150 | `16.2k` | `16.1k` |
+| 32050 | `32.1k` | `32k` |
+
+原因是 `8150/500000×500000` 在 double 里是 `8149.999999999999`。§5 的样例表六个值不受影响。
+
+`shorten(v)` = `formatNumberWithSuffix(v, digitsLarge=0, digitsSmall=4, abbreviate=True)`：
+
+- `|v| >= 1000`：`(v/1000).toFixed(1)` 去尾零 + `k`（**只有 k 一级，没有 M/B**）；
+- 否则：**`digitsLarge = 0`**（`formatCurrencyFromUSD` 的 tokens 分支传的是 `0` 与 `digitsSmall`，不是 `formatQuota` 的 2/4），即 `|v| >= 1` 用 `toFixed(0)`、`|v| < 1` 用 `toFixed(4)`，再去尾零。
+
+CUSTOM 的数字部分同样按 locale 分组和取小数符（`${meta.symbol} ${decimal}` 里的 `decimal` 由 `Intl.NumberFormat(locale)` 产出），`fr-FR` 下形如 `¤ 1 234,56`。
 
 **两条分支的舍入规则不同，不能混用**：
 
@@ -377,7 +412,8 @@ rebate/
 - 开关关闭 + 比例缺失：每天正常写出 `disabled` 日并推水位，之后打开开关不补发。
 - 兑换码软删除：`status=3` 且 `deleted_at` 非空的行仍计入 R。
 - 语言：`zh-CN`/`zh-Hans`/`zh-TW` 旧值分别归到 `zhCN`/`zhCN`/`zhTW`；未知值回落 `en`。
-- 金额格式：按 §5 的样例表逐条断言（含 <1 的小额、≥1000 的 k 缩写、`5368709 → $10.74` 这类需要正确舍入的值），并覆盖 locale 差异（`en-US` 的 `$1,234.56` vs `fr-FR` 的 `1 234,56 $`）与 `ja-JP` 下 CNY 的全角 `￥`。
+- 金额格式：按 §5 的样例表与 Node 夹具逐条断言（含 <1 的小额、≥1000 的 k 缩写、`5368709 → $10.74` 这类需要正确舍入的值），覆盖 7 个 locale 的符号位置（`fr-FR`/`ru-RU`/`vi-VN` 为后缀）与分组符码位（U+202F / U+00A0）、`ja-JP` 下 CNY 的全角 `￥`，以及 CUSTOM 数字部分的 locale 分组。
+- TOKENS 浮点往返：对 1..3,000,000 全量重算并与夹具比对（至少覆盖 §5 表中 `8150`/`16150`/`32050` 三个反例），确保没有省掉 `/qpu × qpu` 的往返。
 - 舍入分歧：`1.005` 在 USD 分支得 `$1.01`、在 TOKENS 分支得 `1.00`，两条路径各有断言。
 - 溢出静默性：连续多日结算中某邀请人持续 `overflow` 时，当日仍 `done`、退出码为 0，但 WARN 与 `status` 计数都能反映。
 
