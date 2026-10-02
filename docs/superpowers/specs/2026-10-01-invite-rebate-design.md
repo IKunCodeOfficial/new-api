@@ -58,7 +58,9 @@ settled_base += delta
 
 ### 2.1.1 消费侧与订阅
 
-消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`）。**不需要**按 `other.billing_source` 区分：订阅计费（`billing_source="subscription"`）时钱从订阅额度扣，`logs.quota` 写的仍是这次请求的实际消耗额度，而订阅额度本身只能来自在线充值或余额购买（两条路径都会在 R 里体现），所以口径天然自洽。若日后出现"平台赠送订阅"（不产生任何充值记录却产生消费日志），需要重新评估——目前站内不卖赠送型订阅。
+消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`）。**本期不考虑订阅**：启用订阅后必须重新评估口径，不要沿用下面的结论。
+
+原因是订阅在本系统里走一条完全独立的资金链：买订阅写的是 `subscription_orders`，从不进 `top_ups`（`controller/subscription_payment_stripe.go:89`），用余额买订阅则是直接扣 `users.quota` 且不产生消费日志（`model/subscription.go:799-816`）；同时订阅计费的消费日志（`billing_source="subscription"`，`logs.other` 里带 `subscription_id`）里的 `quota` 计的是**订阅额度**，不是钱包额度。也就是说订阅既不进 R 也不进 C，两套口径互不相干。目前站内未启用订阅，结算侧按上句直接取 `logs.quota` 即可；一旦启用订阅，需要决定订阅消费是否、以及按什么基数参与返利。
 
 ### 2.2 实付 `paid_quota`
 
@@ -84,7 +86,7 @@ settled_base += delta
 - 邀请人被封禁（`status ≠ 1`）或软删除；
 - 邀请人在排除名单（role=inviter）；受邀用户在排除名单（role=invitee，只作废该受邀用户的份额）；
 - 开关关闭（`IkunRebateEnabled ≠ true`）：当天照常结算推水位，全部不发，`rebate_days.disabled = true`；
-- 发放会使 `aff_quota` 或 `aff_history` 超过 2147483647（两列都是 32 位 `int`，且 `aff_history` 只增不减，会先溢出）：仅该邀请人按 `overflow` 作废，**不使当天失败**，否则 cron 会从第一次溢出起永久卡住。
+- 发放会使 `aff_quota` 或 `aff_history` 超过 2147483647（两列都是 32 位 `int`，且 `aff_history` 只增不减，会先溢出）：仅该邀请人按 `overflow` 作废，**不使当天失败**，否则 cron 会从第一次溢出起永久卡住。代价是这个状态不会自愈——同一邀请人之后每天都作废，而退出码仍是 0，只靠告警通道抓不到，因此必须额外打一条 WARN（见 §6），并让 `status` 子命令显示 overflow 次数。
 
 允许自己邀请自己。受邀用户被改绑邀请人后，水位随受邀用户走，返利发给结算时的当前邀请人。
 
@@ -219,10 +221,13 @@ settled_base += delta
 
 实现方式：**复刻** `formatQuota`（`web/src/lib/format.ts:73`，参数 `digitsLarge: 2, digitsSmall: 4, abbreviate: true`）→ `formatQuotaWithCurrency`（`web/src/lib/currency.ts:516`）→ `formatCurrencyFromUSD` → `formatCurrencyValue`，不要按"两位小数"简化。
 
+**与前端唯一的、故意的差异：locale 必须钉死。** 前端 `DEFAULT_FORMAT_OPTIONS.locale` 是 `undefined`（`web/src/lib/currency.ts:140`），`Intl.NumberFormat(undefined)` 跟随访问者的浏览器语言，同一个金额在不同浏览器会渲染成 `$1,234.56` / `1 234,56 $` / `1.234,56 $`——没有唯一正确的输出可对标。所以日志统一按**邀请人语言**取一个固定 locale（与 §5 的文案语言一致）：
+
 常量取自数据库（不能写死，`QuotaPerUnit` 与汇率都可被管理后台覆盖）：
 
 | 值 | 来源 | 缺省 |
 |---|---|---|
+| locale | 由 §5 归一化后的语言映射：`zhCN`→`zh-CN`、`zhTW`→`zh-TW`、`en`→`en-US`、`fr`→`fr-FR`、`ru`→`ru-RU`、`ja`→`ja-JP`、`vi`→`vi-VN` | 同左 |
 | `quotaPerUnit` | options `QuotaPerUnit`（`model/option.go:596`） | 500000 |
 | `displayType` | options `general_setting.quota_display_type` | 见下方回退 |
 | `usdExchangeRate` | options `USDExchangeRate`（`model/option.go:439`） | 7.3 |
@@ -240,14 +245,34 @@ CNY:    currency(usd, CNY, rate = usdExchangeRate)
 CUSTOM: 无货币符号前缀：f"{customSymbol} {number(usd * customRate)}"
 TOKENS: shorten(rebate)   # abbreviate: >=1000 → 保留 1 位小数的 k；否则按值取 2 位(<1 用 4 位)小数、去尾零
 
-currency 分支（Intl.NumberFormat style=currency, currencyDisplay=narrowSymbol）：
+currency 分支（Intl.NumberFormat style=currency, currencyDisplay=narrowSymbol, locale 见上）：
   digits = |value| >= 1 ? 2 : 4
   value = adjustForMinimum(value, digits, minimumNonZero=0)  # 0<|v|<10^-digits 时钳到 ±10^-digits
-  number = 千分位分组 + 最多 digits 位小数 + 去尾零（两位小数取整用 JS 的 toFixed 语义，即半分远离零）
-字符串里的数字一律按 JS `Number.prototype.toFixed` 的舍入实现，与前端逐字节一致
+  number = 按 locale 分组 + 最多 digits 位小数 + 去尾零
 ```
 
-注意 CUSTOM 的符号和数字之间有一个空格，USD/CNY 由 `Intl` 直接输出符号紧贴数字。
+**两条分支的舍入规则不同，不能混用**：
+
+- USD/CNY/CUSTOM 走 `Intl.NumberFormat`，它对 double 的最短十进制表示做 halfExpand：`1.005 → 1.01`。Python 复刻方式：`Decimal(repr(x)).quantize(Decimal('0.01'), ROUND_HALF_UP)`。
+- TOKENS 走 `formatNumberWithSuffix`，用的是 `Number.prototype.toFixed`，按精确二进制值处理：`(1.005).toFixed(2) → "1.00"`。Python 复刻方式：`Decimal(x)`（精确二进制展开）再按 half-up（平局取较大值）。
+
+已验证的样例（`QuotaPerUnit=500000`、`USDExchangeRate=7.3`，`en-US`）：
+
+| rebate | USD | CNY | TOKENS |
+|---|---|---|---|
+| 1 | `$0.0001` | `¥0.0001` | `1` |
+| 12500 | `$0.025` | `¥0.1825` | `12.5k` |
+| 250000 | `$0.5` | `¥3.65` | `250k` |
+| 500000 | `$1` | `¥7.3` | `500k` |
+| 5368709 | `$10.74` | `¥78.38` | `5368.7k` |
+| 500000000 | `$1,000` | `¥7,300` | `500000k` |
+
+两个容易写错的地方：
+
+- TOKENS 只有 `k` **一级，没有 M/B**：5,000,000 会渲染成 `5000k`（实测确认），不要自作主张加 M 档。且 `k` 分支也用 `toFixed(1)` 再去尾零。
+- 货币符号随 locale 变化：`ja-JP` 下 CNY 的 narrowSymbol 是 `￥`（全角），`en-US` 下是 `¥`。钉死 locale 后符号随之确定，实现时按 locale 直接取 `Intl` 的输出，不要自己拼符号表。
+
+CUSTOM 分支例外：它是自己拼字符串（`${meta.symbol} ${decimal}`），符号和数字之间有一个空格，符号始终是 `custom_currency_symbol` 原值，不受 locale 影响。
 
 ### 5.1 日志内容中的金额
 
@@ -262,15 +287,19 @@ currency 分支（Intl.NumberFormat style=currency, currencyDisplay=narrowSymbol
 3. `options.LogConsumeEnabled` 不是 `false`。
 4. `rebate_meta` 存在且 `activity_start`/`timezone` 合法。
 5. **开关打开时** `IkunRebateRate` 必须合法（`0 < rate < 1`）；开关关闭时不校验，按 0 发放并在 `rebate_days` 标 `disabled`（否则首次部署时 enabled=false 且未填比例会让每天都拒绝，之后一旦填上比例 + 打开开关，cron 会从 `activity_start` 一路补结并全部发钱）。
-6. 结算目标日 `D` 尚未存在 `rebate_days` 终态时，若 `IkunRebateEnabled` 曾打开过而比例缺失，按第 5 条拒绝——**不允许"先按 0 推水位、之后再补发"**。
+
+不需要、也无法判断"开关曾经打开过"：`options` 只存当前值，没有变更历史。因此口径统一为 §4.4 的"执行时刻配置"——当前打开则比例必须合法，当前关闭则按 0 推水位且不补发。
 
 运行中：
 
-- 当日存在未知渠道的成功充值订单、邀请人事务数据库错误、余额超上限 → 当日 `failed`，停止。
+- 当日存在未知渠道的成功充值订单、邀请人事务数据库错误 → 当日 `failed`，停止。（余额溢出**不在此列**：按 `overflow` 作废该邀请人、当日照常 `done`，见 §2.3。）
 - 锁续期失败 → 不再开启新的邀请人事务，当日 `failed`（原因写明锁丢失），退出。
 - 不写任何缓存失效动作：`aff_quota`/`aff_history` 不进 Redis 用户缓存，`GetUserById` 直读数据库，因此没有可失败的缓存步骤。
 
-告警：暂以退出码 + 容器日志为准。
+告警：暂以退出码 + 容器日志为准。由于 `overflow` 作废不改变退出码，这类永久性异常只能靠日志发现：
+
+- 任一日出现 `overflow` 作废时，立即打 WARN，格式 `overflow: inviter=123 quota=... rebate=...`，并把该日 `rebate_days.error` 写为 `overflow: inviter=123,456`（当日状态仍是 `done`）。
+- `status` 子命令在最近 N 天里统计并显示 `overflow` 次数与涉及的邀请人 ID，便于人工发现"某个邀请人的 `aff_history` 已经到顶"。
 
 ## 7. Python 项目
 
@@ -292,7 +321,7 @@ rebate/
 
 - `init --activity-start YYYY-MM-DD --timezone Asia/Shanghai`：建表并写 meta；已存在的 meta 不覆盖。
 - `settle [--from D1 --to D2] [--dry-run]`：`--dry-run` 只读：打印各邀请人计划金额与作废原因，不拿锁、不写库。
-- `status [--days 14]`：最近各日状态、总额、失败原因。
+- `status [--days 14]`：最近各日状态、总额、失败原因，以及各作废原因（`banned`/`deleted`/`excluded`/`disabled`/`overflow`）的次数和涉及的邀请人 ID。
 
 环境变量：`REBATE_DB_DSN`（`mysql+pymysql://...` 或 `postgresql+psycopg://...`）、`REBATE_REDIS_URL`、`REBATE_LOGS_IN_MAIN_DB`、`TZ`。Redis 只用于结算锁（new-api 自身用单节点 `redis.Client`，不依赖集群特性，脚本同样只用单 key 的 `SET NX`/`EVAL`）。
 
@@ -348,7 +377,9 @@ rebate/
 - 开关关闭 + 比例缺失：每天正常写出 `disabled` 日并推水位，之后打开开关不补发。
 - 兑换码软删除：`status=3` 且 `deleted_at` 非空的行仍计入 R。
 - 语言：`zh-CN`/`zh-Hans`/`zh-TW` 旧值分别归到 `zhCN`/`zhCN`/`zhTW`；未知值回落 `en`。
-- 金额格式：对前端 `formatQuota` 的同一组输入（含 <1 的小额、≥1000 的 k 缩写、TOKENS 模式）逐一比对输出字符串。
+- 金额格式：按 §5 的样例表逐条断言（含 <1 的小额、≥1000 的 k 缩写、`5368709 → $10.74` 这类需要正确舍入的值），并覆盖 locale 差异（`en-US` 的 `$1,234.56` vs `fr-FR` 的 `1 234,56 $`）与 `ja-JP` 下 CNY 的全角 `￥`。
+- 舍入分歧：`1.005` 在 USD 分支得 `$1.01`、在 TOKENS 分支得 `1.00`，两条路径各有断言。
+- 溢出静默性：连续多日结算中某邀请人持续 `overflow` 时，当日仍 `done`、退出码为 0，但 WARN 与 `status` 计数都能反映。
 
 **Go（testify require/assert）**：
 
