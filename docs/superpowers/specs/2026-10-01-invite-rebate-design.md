@@ -6,7 +6,7 @@
 
 ## 1. 目标与约束
 
-受邀用户用**真实充值**得到的额度被消费后，按比例把返利加到邀请人余额，并给邀请人写一条管理类型日志。
+受邀用户用**真实充值**得到的额度被消费后，按比例把返利加到邀请人的**推广奖励余额**（`users.aff_quota`，钱包页 "Referral Program" 卡片显示为 Pending），由邀请人自行用已有的 "Transfer to Balance" 提取到钱包余额；同时给邀请人写一条管理类型日志。
 
 用户给定的约束：
 
@@ -17,7 +17,7 @@
 5. 结算基数是受邀用户实际消费；漏结或异常时可手动按日期范围补结。
 6. 只能新增表，不能改已有表结构；MySQL 与 PostgreSQL 都要支持。不使用 SQLite。
 7. 合理利用 Redis。
-8. 入账后给邀请人写管理日志："返利结算：共 x 个受邀用户消费，返利 xx"，金额单位与钱包余额展示一致。
+8. 入账后给邀请人写管理日志："返利结算：共 x 个受邀用户消费，返利 xx"，金额单位与钱包余额展示一致，文案覆盖前端全部 7 种界面语言。
 
 部署全部为 docker。活动从首次部署当天开始，无历史数据迁移。
 
@@ -172,10 +172,11 @@ settled_base += delta
    2. 插入 `rebate_credits(D, I)`；唯一冲突 → 回滚并跳过该邀请人（已结算过）。
    3. 读取并锁定其名下受邀用户的 `rebate_watermarks` 行（不存在则视为全 0），按 §2 更新 `cum_recharge`、`cum_consume`、`settled_base`、`last_day`。
    4. 判定作废（§2.3）；作废的份额不进入 `rebate`。
-   5. `rebate > 0` 时：校验 `users.quota + rebate ≤ 2147483647`（`users.quota` 是 32 位 `int` 列），超限则抛错使当日失败；否则 `UPDATE users SET quota = quota + rebate`，并插入一条日志（§5）。
+   5. `rebate > 0` 时：校验 `users.aff_quota + rebate ≤ 2147483647`（`aff_quota` 是 32 位 `int` 列），超限则抛错使当日失败；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
    6. 回填 `rebate_credits` 的统计字段，提交。
-   7. 提交后 `DEL user:{I}`；失败只记警告（缓存最多 `SYNC_FREQUENCY` 秒后自愈）。
 4. 全部邀请人完成后，`rebate_days[D]` 置 `done` 并写汇总；任何异常置 `failed` 并写 `error`，然后停止。
+
+返利只写 `aff_quota`/`aff_history`，不动 `users.quota`。`aff_quota` 不在 Redis 用户缓存里（缓存哈希只含 `quota` 等基础字段），改动后无需失效任何缓存。用户提取到钱包余额走已有接口 `POST /api/user/aff_transfer`（`model.TransferAffQuotaToQuota`，最小 1 单位，`FOR UPDATE` 锁定用户行）。
 
 崩溃在任意点：已提交的邀请人有 `rebate_credits` 行，重跑跳过；未提交的整体回滚。无需 pending 状态或入账标记核对。
 
@@ -187,10 +188,17 @@ settled_base += delta
 
 插入 `logs`：`user_id=I`、`username`=邀请人用户名、`type=3`、`quota=rebate`、`created_at=now`、`request_id=rebate-YYYYMMDD-{I}`（仅用于追溯）、`content` 如下，其余列取表默认值。
 
-文案按邀请人 `users.setting` JSON 的 `language`：`en` 用英文，其余（含缺省）用中文：
+文案按邀请人 `users.setting` JSON 的 `language`。该字段的值是前端界面语言码（`web/src/i18n/languages.ts` 的 `INTERFACE_LANGUAGE_OPTIONS`：`zhCN`/`en`/`fr`/`ru`/`ja`/`vi`/`zhTW`），逐字匹配；无法匹配或缺失时按 `en`（与前端 `normalizeInterfaceLanguage` 的兜底一致）：
 
-- 中文：`返利结算（MM-DD）：共 {x} 个受邀用户消费，返利 {amount}`
-- 英文：`Rebate settlement (MM-DD): {x} invitees consumed, rebate {amount}`
+| language | 文案 |
+|---|---|
+| `zhCN` | `返利结算（MM-DD）：共 {x} 个受邀用户消费，返利 {amount}` |
+| `zhTW` | `返利結算（MM-DD）：共 {x} 位受邀用戶消費，返利 {amount}` |
+| `en` | `Rebate settlement (MM-DD): {x} invitees consumed, rebate {amount}` |
+| `fr` | `Règlement des parrainages (MM-DD) : {x} filleuls ont consommé, remise {amount}` |
+| `ru` | `Расчёт вознаграждений (MM-DD): потребили {x} приглашённых, вознаграждение {amount}` |
+| `ja` | `紹介報酬の精算（MM-DD）：招待ユーザー {x} 名が消費、報酬 {amount}` |
+| `vi` | `Quyết toán hoa hồng (MM-DD): {x} người được mời đã tiêu dùng, hoa hồng {amount}` |
 
 `x` = 该邀请人当日 delta>0 且未被作废的受邀用户数。`amount` 按结算时刻的钱包展示设置格式化，与前端 `web/src/lib/format` 的 `formatQuota` 结果一致（实现时逐项对照其源码）：
 
@@ -230,8 +238,8 @@ rebate/
   sources.py      # 单日 r / c 聚合（三类充值 + 消费/退款）
   engine.py       # 纯函数：水位推进、返利计算、作废判定
   settle.py       # 选日、单日流程、邀请人事务
-  display.py      # 金额格式化 + 中英文文案
-  lock.py         # Redis 锁与缓存失效
+  display.py      # 金额格式化 + 7 种语言文案
+  lock.py         # Redis 结算锁
 ```
 
 命令：
@@ -240,9 +248,11 @@ rebate/
 - `settle [--from D1 --to D2] [--dry-run]`：`--dry-run` 只读：打印各邀请人计划金额与作废原因，不拿锁、不写库。
 - `status [--days 14]`：最近各日状态、总额、失败原因。
 
-环境变量：`REBATE_DB_DSN`（`mysql+pymysql://...` 或 `postgresql+psycopg://...`）、`REBATE_REDIS_URL`、`REBATE_LOGS_IN_MAIN_DB`、`TZ`。
+环境变量：`REBATE_DB_DSN`（`mysql+pymysql://...` 或 `postgresql+psycopg://...`）、`REBATE_REDIS_URL`、`REBATE_LOGS_IN_MAIN_DB`、`TZ`。Redis 只用于结算锁（new-api 自身用单节点 `redis.Client`，不依赖集群特性，脚本同样只用单 key 的 `SET NX`/`EVAL`）。
 
-数据库账号权限：读 `users`/`top_ups`/`redemptions`/`logs`/`options` 与 Go 的 3 张返利表；`UPDATE users(quota)`；`INSERT logs`；Python 4 张表全权限；`init` 时需要建表权限。
+账单口径：`rebate_credits.rebate` 记录实际发放的额度，与 `aff_quota` 的增量一致；`transfer` 之后额度进入钱包余额是用户行为，不再与本项目相关。
+
+数据库账号权限：读 `users`/`top_ups`/`redemptions`/`logs`/`options` 与 Go 的 3 张返利表；`UPDATE users(aff_quota, aff_history)`；`INSERT logs`；Python 4 张表全权限；`init` 时需要建表权限。不需要 `users.quota` 的写权限。
 
 ### 7.1 部署
 
@@ -286,7 +296,8 @@ rebate/
 - 崩溃恢复：在第 k 个邀请人事务后中断，重跑不重复发放、水位一致。
 - 作废：封禁、软删、两类排除、开关关闭——不发钱但水位推进，恢复后不补发。
 - 前置检查：未声明 `REBATE_LOGS_IN_MAIN_DB`、`LogConsumeEnabled=false`、比例非法、未知渠道订单。
-- 日志：4 种展示单位的金额格式；中英文文案；`quota`/`type`/`request_id`。
+- 日志：4 种展示单位的金额格式；7 种语言的文案与 `language` 兜底；`quota`/`type`/`request_id`。
+- 入账目标：返利只进 `aff_quota`/`aff_history`，`users.quota` 不变；`aff_quota` 越界使当日失败。
 
 **Go（testify require/assert）**：
 
@@ -303,3 +314,5 @@ rebate/
 - 管理员"减少"与"覆盖"模式不涉及充值。
 - 日志必须在主库（`LOG_SQL_DSN` 未配置），由运维显式声明。
 - 受邀用户改绑后返利归当前邀请人。
+- 返利进 `aff_quota`（推广奖励余额），不进钱包余额；提取由用户自行执行。
+- `aff_history`（Total Earned）与 `aff_quota` 同步增加；封禁、软删、排除名单、开关关闭时两者都不增加。
