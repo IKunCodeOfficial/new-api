@@ -43,7 +43,7 @@ settled_base += delta
 | 来源 | 取数 | 计入 R 的值 |
 |---|---|---|
 | 在线充值 | `top_ups` 中 `status='success'`，按 `complete_time` 落日 | `min(到账额度, paid_quota)`；`rebate_topup_paid` 无该 `trade_no` 时取到账额度 |
-| 兑换码 | `redemptions` 中 `status=3`，按 `redeemed_time` 落日，归属 `used_user_id` | `quota` 全额 |
+| 兑换码 | `redemptions` 中 `status=3`，按 `redeemed_time` 落日，归属 `used_user_id`。**必须忽略 `deleted_at`**：管理员"清理无效兑换码"（`model.DeleteInvalidRedemptions`）会对 `status=3` 的行软删除，直连 SQL 若不过滤就会静默少算 R | `quota` 全额 |
 | 管理员充值 | `rebate_admin_recharges`，按 `created_at` 落日 | `paid_quota` |
 
 在线充值到账额度（与 `model/topup.go` 入账一致；渠道按 `payment_provider` 判定，为空的旧行按 `payment_method` 推断：`stripe`/`creem`/`waffo`/`waffo_pancake` 同名，其余视为 `epay`）：
@@ -54,7 +54,11 @@ settled_base += delta
 | stripe | `money × QuotaPerUnit`（Decimal，半远离零取整） |
 | creem | `amount`（本身已是 quota） |
 
-`payment_provider='balance'` 或其他未知渠道的成功订单：当天结算失败（见 §6），不静默跳过。
+已知但**不该出现在 `top_ups`** 的渠道：`payment_provider='balance'` 只在"用余额购买订阅"时使用，该路径写 `subscription_orders` 而不是 `top_ups`（`model/subscription.go:799-816`），所以它出现在成功订单里说明库被人工改过。与其他未知渠道同样处理：当天结算失败（见 §6），不静默跳过。
+
+### 2.1.1 消费侧与订阅
+
+消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`）。**不需要**按 `other.billing_source` 区分：订阅计费（`billing_source="subscription"`）时钱从订阅额度扣，`logs.quota` 写的仍是这次请求的实际消耗额度，而订阅额度本身只能来自在线充值或余额购买（两条路径都会在 R 里体现），所以口径天然自洽。若日后出现"平台赠送订阅"（不产生任何充值记录却产生消费日志），需要重新评估——目前站内不卖赠送型订阅。
 
 ### 2.2 实付 `paid_quota`
 
@@ -76,9 +80,11 @@ settled_base += delta
 
 以下情况对应部分**不发钱，但水位照常推进**，之后恢复也不补发：
 
+- 邀请人的 `users` 行不存在（被 `DELETE /api/user/:id` 物理删除，`model.HardDeleteUserById`）：整组按 `deleted` 作废；
 - 邀请人被封禁（`status ≠ 1`）或软删除；
 - 邀请人在排除名单（role=inviter）；受邀用户在排除名单（role=invitee，只作废该受邀用户的份额）；
-- 开关关闭（`IkunRebateEnabled ≠ true`）：当天照常结算推水位，全部不发，`rebate_days.disabled = true`。
+- 开关关闭（`IkunRebateEnabled ≠ true`）：当天照常结算推水位，全部不发，`rebate_days.disabled = true`；
+- 发放会使 `aff_quota` 或 `aff_history` 超过 2147483647（两列都是 32 位 `int`，且 `aff_history` 只增不减，会先溢出）：仅该邀请人按 `overflow` 作废，**不使当天失败**，否则 cron 会从第一次溢出起永久卡住。
 
 允许自己邀请自己。受邀用户被改绑邀请人后，水位随受邀用户走，返利发给结算时的当前邀请人。
 
@@ -131,7 +137,7 @@ settled_base += delta
 |---|---|
 | day `CHAR(10)` PK | 结算日 |
 | status | `running` / `done` / `failed` |
-| rate `VARCHAR(32)` | 当日比例快照（Decimal 字符串） |
+| rate `VARCHAR(32)` NULL | 当日比例快照（Decimal 字符串）；开关关闭时为 NULL |
 | disabled | 开关关闭时为 true |
 | inviter_count / invitee_count | 实际发放的邀请人数 / delta>0 的受邀用户数 |
 | total_rebate `BIGINT` | 当日实发总额 |
@@ -140,7 +146,7 @@ settled_base += delta
 
 **`rebate_watermarks`**：`invitee_id PK`, `cum_recharge`, `cum_consume`, `settled_base`（均 BIGINT），`last_day CHAR(10)`, `updated_at`。
 
-**`rebate_credits`**：`(day, inviter_id)` 唯一；`invitee_count`, `delta_sum`, `rebate`（实发，作废为 0）, `forfeit_reason`（空/`banned`/`deleted`/`excluded`/`disabled`）, `log_request_id`, `created_at`。
+**`rebate_credits`**：`(day, inviter_id)` 唯一；`invitee_count`, `delta_sum`, `rebate`（实发，作废为 0）, `forfeit_reason`（空/`banned`/`deleted`/`excluded`/`disabled`/`overflow`）, `log_request_id`, `created_at`。
 这是防重复发放的最终保证：入账事务里先插这一行，唯一冲突即说明已结算过。
 
 ### 3.3 配置（`options` 表，已有键值表，只新增行）
@@ -170,25 +176,34 @@ settled_base += delta
 3. 每个邀请人一个数据库事务：
    1. `SELECT ... FOR UPDATE` 锁邀请人 `users` 行（SQLAlchemy `with_for_update()`，两种库都生成 `FOR UPDATE`）。
    2. 插入 `rebate_credits(D, I)`；唯一冲突 → 回滚并跳过该邀请人（已结算过）。
-   3. 读取并锁定其名下受邀用户的 `rebate_watermarks` 行（不存在则视为全 0），按 §2 更新 `cum_recharge`、`cum_consume`、`settled_base`、`last_day`。
+   3. 读取并锁定其名下受邀用户的 `rebate_watermarks` 行（不存在则视为全 0），**跳过 `last_day >= D` 的受邀用户**（见 §4.3），其余按 §2 更新 `cum_recharge`、`cum_consume`、`settled_base`、`last_day`。
    4. 判定作废（§2.3）；作废的份额不进入 `rebate`。
-   5. `rebate > 0` 时：校验 `users.aff_quota + rebate ≤ 2147483647`（`aff_quota` 是 32 位 `int` 列），超限则抛错使当日失败；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
+   5. `rebate > 0` 时：校验 `aff_quota + rebate ≤ 2147483647` **且** `aff_history + rebate ≤ 2147483647`。超限按 `overflow` 作废（§2.3），不写余额、不写日志、当日照常继续；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
    6. 回填 `rebate_credits` 的统计字段，提交。
 4. 全部邀请人完成后，`rebate_days[D]` 置 `done` 并写汇总；任何异常置 `failed` 并写 `error`，然后停止。
 
-返利只写 `aff_quota`/`aff_history`，不动 `users.quota`。`aff_quota` 不在 Redis 用户缓存里（缓存哈希只含 `quota` 等基础字段），改动后无需失效任何缓存。用户提取到钱包余额走已有接口 `POST /api/user/aff_transfer`（`model.TransferAffQuotaToQuota`，最小 1 单位，`FOR UPDATE` 锁定用户行）。
+返利只写 `aff_quota`/`aff_history`，不动 `users.quota`。`aff_quota` 不在 Redis 用户缓存里（缓存哈希只含 `quota` 等基础字段，且 `GetUserById` 直读数据库），**无需失效任何缓存**。用户提取到钱包余额走已有接口 `POST /api/user/aff_transfer`（`model.TransferAffQuotaToQuota`，最小 1 单位，`FOR UPDATE` 锁定用户行）。
 
 崩溃在任意点：已提交的邀请人有 `rebate_credits` 行，重跑跳过；未提交的整体回滚。无需 pending 状态或入账标记核对。
 
 ### 4.3 水位与跳过的一致性
 
-同一邀请人事务内同时写 `rebate_credits` 与其受邀用户的 `rebate_watermarks`，因此"跳过已结算邀请人"与"水位已推进"总是一致。受邀用户在同一天只属于一个邀请人分组，不会被两个事务同时推进。
+同一邀请人事务内同时写 `rebate_credits` 与其受邀用户的 `rebate_watermarks`，因此"跳过已结算邀请人"与"水位已推进"总是一致。
+
+但"同一受邀用户同一天只属于一个分组"**只在单次运行内成立**。改绑场景：D 日结算到邀请人 A 已提交、后面某邀请人失败；此时把受邀用户 u 从 A 改绑到 C；重跑 D 日时 u 落在 C 组，`rebate_credits(D, C)` 不存在，u 的 `cum_recharge`/`cum_consume` 会再加一遍 D 日的 r 和 c，C 被多付、u 的水位永久虚高。因此受邀用户必须按 `rebate_watermarks.last_day >= D` 跳过——既保证重跑不重复累计，也让水位成为"该受邀用户已结算到哪一天"的唯一事实来源。
+
+### 4.4 快照语义（按什么时刻的口径算）
+
+- **开关与比例**：按执行结算那一刻的配置判定，不按 D 日当天。开关关闭期间 cron 仍逐日写出 `disabled` 日并推进水位（因此不会事后补发）；补结历史日期时用的是补结时刻的开关与比例，不保留比例历史。
+- **开关关闭时 `rate` 允许缺失**：此时不校验、按 0 发放，`rebate_days.rate` 写 NULL；只有开关打开时才要求比例合法（§6）。
+- **金额展示单位**：日志金额按执行结算那一刻的展示设置格式化，补结旧日期也用当前设置。
+- **支付单价**：在线充值的实付额度在下单时刻固化进 `rebate_topup_paid`，之后改价不影响历史订单；若某笔订单没有该行（部署前下单、部署后支付完成），结算时以到账额度为上界，不会多算。
 
 ## 5. 入账日志
 
 插入 `logs`：`user_id=I`、`username`=邀请人用户名、`type=3`、`quota=rebate`、`created_at=now`、`request_id=rebate-YYYYMMDD-{I}`（仅用于追溯）、`content` 如下，其余列取表默认值。
 
-文案按邀请人 `users.setting` JSON 的 `language`。该字段的值是前端界面语言码（`web/src/i18n/languages.ts` 的 `INTERFACE_LANGUAGE_OPTIONS`：`zhCN`/`en`/`fr`/`ru`/`ja`/`vi`/`zhTW`），逐字匹配；无法匹配或缺失时按 `en`（与前端 `normalizeInterfaceLanguage` 的兜底一致）：
+文案按邀请人 `users.setting` JSON 的 `language`。写入该字段的接口不做校验（`controller/user.go:825-839` 直接存字符串），且历史上存过 `zh-CN` 一类旧值，所以**必须复刻前端 `normalizeInterfaceLanguage`（`web/src/i18n/languages.ts`）而不是逐字匹配**：`trim` → `_`→`-` → 转小写；`zh-TW`/`zh-HK`/`zh-MO`/`zhTW` → `zhTW`；`zh-CN`/`zh-Hans`/`zhCN` → `zhCN`；其余不在 `zhCN`/`en`/`fr`/`ru`/`ja`/`vi`/`zhTW` 内的（含缺失）→ `en`：
 
 | language | 文案 |
 |---|---|
@@ -202,12 +217,41 @@ settled_base += delta
 
 `x` = 该邀请人当日 delta>0 且未被作废的受邀用户数。`amount` 按结算时刻的钱包展示设置格式化，与前端 `web/src/lib/format` 的 `formatQuota` 结果一致（实现时逐项对照其源码）：
 
-| `general_setting.quota_display_type` | 格式 |
-|---|---|
-| `USD` | `$` + `rebate / QuotaPerUnit` |
-| `CNY` | `¥` + `rebate / QuotaPerUnit × USDExchangeRate` |
-| `CUSTOM` | `custom_currency_symbol` + `rebate / QuotaPerUnit × custom_currency_exchange_rate` |
-| `TOKENS` | `rebate` 原始数值 |
+实现方式：**复刻** `formatQuota`（`web/src/lib/format.ts:73`，参数 `digitsLarge: 2, digitsSmall: 4, abbreviate: true`）→ `formatQuotaWithCurrency`（`web/src/lib/currency.ts:516`）→ `formatCurrencyFromUSD` → `formatCurrencyValue`，不要按"两位小数"简化。
+
+常量取自数据库（不能写死，`QuotaPerUnit` 与汇率都可被管理后台覆盖）：
+
+| 值 | 来源 | 缺省 |
+|---|---|---|
+| `quotaPerUnit` | options `QuotaPerUnit`（`model/option.go:596`） | 500000 |
+| `displayType` | options `general_setting.quota_display_type` | 见下方回退 |
+| `usdExchangeRate` | options `USDExchangeRate`（`model/option.go:439`） | 7.3 |
+| `customSymbol` | options `general_setting.custom_currency_symbol` | `¤` |
+| `customRate` | options `general_setting.custom_currency_exchange_rate` | 1.0 |
+
+`displayType` 的回退链（直读表时这些行可能缺失或曾是内存态）：`general_setting.quota_display_type`（合法值 `USD`/`CNY`/`TOKENS`/`CUSTOM`）→ 旧开关 `DisplayInCurrencyEnabled`（`true`→`USD`，`false`→`TOKENS`；该开关只在内存生效，`model/option.go:345-353` 不写库）→ `USD`。
+
+算法：
+
+```
+usd = rebate / quotaPerUnit
+USD:    currency(usd, USD, rate 1)
+CNY:    currency(usd, CNY, rate = usdExchangeRate)
+CUSTOM: 无货币符号前缀：f"{customSymbol} {number(usd * customRate)}"
+TOKENS: shorten(rebate)   # abbreviate: >=1000 → 保留 1 位小数的 k；否则按值取 2 位(<1 用 4 位)小数、去尾零
+
+currency 分支（Intl.NumberFormat style=currency, currencyDisplay=narrowSymbol）：
+  digits = |value| >= 1 ? 2 : 4
+  value = adjustForMinimum(value, digits, minimumNonZero=0)  # 0<|v|<10^-digits 时钳到 ±10^-digits
+  number = 千分位分组 + 最多 digits 位小数 + 去尾零（两位小数取整用 JS 的 toFixed 语义，即半分远离零）
+字符串里的数字一律按 JS `Number.prototype.toFixed` 的舍入实现，与前端逐字节一致
+```
+
+注意 CUSTOM 的符号和数字之间有一个空格，USD/CNY 由 `Intl` 直接输出符号紧贴数字。
+
+### 5.1 日志内容中的金额
+
+`amount` 用 §5 格式化结果。中/日/俄/越 的"共 x 个"和"返利"之间按上表文案；`x` 为该邀请人当日 delta>0 且未被作废的受邀用户数。
 
 ## 6. 前置检查与故障处理
 
@@ -216,13 +260,15 @@ settled_base += delta
 1. 获取 Redis 锁 `rebate:settle:lock`（`SET NX PX` + 随机 token，后台续期；释放用 token 比对的 Lua 脚本）。拿不到 → 已有结算在跑。
 2. 环境变量 `REBATE_LOGS_IN_MAIN_DB=true`（运维声明 new-api 未配置 `LOG_SQL_DSN`；否则消费日志不在主库，会把消费当 0 永久少发）。
 3. `options.LogConsumeEnabled` 不是 `false`。
-4. `rebate_meta` 存在且 `activity_start`/`timezone` 合法；`IkunRebateRate` 合法（缺失或越界即拒绝，不回落默认值）。
+4. `rebate_meta` 存在且 `activity_start`/`timezone` 合法。
+5. **开关打开时** `IkunRebateRate` 必须合法（`0 < rate < 1`）；开关关闭时不校验，按 0 发放并在 `rebate_days` 标 `disabled`（否则首次部署时 enabled=false 且未填比例会让每天都拒绝，之后一旦填上比例 + 打开开关，cron 会从 `activity_start` 一路补结并全部发钱）。
+6. 结算目标日 `D` 尚未存在 `rebate_days` 终态时，若 `IkunRebateEnabled` 曾打开过而比例缺失，按第 5 条拒绝——**不允许"先按 0 推水位、之后再补发"**。
 
 运行中：
 
 - 当日存在未知渠道的成功充值订单、邀请人事务数据库错误、余额超上限 → 当日 `failed`，停止。
 - 锁续期失败 → 不再开启新的邀请人事务，当日 `failed`（原因写明锁丢失），退出。
-- 删除 Redis 用户缓存失败 → 仅警告。
+- 不写任何缓存失效动作：`aff_quota`/`aff_history` 不进 Redis 用户缓存，`GetUserById` 直读数据库，因此没有可失败的缓存步骤。
 
 告警：暂以退出码 + 容器日志为准。
 
@@ -252,7 +298,7 @@ rebate/
 
 账单口径：`rebate_credits.rebate` 记录实际发放的额度，与 `aff_quota` 的增量一致；`transfer` 之后额度进入钱包余额是用户行为，不再与本项目相关。
 
-数据库账号权限：读 `users`/`top_ups`/`redemptions`/`logs`/`options` 与 Go 的 3 张返利表；`UPDATE users(aff_quota, aff_history)`；`INSERT logs`；Python 4 张表全权限；`init` 时需要建表权限。不需要 `users.quota` 的写权限。
+数据库账号权限：读 `users`/`top_ups`/`redemptions`/`logs`/`options` 与 Go 的 3 张返利表；`UPDATE users(aff_quota, aff_history)`；`INSERT logs`；Python 4 张表全权限；`init` 时需要建表权限。不需要 `users.quota` 的写权限。读 `redemptions` 时必须绕过 `deleted_at` 过滤（见 §2.1）。
 
 ### 7.1 部署
 
@@ -297,7 +343,12 @@ rebate/
 - 作废：封禁、软删、两类排除、开关关闭——不发钱但水位推进，恢复后不补发。
 - 前置检查：未声明 `REBATE_LOGS_IN_MAIN_DB`、`LogConsumeEnabled=false`、比例非法、未知渠道订单。
 - 日志：4 种展示单位的金额格式；7 种语言的文案与 `language` 兜底；`quota`/`type`/`request_id`。
-- 入账目标：返利只进 `aff_quota`/`aff_history`，`users.quota` 不变；`aff_quota` 越界使当日失败。
+- 入账目标：返利只进 `aff_quota`/`aff_history`，`users.quota` 不变；两列任一越界时按 `overflow` 作废该邀请人，当日仍置 `done`，且后续日期照常结算（不卡死 cron）。
+- 改绑重跑：D 日部分提交后把受邀用户改绑，重跑 D 日不重复累计、不多付（`last_day >= D` 跳过）。
+- 开关关闭 + 比例缺失：每天正常写出 `disabled` 日并推水位，之后打开开关不补发。
+- 兑换码软删除：`status=3` 且 `deleted_at` 非空的行仍计入 R。
+- 语言：`zh-CN`/`zh-Hans`/`zh-TW` 旧值分别归到 `zhCN`/`zhCN`/`zhTW`；未知值回落 `en`。
+- 金额格式：对前端 `formatQuota` 的同一组输入（含 <1 的小额、≥1000 的 k 缩写、TOKENS 模式）逐一比对输出字符串。
 
 **Go（testify require/assert）**：
 
