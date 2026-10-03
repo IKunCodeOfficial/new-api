@@ -76,7 +76,7 @@ settled_base += delta
 
   单价 ≤ 0 或结果非正时不写行（结算侧回落为到账额度）。换算使用 `common.QuotaFromDecimal` 等 `common/quota_math.go` 助手，不做裸 `int` 转换。
   分组倍率 > 1 时 `paid_quota` 会超过到账额度，由结算侧 `min` 封顶。
-- **管理员充值**：管理员在弹窗填写，约束 `0 < paid_quota ≤ value`，违反返回 400。
+- **管理员充值**：管理员在弹窗填写，约束 `0 < paid_quota ≤ value`，违反时按仓库约定返回参数错误（HTTP 200 + `success:false`），额度不变。
 
 ### 2.3 排除与失效
 
