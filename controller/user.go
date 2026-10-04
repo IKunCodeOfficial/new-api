@@ -1084,10 +1084,12 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id        int    `json:"id"`
+	Action    string `json:"action"`
+	Value     int    `json:"value"`
+	Mode      string `json:"mode"`
+	Recharge  bool   `json:"recharge"`
+	PaidQuota *int   `json:"paid_quota"`
 }
 
 // ManageUser Only admin user can do this
@@ -1180,15 +1182,33 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
-			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
-				common.ApiError(c, err)
-				return
-			}
-			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
+			auditParams := map[string]interface{}{
 				"quota":          logger.LogQuota(req.Value),
 				"target_user_id": user.Id,
 				"username":       user.Username,
-			})
+			}
+			if req.Recharge {
+				// fork (ikun): a recharge counts toward the invite-rebate base,
+				// and the paid amount defaults to the granted amount.
+				paidQuota := req.Value
+				if req.PaidQuota != nil {
+					paidQuota = *req.PaidQuota
+				}
+				if paidQuota <= 0 || paidQuota > req.Value {
+					common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+					return
+				}
+				if err := model.IncreaseUserQuotaAsRecharge(user.Id, req.Value, paidQuota, c.GetInt("id")); err != nil {
+					common.ApiError(c, err)
+					return
+				}
+				auditParams["recharge"] = true
+				auditParams["paid_quota"] = logger.LogQuota(paidQuota)
+			} else if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			recordManageAuditFor(c, user.Id, "user.quota_add", auditParams)
 		case "subtract":
 			if req.Value <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)

@@ -150,6 +150,55 @@ func TestTopUpInsertFailsWhenPaidRowCannotBeWritten(t *testing.T) {
 	assert.Zero(t, n, "钩子失败时订单不得留下")
 }
 
+func TestIncreaseUserQuotaAsRecharge(t *testing.T) {
+	truncateTables(t)
+	user := &User{Username: "rebate-u1", Password: "12345678", Quota: 1000, Status: common.UserStatusEnabled, AffCode: "rbu1"}
+	require.NoError(t, DB.Create(user).Error)
+
+	require.NoError(t, IncreaseUserQuotaAsRecharge(user.Id, 5000, 4500, 99))
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 6000, got.Quota)
+
+	var row RebateAdminRecharge
+	require.NoError(t, DB.Where("user_id = ?", user.Id).First(&row).Error)
+	assert.Equal(t, int64(5000), row.Quota)
+	assert.Equal(t, int64(4500), row.PaidQuota)
+	assert.Equal(t, 99, row.OperatorId)
+	assert.NotZero(t, row.CreatedAt)
+}
+
+func TestIncreaseUserQuotaAsRechargeRollsBackWhenRecordFails(t *testing.T) {
+	truncateTables(t)
+	user := &User{Username: "rebate-u2", Password: "12345678", Quota: 1000, Status: common.UserStatusEnabled, AffCode: "rbu2"}
+	require.NoError(t, DB.Create(user).Error)
+
+	require.NoError(t, DB.Migrator().DropTable(&RebateAdminRecharge{}))
+	t.Cleanup(func() { require.NoError(t, DB.AutoMigrate(&RebateAdminRecharge{})) })
+
+	require.Error(t, IncreaseUserQuotaAsRecharge(user.Id, 5000, 4500, 99))
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 1000, got.Quota, "充值记录写入失败时额度必须回滚")
+}
+
+func TestIncreaseUserQuotaAsRechargeRejectsBadInput(t *testing.T) {
+	truncateTables(t)
+	user := &User{Username: "rebate-u3", Password: "12345678", Quota: 1000, Status: common.UserStatusEnabled, AffCode: "rbu3"}
+	require.NoError(t, DB.Create(user).Error)
+
+	assert.Error(t, IncreaseUserQuotaAsRecharge(user.Id, 0, 0, 1))
+	assert.Error(t, IncreaseUserQuotaAsRecharge(user.Id, 100, 0, 1))
+	assert.Error(t, IncreaseUserQuotaAsRecharge(user.Id, 100, 101, 1))
+	assert.Error(t, IncreaseUserQuotaAsRecharge(999999, 100, 100, 1), "用户不存在")
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 1000, got.Quota)
+}
+
 func TestRebateExclusionUniquePerUserAndRole(t *testing.T) {
 	truncateTables(t)
 
