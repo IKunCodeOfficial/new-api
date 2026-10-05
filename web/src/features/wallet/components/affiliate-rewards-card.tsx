@@ -161,7 +161,7 @@ export function AffiliateRewardsCard({
         {rebatePercent !== null ? (
           <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(
-              'Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is automatically credited to your balance at 00:00 the next day.',
+              'Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is added to your referral rewards after daily settlement. Transfer it to your balance anytime.',
               { percent: rebatePercent }
             )}
           </p>

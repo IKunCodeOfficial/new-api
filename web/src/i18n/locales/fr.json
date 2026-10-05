@@ -2425,7 +2425,7 @@
     "Invert match": "Inverser la correspondance",
     "Invitation Code": "Code d'invitation",
     "Invitation Quota": "Quota d'invitation",
-    "Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is automatically credited to your balance at 00:00 the next day.": "Invitez des amis à s'inscrire. Lorsqu'un ami recharge puis consomme réellement, {{percent}}% du montant consommé est automatiquement reversé sur votre solde le lendemain à 0 h.",
+    "Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is added to your referral rewards after daily settlement. Transfer it to your balance anytime.": "Invitez des amis à s'inscrire. Lorsqu'un ami recharge et consomme, {{percent}} % de sa consommation réelle est ajouté à vos récompenses de parrainage après le règlement quotidien. Transférez-les vers votre solde à tout moment.",
     "Invite Info": "Informations sur l'invitation",
     "Invited": "Invité",
     "Invited by user ID": "Invité par l'ID utilisateur",
