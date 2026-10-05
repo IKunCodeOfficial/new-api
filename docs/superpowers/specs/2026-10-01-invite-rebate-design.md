@@ -60,9 +60,13 @@ settled_base += delta
 
 ### 2.1.1 消费侧与订阅
 
-消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`）。**本期不考虑订阅**：启用订阅后必须重新评估口径，不要沿用下面的结论。
+消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`），**但不含订阅计费的日志**。**本期不考虑订阅**：启用订阅后必须重新评估口径，不要沿用下面的结论。
 
-原因是订阅在本系统里走一条完全独立的资金链：买订阅写的是 `subscription_orders`，用余额买订阅是直接扣 `users.quota` 且不产生消费日志（`model/subscription.go:799-816`）；在线支付买订阅虽然会由 `upsertSubscriptionTopUpTx` 顺带写一行 `top_ups`（`amount=0`，见 §2.1），但该行不写 `rebate_topup_paid`，且结算侧按 §2.1 的规则跳过 `amount <= 0` 的行，所以订阅既不进 R；同时订阅计费的消费日志（`billing_source="subscription"`，`logs.other` 里带 `subscription_id`）里的 `quota` 计的是**订阅额度**，不是钱包额度，也进不了 C。两套口径互不相干。目前站内未启用订阅，结算侧按上句直接取 `logs.quota` 即可；一旦启用订阅，需要决定订阅消费是否、以及按什么基数参与返利。
+原因是订阅在本系统里走一条完全独立的资金链：买订阅写的是 `subscription_orders`，用余额买订阅是直接扣 `users.quota` 且不产生消费日志（`model/subscription.go:799-816`）；在线支付买订阅虽然会由 `upsertSubscriptionTopUpTx` 顺带写一行 `top_ups`（`amount=0`，见 §2.1），但该行不写 `rebate_topup_paid`，且结算侧按 §2.1 的规则跳过 `amount <= 0` 的行，所以订阅既不进 R；同时订阅计费的消费日志（`billing_source="subscription"`，`logs.other` 里带 `subscription_id`）里的 `quota` 计的是**订阅额度**，不是钱包额度，也进不了 C。两套口径互不相干。目前站内未启用订阅；一旦启用订阅，需要决定订阅消费是否、以及按什么基数参与返利。
+
+在此之前结算侧对订阅消费**不计入 C**，而不是让当天失败（失败会让任何一个受邀用户用过订阅的日子永久卡住）：`type` 为 2 或 6、且 `logs.other` 含标记 `"billing_source":"subscription"` 的日志不计入当日 `c`。标记由 `service/log_info_generate.go` 的 `appendBillingInfo`（`other["billing_source"] = relayInfo.BillingSource`）写入，`other` 经 `common.MapToJsonStr`（`encoding/json`，紧凑输出、无空格）序列化，所以按子串 `"billing_source":"subscription"` 匹配：用方言无关的 `LIKE '%…%' ESCAPE '/'`，`_` 被转义，不当通配符；嵌在其它 JSON 字符串值里的同样文字会被序列化成 `\"billing_source\":\"subscription\"`，匹配不上。`other` 为 NULL 或空串的日志照常计入。每天统计受邀用户被排除的条数，大于 0 时打一行 WARN（`--dry-run` 同样打印）。这个方向只会少发：用订阅消费的受邀用户不给邀请人带来返利。
+
+已知缺口：只有文本 / 音频 / 实时请求的消费日志带这个标记。按次的异步任务（`service/task_billing.go`：提交时的消费日志、差额结算的消费 / 退款日志、失败退款日志）不带 `billing_source`，订阅支付的任务仍会作为钱包消费计入 C（提交扣费与差额补扣会多付，退款会少付）。因此上线时不应有启用中的订阅套餐；要支持订阅，需要先让任务计费日志也写出这个标记。
 
 ### 2.2 实付 `paid_quota`
 
@@ -88,7 +92,7 @@ settled_base += delta
 - 邀请人被封禁（`status ≠ 1`）或软删除；
 - 邀请人在排除名单（role=inviter）；受邀用户在排除名单（role=invitee，只作废该受邀用户的份额）；
 - 开关关闭（`IkunRebateEnabled ≠ true`）：当天照常结算推水位，全部不发，`rebate_days.disabled = true`；
-- 发放会使 `aff_quota` 或 `aff_history` 超过 2147483647（两列都是 32 位 `int`，且 `aff_history` 只增不减，会先溢出）：仅该邀请人按 `overflow` 作废，**不使当天失败**，否则 cron 会从第一次溢出起永久卡住。代价是这个状态不会自愈——同一邀请人之后每天都作废，而退出码仍是 0，只靠告警通道抓不到，因此必须额外打一条 WARN（见 §6），并让 `status` 子命令显示 overflow 次数。
+- 发放会使 `aff_quota` 或 `aff_history` 超过按列宽确定的上限（`aff_history` 只增不减，会先到顶）。上限取结算时反射到的两列类型中较窄的那个：`BIGINT` → 2^53−1（new-api 的 `common.MaxWalletQuota`，钱包页把 `aff_quota` 当 JS number 渲染）；32 位整数 → 2147483647；其它类型当天 `failed`。fork 的 `model/main.go` `ensureUserQuotaColumns` 在启动时要求 `users.quota/used_quota/aff_quota/aff_history` 都是 64 位，所以生产库是 `BIGINT`；只有设了 `SKIP_64BIT_QUOTA_SCHEMA_CHECK` 跑在旧库上，才会是 32 位。超限时：仅该邀请人按 `overflow` 作废，**不使当天失败**，否则 cron 会从第一次溢出起永久卡住。代价是这个状态不会自愈——同一邀请人之后每天都作废，而退出码仍是 0，只靠告警通道抓不到，因此必须额外打一条 WARN（见 §6），并让 `status` 子命令显示 overflow 次数。
 
 允许自己邀请自己。受邀用户被改绑邀请人后，水位随受邀用户走，返利发给结算时的当前邀请人。
 
@@ -176,13 +180,13 @@ settled_base += delta
 窗口 `[D 00:00, D+1 00:00)`，按 `rebate_meta.timezone` 换算为 Unix 秒。
 
 1. upsert `rebate_days[D]`：`status=running`，写入 `rate` 与 `disabled` 快照。
-2. 聚合当日活动：按受邀用户求当日 `r`（§2.1 三个来源）与 `c`（type=2 的 `quota` 之和减 type=6 的 `quota` 之和），只保留 `inviter_id ≠ 0` 且 `r ≠ 0 或 c ≠ 0` 的受邀用户，按当前 `inviter_id` 分组。
+2. 聚合当日活动：按受邀用户求当日 `r`（§2.1 三个来源）与 `c`（type=2 的 `quota` 之和减 type=6 的 `quota` 之和，不含订阅计费的日志，见 §2.1.1），只保留 `inviter_id ≠ 0` 且 `r ≠ 0 或 c ≠ 0` 的受邀用户，按当前 `inviter_id` 分组。
 3. 每个邀请人一个数据库事务：
    1. `SELECT ... FOR UPDATE` 锁邀请人 `users` 行（SQLAlchemy `with_for_update()`，两种库都生成 `FOR UPDATE`）。
    2. 插入 `rebate_credits(D, I)`；唯一冲突 → 回滚并跳过该邀请人（已结算过）。
    3. 读取并锁定其名下受邀用户的 `rebate_watermarks` 行（不存在则视为全 0），**跳过 `last_day >= D` 的受邀用户**（见 §4.3），其余按 §2 更新 `cum_recharge`、`cum_consume`、`settled_base`、`last_day`。
    4. 判定作废（§2.3）；作废的份额不进入 `rebate`。
-   5. `rebate > 0` 时：校验 `aff_quota + rebate ≤ 2147483647` **且** `aff_history + rebate ≤ 2147483647`。超限按 `overflow` 作废（§2.3），不写余额、不写日志、当日照常继续；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
+   5. `rebate > 0` 时：校验 `aff_quota + rebate ≤ 上限` **且** `aff_history + rebate ≤ 上限`（上限按列宽：`BIGINT` 为 2^53−1，32 位列为 2147483647，见 §2.3）。超限按 `overflow` 作废（§2.3），不写余额、不写日志、当日照常继续；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
    6. 回填 `rebate_credits` 的统计字段，提交。
 4. 全部邀请人完成后，`rebate_days[D]` 置 `done` 并写汇总；任何异常置 `failed` 并写 `error`，然后停止。
 
@@ -321,7 +325,7 @@ CUSTOM 分支例外：它是自己拼字符串（`${meta.symbol} ${decimal}`）�
 
 1. 获取 Redis 锁 `rebate:settle:lock`（`SET NX PX` + 随机 token，后台续期；释放用 token 比对的 Lua 脚本）。拿不到 → 已有结算在跑。
 2. 环境变量 `REBATE_LOGS_IN_MAIN_DB=true`（运维声明 new-api 未配置 `LOG_SQL_DSN`；否则消费日志不在主库，会把消费当 0 永久少发）。
-3. `options.LogConsumeEnabled` 不是 `false`。
+3. `options.LogConsumeEnabled` 视为开启：这一行不存在，或值**恰好**是 `"true"`（与 Go 的 `== "true"` 一致；`false`、`False`、空串等任何其它值都按关闭处理并拒绝）。
 4. `rebate_meta` 存在且 `activity_start`/`timezone` 合法。
 5. **开关打开时** `IkunRebateRate` 必须合法（`0 < rate < 1`）；开关关闭时不校验，按 0 发放并在 `rebate_days` 标 `disabled`（否则首次部署时 enabled=false 且未填比例会让每天都拒绝，之后一旦填上比例 + 打开开关，cron 会从 `activity_start` 一路补结并全部发钱）。
 
@@ -335,8 +339,9 @@ CUSTOM 分支例外：它是自己拼字符串（`${meta.symbol} ${decimal}`）�
 
 告警：暂以退出码 + 容器日志为准。由于 `overflow` 作废不改变退出码，这类永久性异常只能靠日志发现：
 
-- 任一日出现 `overflow` 作废时，立即打 WARN，格式 `overflow: inviter=123 quota=... rebate=...`，并把该日 `rebate_days.error` 写为 `overflow: inviter=123,456`（当日状态仍是 `done`）。
+- 任一日出现 `overflow` 作废时，立即打 WARN，格式 `overflow: inviter=123 aff_quota=... aff_history=... rebate=... limit=... day=...`，并把该日 `rebate_days.error` 写为 `overflow: inviter=123,456`（当日状态仍是 `done`）。
 - `status` 子命令在最近 N 天里统计并显示 `overflow` 次数与涉及的邀请人 ID，便于人工发现"某个邀请人的 `aff_history` 已经到顶"。
+- 当日有受邀用户的订阅计费日志被排除时（§2.1.1），打 WARN `subscription: N 条订阅计费的消费/退款日志未计入净消费 day=...`，不改变状态与退出码。
 
 ## 7. Python 项目
 
@@ -409,14 +414,15 @@ rebate/
 - 作废：封禁、软删、两类排除、开关关闭——不发钱但水位推进，恢复后不补发。
 - 前置检查：未声明 `REBATE_LOGS_IN_MAIN_DB`、`LogConsumeEnabled=false`、比例非法、未知渠道订单。
 - 日志：4 种展示单位的金额格式；7 种语言的文案与 `language` 兜底；`quota`/`type`/`request_id`。
-- 入账目标：返利只进 `aff_quota`/`aff_history`，`users.quota` 不变；两列任一越界时按 `overflow` 作废该邀请人，当日仍置 `done`，且后续日期照常结算（不卡死 cron）。
+- 入账目标：返利只进 `aff_quota`/`aff_history`，`users.quota` 不变；两列任一越界时按 `overflow` 作废该邀请人，当日仍置 `done`，且后续日期照常结算（不卡死 cron）。上限按列宽：测试库 `users` 额度列与生产一致为 `BIGINT`，在 2^53−1 边界上断言；另把两列改成 32 位再断言 2147483647。
+- 订阅计费：带 `"billing_source":"subscription"` 的消费与退款日志都不计入 C，普通日志与 `other` 为 NULL/空串的照常计入，转义后的同样文字与 `billingXsource` 不被误判；当日排除条数打 WARN。
 - 改绑重跑：D 日部分提交后把受邀用户改绑，重跑 D 日不重复累计、不多付（`last_day >= D` 跳过）。
 - 开关关闭 + 比例缺失：每天正常写出 `disabled` 日并推水位，之后打开开关不补发。
 - 兑换码软删除：`status=3` 且 `deleted_at` 非空的行仍计入 R。
 - 语言：`zh-CN`/`zh-Hans`/`zh-TW` 旧值分别归到 `zhCN`/`zhCN`/`zhTW`；未知值回落 `en`。
 - 金额格式：按 §5 的样例表与 Node 夹具逐条断言（含 <1 的小额、≥1000 的 k 缩写、`5368709 → $10.74` 这类需要正确舍入的值），覆盖 7 个 locale 的符号位置（`fr-FR`/`ru-RU`/`vi-VN` 为后缀）与分组符码位（U+202F / U+00A0）、`ja-JP` 下 CNY 的全角 `￥`，以及 CUSTOM 数字部分的 locale 分组。
 - TOKENS 浮点往返：对 1..3,000,000 全量重算并与夹具比对（至少覆盖 §5 表中 `8150`/`16150`/`32050` 三个反例），确保没有省掉 `/qpu × qpu` 的往返。
-- 舍入分歧：`1.005` 在 USD 分支得 `$1.01`、在 TOKENS 分支得 `1.00`，两条路径各有断言。
+- 舍入分歧：两条路径各有断言。TOKENS 走 `toFixed`、按精确二进制值舍入：`rebate=1150` → `1.15` 的 double 略小于 1.15，`(1.15).toFixed(1)` 得 `"1.1"`，渲染为 `1.1k`（按十进制 half-up 会错成 `1.2k`）。USD 走 `Intl.NumberFormat`、按最短十进制表示舍入：`rebate=502500`（QuotaPerUnit 500000）→ `1.005` → `$1.01`（按精确二进制值会错成 `$1.00`）。
 - 溢出静默性：连续多日结算中某邀请人持续 `overflow` 时，当日仍 `done`、退出码为 0，但 WARN 与 `status` 计数都能反映。
 
 **Go（testify require/assert）**：
