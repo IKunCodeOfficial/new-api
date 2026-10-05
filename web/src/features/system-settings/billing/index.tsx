@@ -107,6 +107,8 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.enabled': false,
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
+  IkunRebateEnabled: false,
+  IkunRebateRate: 0.05,
 }
 
 export function BillingSettings() {

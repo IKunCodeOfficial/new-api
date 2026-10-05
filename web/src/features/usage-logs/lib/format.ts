@@ -495,6 +495,11 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   // Logs
   'log.clear': 'Cleared historical logs',
   'log.cleanup_start': 'Log cleanup task started.',
+  // Rebate exclusions
+  'rebate.exclusion_add':
+    'Added rebate exclusion for user {{target_user_id}} as {{role}}',
+  'rebate.exclusion_delete':
+    'Removed rebate exclusion for user {{target_user_id}} as {{role}}',
   // Generic middleware fallback
   generic: '{{method}} {{route}}',
 }

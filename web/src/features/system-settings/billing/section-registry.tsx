@@ -21,6 +21,7 @@ import { parseCurrencyDisplayType } from '@/lib/currency'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { PricingSection } from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
+import { RebateSettingsSection } from '../general/rebate-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
@@ -77,6 +78,18 @@ const BILLING_SECTIONS = [
           (settings['payment_setting.compliance_confirmed'] ?? false) &&
           settings['payment_setting.compliance_terms_version'] === 'v1'
         }
+      />
+    ),
+  },
+  {
+    id: 'invite-rebate',
+    titleKey: 'Invite rebate',
+    build: (settings: BillingSettings) => (
+      <RebateSettingsSection
+        defaultValues={{
+          enabled: settings.IkunRebateEnabled,
+          rate: settings.IkunRebateRate,
+        }}
       />
     ),
   },
