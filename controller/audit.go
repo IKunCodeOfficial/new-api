@@ -30,6 +30,9 @@ var auditContentTemplates = map[string]string{
 	"user.reset_passkey":    "Reset the user passkey",
 	"option.update":         "Updated system setting ${key}",
 
+	"rebate.exclusion_add":    "Excluded user ${target_user_id} from rebates as ${role}",
+	"rebate.exclusion_delete": "Removed user ${target_user_id} (${role}) from the rebate exclusion list",
+
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
 	"channel.delete":             "Deleted channel ${name} (ID: ${id})",

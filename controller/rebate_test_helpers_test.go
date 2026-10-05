@@ -51,13 +51,15 @@ func createRebateTestUser(t *testing.T, quota int, role int) int {
 }
 
 // postJSON calls handler as a root user and decodes the JSON response body.
-func postJSON(t *testing.T, handler gin.HandlerFunc, method, path, body string, operatorId int) map[string]any {
+// params sets route parameters such as :id.
+func postJSON(t *testing.T, handler gin.HandlerFunc, method, path, body string, operatorId int, params ...gin.Param) map[string]any {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(method, path, strings.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = params
 	c.Set("id", operatorId)
 	c.Set("role", common.RoleRootUser)
 	handler(c)

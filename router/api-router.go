@@ -205,6 +205,15 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions)
 		}
 
+		// fork-only (ikun): invite-rebate exclusion list
+		rebateRoute := apiRouter.Group("/rebate")
+		rebateRoute.Use(middleware.RootAuth())
+		{
+			rebateRoute.GET("/exclusions", controller.ListRebateExclusions)
+			rebateRoute.POST("/exclusions", controller.AddRebateExclusion)
+			rebateRoute.DELETE("/exclusions/:id", controller.DeleteRebateExclusion)
+		}
+
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
 		customOAuthRoute.Use(middleware.RootAuth())
