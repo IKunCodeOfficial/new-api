@@ -58,12 +58,12 @@ func (RebateExclusion) TableName() string { return "rebate_exclusions" }
 // units. ok=false means "store nothing": the settler then counts the credited
 // quota, which never exceeds the paid-amount reading for discounted orders.
 //
-// Creem and Amount are the two channels whose stored value is not a discountable
+// Creem and Stripe are the two channels whose stored value is not a discountable
 // price, so they are returned directly; the rest recover the list-price value of
 // the order by dividing the charged money by the unit price in effect.
 func paidQuotaFromCharge(provider string, amount int64, money float64) (int, bool) {
-	// Subscriptions bought with balance and unpaid test orders reach here with a
-	// zero quantity; they must not leave a paid-amount row behind.
+	// Online-paid subscriptions (upsertSubscriptionTopUpTx) and unpaid test orders
+	// reach here with a zero amount; they must not leave a paid-amount row behind.
 	if amount <= 0 || money <= 0 {
 		return 0, false
 	}

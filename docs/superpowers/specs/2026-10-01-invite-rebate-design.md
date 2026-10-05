@@ -42,7 +42,7 @@ settled_base += delta
 
 | 来源 | 取数 | 计入 R 的值 |
 |---|---|---|
-| 在线充值 | `top_ups` 中 `status='success'`，按 `complete_time` 落日 | `min(到账额度, paid_quota)`；`rebate_topup_paid` 无该 `trade_no` 时取到账额度 |
+| 在线充值 | `top_ups` 中 `status='success'` **且 `amount > 0`**，按 `complete_time` 落日 | `min(到账额度, paid_quota)`；`rebate_topup_paid` 无该 `trade_no` 时取到账额度 |
 | 兑换码 | `redemptions` 中 `status=3`，按 `redeemed_time` 落日，归属 `used_user_id`。**必须忽略 `deleted_at`**：管理员"清理无效兑换码"（`model.DeleteInvalidRedemptions`）会对 `status=3` 的行软删除，直连 SQL 若不过滤就会静默少算 R | `quota` 全额 |
 | 管理员充值 | `rebate_admin_recharges`，按 `created_at` 落日 | `paid_quota` |
 
@@ -54,13 +54,15 @@ settled_base += delta
 | stripe | `money × QuotaPerUnit`（Decimal，半远离零取整） |
 | creem | `amount`（本身已是 quota） |
 
-已知但**不该出现在 `top_ups`** 的渠道：`payment_provider='balance'` 只在"用余额购买订阅"时使用，该路径写 `subscription_orders` 而不是 `top_ups`（`model/subscription.go:799-816`），所以它出现在成功订单里说明库被人工改过。与其他未知渠道同样处理：当天结算失败（见 §6），不静默跳过。
+已知但**不该出现在 `top_ups`** 的渠道：`payment_provider='balance'` 只在"用余额购买订阅"时使用，该路径只写 `subscription_orders`，用余额扣 `users.quota`，不写 `top_ups`（`model/subscription.go:799-816`），所以它出现在成功订单里说明库被人工改过。与其他未知渠道同样处理：当天结算失败（见 §6），不静默跳过。
+
+但**在线支付**购买订阅会写下一行 `top_ups`：`model.CompleteSubscriptionOrder` 调用 `upsertSubscriptionTopUpTx`（`model/subscription.go:649-667`），写入 `status='success'`、`amount=0`、`money=套餐价`、`payment_provider` 为空（渠道靠 `payment_method` 推断，stripe/creem/epay 等都可能）的行。这行的 `amount=0`，所以 `TopUp.AfterCreate` 钩子按下一节的规则不为它写 `rebate_topup_paid`；但结算侧若照上表按 `status='success'` 全取，就会把 `amount ≤ 0` 的 stripe 订阅行当成 `money × QuotaPerUnit` 的充值计入 R。因此 **R 的在线充值来源必须排除 `amount <= 0` 的 `top_ups` 行**（等价写法：`amount > 0`），订阅资金链就与返利口径完全隔开。
 
 ### 2.1.1 消费侧与订阅
 
 消费口径就是 `logs` 的 `type=2` 之和（减 `type=6`）。**本期不考虑订阅**：启用订阅后必须重新评估口径，不要沿用下面的结论。
 
-原因是订阅在本系统里走一条完全独立的资金链：买订阅写的是 `subscription_orders`，从不进 `top_ups`（`controller/subscription_payment_stripe.go:89`），用余额买订阅则是直接扣 `users.quota` 且不产生消费日志（`model/subscription.go:799-816`）；同时订阅计费的消费日志（`billing_source="subscription"`，`logs.other` 里带 `subscription_id`）里的 `quota` 计的是**订阅额度**，不是钱包额度。也就是说订阅既不进 R 也不进 C，两套口径互不相干。目前站内未启用订阅，结算侧按上句直接取 `logs.quota` 即可；一旦启用订阅，需要决定订阅消费是否、以及按什么基数参与返利。
+原因是订阅在本系统里走一条完全独立的资金链：买订阅写的是 `subscription_orders`，用余额买订阅是直接扣 `users.quota` 且不产生消费日志（`model/subscription.go:799-816`）；在线支付买订阅虽然会由 `upsertSubscriptionTopUpTx` 顺带写一行 `top_ups`（`amount=0`，见 §2.1），但该行不写 `rebate_topup_paid`，且结算侧按 §2.1 的规则跳过 `amount <= 0` 的行，所以订阅既不进 R；同时订阅计费的消费日志（`billing_source="subscription"`，`logs.other` 里带 `subscription_id`）里的 `quota` 计的是**订阅额度**，不是钱包额度，也进不了 C。两套口径互不相干。目前站内未启用订阅，结算侧按上句直接取 `logs.quota` 即可；一旦启用订阅，需要决定订阅消费是否、以及按什么基数参与返利。
 
 ### 2.2 实付 `paid_quota`
 

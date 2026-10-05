@@ -41,8 +41,10 @@ func TestPaidQuotaFromCharge(t *testing.T) {
 		{"waffo_pancake 原价", PaymentProviderWaffoPancake, 100, 730, 50_000_000, true},
 		{"stripe 按 money", PaymentProviderStripe, 100, 100, 50_000_000, true},
 		{"creem 按 amount", PaymentProviderCreem, 1000, 12.5, 1000, true},
+		// stripe 的 Money 与到账额度是同一个量，两者不产生差异。
+		{"stripe 到账与实付同为 money×QPU", PaymentProviderStripe, 100, 730, 365_000_000, true},
 		// 分组倍率 >1 时实付会超过到账额度，这里只如实换算，封顶由结算侧 min 完成。
-		{"stripe 分组倍率 >1", PaymentProviderStripe, 100, 730, 365_000_000, true},
+		{"epay 分组倍率 >1 实付超过到账", PaymentProviderEpay, 100, 1460, 100_000_000, true},
 		{"money 为 0", PaymentProviderEpay, 100, 0, 0, false},
 		{"money 为负", PaymentProviderEpay, 100, -1, 0, false},
 		{"amount 为 0", PaymentProviderStripe, 0, 10, 0, false},
@@ -118,8 +120,9 @@ func TestTopUpAfterCreateWritesPaidRow(t *testing.T) {
 	}
 	require.NoError(t, bad.Insert())
 
-	// 用余额购买订阅写下的 TopUp：Amount=0、Money=套餐价、payment_provider 为空。
-	// 它属于订阅资金链，不进返利口径，不得留下实付行。
+	// 在线支付订阅成功时 upsertSubscriptionTopUpTx 写下的 TopUp：Amount=0、Money=套餐价、
+	// payment_provider 为空（靠 payment_method 推断渠道）。它属于订阅资金链，不进返利口径，
+	// 不得留下实付行——否则结算侧会把它当成 money×QuotaPerUnit 的充值。
 	sub := &TopUp{
 		UserId: 7, Amount: 0, Money: 9.99, TradeNo: "rebate-sub-1",
 		PaymentMethod: PaymentMethodStripe, Status: common.TopUpStatusSuccess,
