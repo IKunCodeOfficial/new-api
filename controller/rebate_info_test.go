@@ -1,100 +1,188 @@
 package controller
 
-// Fork-only file (ikun): the /api/rebate_info fail-closed contract — the
-// endpoint must never advertise a rebate the external settlement job
-// (ikun_rebate parse_business_config) would refuse to settle.
+// Fork-only file (ikun): /api/rebate_info must never advertise a rebate the
+// external settler would refuse, and must survive rebate_meta not existing yet
+// (the settler creates it from `init`).
 
 import (
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func rebateConfigJSON(t *testing.T, mutate func(map[string]any)) string {
-	t.Helper()
-	cfg := map[string]any{
-		"enabled":                          true,
-		"rate":                             0.05,
-		"activity_start":                   "2026-08-30T00:00:00+08:00",
-		"timezone":                         "Asia/Shanghai",
-		"excluded_inviter_ids":             []any{1247},
-		"excluded_invitee_ids":             []any{},
-		"include_redemption":               true,
-		"redemption_exclude_name_patterns": []any{},
-		"provider_quota_rules": map[string]any{
-			"epay": "amount", "waffo": "amount", "waffo_pancake": "amount",
-			"stripe": "money", "creem": "amount_raw",
-		},
-		"default_language":    "zh",
-		"display_in_currency": true,
+func TestRebateRateIfUsable(t *testing.T) {
+	rate, ok := rebateRateIfUsable(map[string]string{"IkunRebateRate": "0.05"})
+	require.True(t, ok)
+	assert.Equal(t, 0.05, rate)
+
+	refused := map[string]map[string]string{
+		"missing":      {},
+		"empty":        {"IkunRebateRate": ""},
+		"zero":         {"IkunRebateRate": "0"},
+		"one":          {"IkunRebateRate": "1"},
+		"negative":     {"IkunRebateRate": "-0.1"},
+		"not a number": {"IkunRebateRate": "abc"},
+		"NaN":          {"IkunRebateRate": "NaN"},
+		"percent":      {"IkunRebateRate": "5"},
 	}
-	if mutate != nil {
-		mutate(cfg)
+	for name, values := range refused {
+		t.Run(name, func(t *testing.T) {
+			_, ok := rebateRateIfUsable(values)
+			assert.False(t, ok)
+		})
 	}
-	data, err := common.Marshal(cfg)
-	require.NoError(t, err)
-	return string(data)
 }
 
-func TestRebateRateIfUsable(t *testing.T) {
-	rate, ok := rebateRateIfUsable(rebateConfigJSON(t, nil))
+func TestRebateMetaIfUsable(t *testing.T) {
+	start, timezone, ok := rebateMetaIfUsable(map[string]string{"activity_start": "2026-09-01", "timezone": "Asia/Shanghai"})
 	require.True(t, ok)
-	assert.Equal(t, 0.05, rate)
+	assert.Equal(t, "2026-09-01", start)
+	assert.Equal(t, "Asia/Shanghai", timezone)
 
-	// Minimal config without the optional fields is also valid for the settler.
-	rate, ok = rebateRateIfUsable(rebateConfigJSON(t, func(cfg map[string]any) {
-		delete(cfg, "excluded_inviter_ids")
-		delete(cfg, "excluded_invitee_ids")
-		delete(cfg, "include_redemption")
-		delete(cfg, "redemption_exclude_name_patterns")
-		delete(cfg, "default_language")
-		delete(cfg, "display_in_currency")
-	}))
-	require.True(t, ok)
-	assert.Equal(t, 0.05, rate)
+	refused := map[string]map[string]string{
+		"missing start":    {"timezone": "Asia/Shanghai"},
+		"missing timezone": {"activity_start": "2026-09-01"},
+		"empty":            {},
+		"unpadded start":   {"activity_start": "2026-9-1", "timezone": "UTC"},
+		"start is RFC3339": {"activity_start": "2026-09-01T00:00:00+08:00", "timezone": "UTC"},
+		"impossible date":  {"activity_start": "2026-02-30", "timezone": "UTC"},
+		"timezone Local":   {"activity_start": "2026-09-01", "timezone": "Local"},
+		"unknown timezone": {"activity_start": "2026-09-01", "timezone": "Nowhere/Zone"},
+	}
+	for name, values := range refused {
+		t.Run(name, func(t *testing.T) {
+			_, _, ok := rebateMetaIfUsable(values)
+			assert.False(t, ok)
+		})
+	}
+}
 
-	refused := map[string]func(map[string]any){
-		"enabled false":            func(cfg map[string]any) { cfg["enabled"] = false },
-		"enabled wrong type":       func(cfg map[string]any) { cfg["enabled"] = 1 },
-		"rate missing":             func(cfg map[string]any) { delete(cfg, "rate") },
-		"rate zero":                func(cfg map[string]any) { cfg["rate"] = 0 },
-		"rate one":                 func(cfg map[string]any) { cfg["rate"] = 1 },
-		"rate wrong type":          func(cfg map[string]any) { cfg["rate"] = true },
-		"timezone missing":         func(cfg map[string]any) { delete(cfg, "timezone") },
-		"timezone invalid":         func(cfg map[string]any) { cfg["timezone"] = "Mars/Base" },
-		"timezone Local":           func(cfg map[string]any) { cfg["timezone"] = "Local" },
-		"activity_start missing":   func(cfg map[string]any) { delete(cfg, "activity_start") },
-		"activity_start invalid":   func(cfg map[string]any) { cfg["activity_start"] = "bad" },
-		"activity_start no offset": func(cfg map[string]any) { cfg["activity_start"] = "2026-08-30T00:00:00" },
-		"rules missing":            func(cfg map[string]any) { delete(cfg, "provider_quota_rules") },
-		"rules empty":              func(cfg map[string]any) { cfg["provider_quota_rules"] = map[string]any{} },
-		"rule value invalid": func(cfg map[string]any) {
-			cfg["provider_quota_rules"] = map[string]any{"epay": "bad"}
+func seedRebateOptions(t *testing.T, values map[string]string) {
+	t.Helper()
+	for key, value := range values {
+		require.NoError(t, model.DB.Create(&model.Option{Key: key, Value: value}).Error)
+	}
+}
+
+// createRebateMetaTable mimics what the settler's `init` creates: rebate_meta is
+// Python-owned, so the Go side never migrates it and the tests must not either.
+func createRebateMetaTable(t *testing.T, rows ...string) {
+	t.Helper()
+	require.NoError(t, model.DB.Exec("CREATE TABLE rebate_meta (meta_key VARCHAR(64) PRIMARY KEY, meta_value VARCHAR(255) NOT NULL)").Error)
+	for _, row := range rows {
+		require.NoError(t, model.DB.Exec("INSERT INTO rebate_meta VALUES "+row).Error)
+	}
+}
+
+func TestGetRebateInfo(t *testing.T) {
+	window := []string{"('activity_start','2026-09-01')", "('timezone','Asia/Shanghai')"}
+
+	tests := []struct {
+		name    string
+		options map[string]string
+		meta    []string // nil: the settler has not created rebate_meta yet
+		want    map[string]any
+	}{
+		{
+			name:    "enabled",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": true, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
 		},
-		"language unsupported":     func(cfg map[string]any) { cfg["default_language"] = "xx" },
-		"inviter ids wrong type":   func(cfg map[string]any) { cfg["excluded_inviter_ids"] = []any{"x"} },
-		"redemption flag not bool": func(cfg map[string]any) { cfg["include_redemption"] = "yes" },
-	}
-	for name, mutate := range refused {
-		_, ok := rebateRateIfUsable(rebateConfigJSON(t, mutate))
-		assert.False(t, ok, name)
+		{
+			name:    "rebate_meta not created yet",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"},
+			want:    map[string]any{"enabled": false},
+		},
+		{
+			name:    "rebate_meta without window rows",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"},
+			meta:    []string{},
+			want:    map[string]any{"enabled": false},
+		},
+		{
+			name:    "window without a timezone",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"},
+			meta:    []string{"('activity_start','2026-09-01')"},
+			want:    map[string]any{"enabled": false},
+		},
+		{
+			name:    "unusable timezone",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"},
+			meta:    []string{"('activity_start','2026-09-01')", "('timezone','Nowhere/Zone')"},
+			want:    map[string]any{"enabled": false},
+		},
+		{
+			name:    "switch off still reports the window",
+			options: map[string]string{"IkunRebateEnabled": "false", "IkunRebateRate": "0.05"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "missing switch",
+			options: map[string]string{"IkunRebateRate": "0.05"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "unusable rate still reports the window",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "rate is not a number",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "abc"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
 	}
 
-	// Explicit null is a settler-side ConfigError on every field and must not
-	// be treated as "field absent" (json decodes both to nil/zero values).
-	for _, key := range ikunRebateConfigKeys {
-		key := key
-		_, ok := rebateRateIfUsable(rebateConfigJSON(t, func(cfg map[string]any) {
-			cfg[key] = nil
-		}))
-		assert.False(t, ok, "explicit null "+key)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setupRebateControllerTest(t)
+			resetRebateInfoCache()
+			seedRebateOptions(t, tc.options)
+			if tc.meta != nil {
+				createRebateMetaTable(t, tc.meta...)
+			}
 
-	_, ok = rebateRateIfUsable("")
-	assert.False(t, ok, "missing option row")
-	_, ok = rebateRateIfUsable("{not json")
-	assert.False(t, ok, "invalid JSON")
+			assert.Equal(t, tc.want, postJSON(t, GetRebateInfo, "GET", "/api/rebate_info", "", 0))
+		})
+	}
+}
+
+// The payload is read on every wallet/console page load, so it is cached for a
+// minute instead of hitting the database each time.
+func TestGetRebateInfoServesCachedPayload(t *testing.T) {
+	setupRebateControllerTest(t)
+	resetRebateInfoCache()
+	seedRebateOptions(t, map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05"})
+	createRebateMetaTable(t, "('activity_start','2026-09-01')", "('timezone','Asia/Shanghai')")
+
+	first := postJSON(t, GetRebateInfo, "GET", "/api/rebate_info", "", 0)
+	require.Equal(t, true, first["enabled"])
+
+	require.NoError(t, model.DB.Model(&model.Option{}).
+		Where(map[string]any{"key": "IkunRebateEnabled"}).
+		Update("value", "false").Error)
+	assert.Equal(t, first, postJSON(t, GetRebateInfo, "GET", "/api/rebate_info", "", 0))
+
+	resetRebateInfoCache()
+	after := postJSON(t, GetRebateInfo, "GET", "/api/rebate_info", "", 0)
+	assert.Equal(t, false, after["enabled"])
+	assert.Equal(t, first["activity_start"], after["activity_start"], "the window survives the switch")
 }

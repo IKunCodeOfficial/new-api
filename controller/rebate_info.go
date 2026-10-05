@@ -1,13 +1,14 @@
 package controller
 
 // Fork-only file (ikun): public read-only endpoint exposing the invite-rebate
-// switch and rate to the wallet card. The rebate itself is settled by an
-// external job (ikun_rebate); this endpoint only mirrors its configuration.
+// switch, rate and activity window to the wallet card and the admin settings
+// block. Settlement runs in an external Python job; this endpoint never answers
+// enabled=true for a configuration that job would refuse.
 
 import (
-	"bytes"
-	"encoding/json"
+	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -17,123 +18,117 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const ikunRebateConfigKey = "IkunRebateConfig"
+const (
+	ikunRebateEnabledKey = "IkunRebateEnabled"
+	ikunRebateRateKey    = "IkunRebateRate"
+	ikunRebateCacheTTL   = 60 * time.Second
+)
 
-const ikunRebateCacheTTL = 60 * time.Second
-
-// ikunRebateConfig mirrors every field parse_business_config (ikun_rebate
-// config.py) validates. Wrong JSON types fail Unmarshal, which is the same
-// fail-closed outcome as the settler's type checks. Keep in sync with the
-// settler when its schema changes.
-type ikunRebateConfig struct {
-	Enabled                       bool              `json:"enabled"`
-	Rate                          *float64          `json:"rate"`
-	Timezone                      string            `json:"timezone"`
-	ActivityStart                 string            `json:"activity_start"`
-	ProviderQuotaRules            map[string]string `json:"provider_quota_rules"`
-	ExcludedInviterIds            []int64           `json:"excluded_inviter_ids"`
-	ExcludedInviteeIds            []int64           `json:"excluded_invitee_ids"`
-	IncludeRedemption             *bool             `json:"include_redemption"`
-	DisplayInCurrency             *bool             `json:"display_in_currency"`
-	DefaultLanguage               *string           `json:"default_language"`
-	RedemptionExcludeNamePatterns []string          `json:"redemption_exclude_name_patterns"`
+// rebateRateIfUsable validates the rate the admin settings block wrote (spec
+// §3.3). The switch is not part of the answer: the rate is still reported to
+// the admin page while the activity is off, so that re-enabling it does not
+// silently start from a different rate. An absent key and an unparseable rate
+// are equally unusable.
+func rebateRateIfUsable(values map[string]string) (float64, bool) {
+	rate, err := strconv.ParseFloat(values[ikunRebateRateKey], 64)
+	if err != nil || math.IsNaN(rate) || rate <= 0 || rate >= 1 {
+		return 0, false
+	}
+	return rate, true
 }
 
-// ikunRebateConfigKeys are the fields the settler validates. An explicit JSON
-// null on any of them is a ConfigError on the settler side, while Go's json
-// decodes null into nil/zero values indistinguishable from an absent field —
-// so null is rejected by inspecting the raw message.
-var ikunRebateConfigKeys = []string{
-	"enabled", "rate", "timezone", "activity_start", "provider_quota_rules",
-	"excluded_inviter_ids", "excluded_invitee_ids", "include_redemption",
-	"display_in_currency", "default_language", "redemption_exclude_name_patterns",
-}
-
-var ikunRebateValidProviderRules = map[string]bool{
-	"amount": true, "money": true, "amount_raw": true,
-}
-
-var ikunRebateSupportedLanguages = map[string]bool{
-	"en": true, "zh": true, "zh-TW": true, "fr": true, "ru": true, "ja": true, "vi": true,
-}
-
-// rebateRateIfUsable replicates the settlement job's fail-closed config
-// validation: the endpoint must never answer enabled=true for a config the
-// settler would refuse. activity_start is checked as RFC3339 (an offset is
-// mandatory, matching the settler); the settler accepts a few more ISO-8601
-// variants — a mismatch there only hides the promo, never advertises a dead
-// activity. "Local" is rejected because Go would resolve it while the
-// settler's ZoneInfo would not.
-func rebateRateIfUsable(raw string) (float64, bool) {
-	var cfg ikunRebateConfig
-	if raw == "" || common.UnmarshalJsonStr(raw, &cfg) != nil || !cfg.Enabled {
-		return 0, false
+// rebateMetaIfUsable validates the activity window the settler wrote at init.
+// "Local" is rejected because Go resolves it while Python's ZoneInfo does not.
+func rebateMetaIfUsable(values map[string]string) (string, string, bool) {
+	start, timezone := values["activity_start"], values["timezone"]
+	if _, err := time.Parse(time.DateOnly, start); err != nil {
+		return "", "", false
 	}
-	var fields map[string]json.RawMessage
-	if common.UnmarshalJsonStr(raw, &fields) != nil {
-		return 0, false
+	if timezone == "" || timezone == "Local" {
+		return "", "", false
 	}
-	for _, key := range ikunRebateConfigKeys {
-		if v, ok := fields[key]; ok && string(bytes.TrimSpace(v)) == "null" {
-			return 0, false
-		}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return "", "", false
 	}
-	if cfg.Rate == nil || *cfg.Rate <= 0 || *cfg.Rate >= 1 {
-		return 0, false
-	}
-	if cfg.Timezone == "" || cfg.Timezone == "Local" {
-		return 0, false
-	}
-	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-		return 0, false
-	}
-	if _, err := time.Parse(time.RFC3339, cfg.ActivityStart); err != nil {
-		return 0, false
-	}
-	if len(cfg.ProviderQuotaRules) == 0 {
-		return 0, false
-	}
-	for _, rule := range cfg.ProviderQuotaRules {
-		if !ikunRebateValidProviderRules[rule] {
-			return 0, false
-		}
-	}
-	if cfg.DefaultLanguage != nil && !ikunRebateSupportedLanguages[*cfg.DefaultLanguage] {
-		return 0, false
-	}
-	return *cfg.Rate, true
+	return start, timezone, true
 }
 
 var ikunRebateCache struct {
 	sync.Mutex
 	fetchedAt time.Time
-	enabled   bool
-	rate      float64
+	payload   gin.H
 }
 
-// GetRebateInfo answers {"enabled":true,"rate":0.05} when the rebate activity
-// is on. It reads the option row from the database (60s cache) instead of the
-// in-memory OptionMap: the option sync loop never removes deleted rows, so a
-// deleted config row would otherwise keep advertising a stopped activity until
-// restart. Any failure — missing row, DB error, invalid config — answers
-// {"enabled":false} with no rate.
+func resetRebateInfoCache() {
+	ikunRebateCache.Lock()
+	ikunRebateCache.fetchedAt = time.Time{}
+	ikunRebateCache.Unlock()
+}
+
+// GetRebateInfo answers the rebate settings for the wallet card; the admin
+// settings page reads activity_start and timezone from the same payload to
+// decide whether the settlement job has been initialised.
+//
+// The window is reported whenever rebate_meta is readable, even while the
+// switch is off. Only a missing table or a missing/invalid window row falls
+// back to {"enabled": false} alone, so the admin page loses the window rather
+// than the endpoint failing.
+//
+// The answer is cached for a minute: it is polled on every wallet page load,
+// and the option sync loop never drops deleted rows, so reading the option
+// rows back from the database is what makes a stopped activity stop showing.
 func GetRebateInfo(c *gin.Context) {
 	ikunRebateCache.Lock()
 	if time.Since(ikunRebateCache.fetchedAt) > ikunRebateCacheTTL {
-		raw := ""
-		var opt model.Option
-		if err := model.DB.Where(model.Option{Key: ikunRebateConfigKey}).First(&opt).Error; err == nil {
-			raw = opt.Value
-		}
-		ikunRebateCache.rate, ikunRebateCache.enabled = rebateRateIfUsable(raw)
+		ikunRebateCache.payload = buildRebateInfo()
 		ikunRebateCache.fetchedAt = time.Now()
 	}
-	enabled, rate := ikunRebateCache.enabled, ikunRebateCache.rate
+	payload := ikunRebateCache.payload
 	ikunRebateCache.Unlock()
 
-	if !enabled {
-		c.JSON(http.StatusOK, gin.H{"enabled": false})
-		return
+	c.JSON(http.StatusOK, payload)
+}
+
+func buildRebateInfo() gin.H {
+	var opts []model.Option
+	if err := model.DB.Where(map[string]any{"key": []string{ikunRebateEnabledKey, ikunRebateRateKey}}).Find(&opts).Error; err != nil {
+		common.SysError("rebate_info: read rebate options: " + err.Error())
+		return gin.H{"enabled": false}
 	}
-	c.JSON(http.StatusOK, gin.H{"enabled": true, "rate": rate})
+	values := make(map[string]string, len(opts))
+	for _, opt := range opts {
+		values[opt.Key] = opt.Value
+	}
+
+	rate, rateUsable := rebateRateIfUsable(values)
+
+	// The settler owns rebate_meta and creates it from `init`, so it may not
+	// exist yet and the Go side never migrates it.
+	if !model.DB.Migrator().HasTable("rebate_meta") {
+		return gin.H{"enabled": false}
+	}
+	var rows []struct {
+		MetaKey   string `gorm:"column:meta_key"`
+		MetaValue string `gorm:"column:meta_value"`
+	}
+	if err := model.DB.Table("rebate_meta").Find(&rows).Error; err != nil {
+		common.SysError("rebate_info: read rebate_meta: " + err.Error())
+		return gin.H{"enabled": false}
+	}
+	meta := make(map[string]string, len(rows))
+	for _, row := range rows {
+		meta[row.MetaKey] = row.MetaValue
+	}
+
+	start, timezone, windowUsable := rebateMetaIfUsable(meta)
+	if !windowUsable {
+		return gin.H{"enabled": false}
+	}
+
+	enabled := rateUsable && values[ikunRebateEnabledKey] == "true"
+	payload := gin.H{"enabled": enabled, "activity_start": start, "timezone": timezone}
+	if rateUsable {
+		payload["rate"] = rate
+	}
+	return payload
 }
