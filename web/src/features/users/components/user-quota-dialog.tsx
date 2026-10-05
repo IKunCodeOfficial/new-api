@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -29,6 +30,7 @@ import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { adjustUserQuota } from '../api'
+import { isPaidQuotaInvalid, parsePaidQuota } from '../lib/rebate-recharge'
 import type { QuotaAdjustMode } from '../types'
 
 interface UserQuotaDialogProps {
@@ -44,6 +46,8 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
+  const [recharge, setRecharge] = useState(false)
+  const [paidAmount, setPaidAmount] = useState('')
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
@@ -51,6 +55,17 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
 
   const amountValue = parseFloat(amount) || 0
   const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+
+  const paidQuotaValue = parsePaidQuota(paidAmount, quotaValue)
+  const paidInvalid =
+    mode === 'add' && recharge && isPaidQuotaInvalid(quotaValue, paidQuotaValue)
+
+  const resetForm = () => {
+    setAmount('')
+    setMode('add')
+    setRecharge(false)
+    setPaidAmount('')
+  }
 
   const getPreviewText = () => {
     const current = props.currentQuota
@@ -73,6 +88,15 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     if (!amount && mode !== 'override') return
     if (quotaValue <= 0 && mode !== 'override') return
 
+    if (paidInvalid) {
+      toast.error(
+        t(
+          'Paid amount must be greater than 0 and not exceed the credited amount'
+        )
+      )
+      return
+    }
+
     setLoading(true)
     try {
       const value =
@@ -82,11 +106,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         action: 'add_quota',
         mode,
         value: mode === 'override' ? value : Math.abs(value),
+        ...(mode === 'add' && recharge
+          ? { recharge: true, paid_quota: paidQuotaValue }
+          : {}),
       })
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
-        setAmount('')
-        setMode('add')
+        resetForm()
         props.onOpenChange(false)
         props.onSuccess()
       } else {
@@ -100,8 +126,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleCancel = () => {
-    setAmount('')
-    setMode('add')
+    resetForm()
     props.onOpenChange(false)
   }
 
@@ -147,6 +172,8 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 onClick={() => {
                   setMode(m)
                   setAmount('')
+                  setRecharge(false)
+                  setPaidAmount('')
                 }}
               >
                 {m === 'add'
@@ -175,6 +202,50 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
             }}
           />
         </div>
+
+        {mode === 'add' && (
+          <div className='space-y-3 rounded-lg border p-3'>
+            <label className='flex items-start gap-2 text-sm'>
+              <Checkbox
+                checked={recharge}
+                onCheckedChange={(checked) => {
+                  setRecharge(checked === true)
+                  setPaidAmount('')
+                }}
+              />
+              <span className='space-y-0.5'>
+                <span className='block font-medium'>
+                  {t('Mark as recharge')}
+                </span>
+                <span className='text-muted-foreground block text-xs'>
+                  {t('Counts toward the invite rebate base')}
+                </span>
+              </span>
+            </label>
+            {recharge && (
+              <div className='space-y-2'>
+                <Label htmlFor='paid-amount'>
+                  {t('Paid amount')} ({currencyLabel})
+                </Label>
+                <Input
+                  id='paid-amount'
+                  type='number'
+                  step={tokensOnly ? 1 : 0.000001}
+                  min={0}
+                  placeholder={amount || placeholder}
+                  value={paidAmount}
+                  onChange={(e) => setPaidAmount(e.target.value)}
+                  aria-invalid={paidInvalid}
+                />
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Defaults to the credited amount. Enter less if a discount was given.'
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Dialog>
   )

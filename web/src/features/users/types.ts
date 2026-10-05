@@ -143,6 +143,10 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+  /** fork (ikun): count this grant toward the invite-rebate recharge base */
+  recharge?: boolean
+  /** fork (ikun): paid amount in quota units; defaults to value, never above it */
+  paid_quota?: number
 }
 
 // ============================================================================
