@@ -51,7 +51,11 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const schema = z.object({
   enabled: z.boolean(),
-  ratePercent: z.coerce.number().min(0.01).max(100),
+  ratePercent: z.coerce
+    .number()
+    .min(0.01)
+    .lt(100)
+    .multipleOf(0.01, { message: 'Rate must have at most 2 decimal places' }),
 })
 
 type Values = z.infer<typeof schema>
@@ -107,10 +111,13 @@ export function RebateSettingsSection({
     if (!rateResult.success) {
       return
     }
-    await updateOption.mutateAsync({
+    const enabledResult = await updateOption.mutateAsync({
       key: 'IkunRebateEnabled',
       value: String(values.enabled),
     })
+    if (!enabledResult.success) {
+      return
+    }
     form.reset(values)
     void loadInfo()
   }
@@ -155,10 +162,18 @@ export function RebateSettingsSection({
               <FormItem>
                 <FormLabel>{t('Rebate rate (%)')}</FormLabel>
                 <FormControl>
-                  <Input type='number' step='0.01' min={0} max={100} {...field} />
+                  <Input
+                    type='number'
+                    step='0.01'
+                    min={0.01}
+                    max={99.99}
+                    {...field}
+                  />
                 </FormControl>
                 <FormDescription>
-                  {t('Applies from the next settlement. Must be between 0 and 100.')}
+                  {t(
+                    'Applies from the next settlement. Must be at least 0.01 and less than 100.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -259,7 +274,9 @@ function RebateExclusionList() {
         </Button>
       </div>
       {rows.length === 0 ? (
-        <p className='text-muted-foreground text-sm'>{t('No excluded users')}</p>
+        <p className='text-muted-foreground text-sm'>
+          {t('No excluded users')}
+        </p>
       ) : (
         <table className='w-full text-sm'>
           <thead className='text-muted-foreground text-left'>
