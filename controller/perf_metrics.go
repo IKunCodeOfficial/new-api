@@ -58,10 +58,16 @@ func GetPerfMetrics(c *gin.Context) {
 		}
 	}
 
+	usableGroups := getUsablePerfMetricGroups(c)
+	activeGroups := make([]string, 0, len(usableGroups))
+	for group := range usableGroups {
+		activeGroups = append(activeGroups, group)
+	}
 	result, err := perfmetrics.Query(perfmetrics.QueryParams{
-		Model: modelName,
-		Group: c.Query("group"),
-		Hours: hours,
+		Model:         modelName,
+		Group:         c.Query("group"),
+		Hours:         hours,
+		AllowedGroups: activeGroups,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -70,8 +76,6 @@ func GetPerfMetrics(c *gin.Context) {
 		})
 		return
 	}
-
-	result.Groups = filterPerfMetricGroupsByUsableGroups(result.Groups, getUsablePerfMetricGroups(c))
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -100,14 +104,4 @@ func getUsablePerfMetricGroups(c *gin.Context) map[string]struct{} {
 		}
 	}
 	return groups
-}
-
-func filterPerfMetricGroupsByUsableGroups(groups []perfmetrics.GroupResult, usableGroups map[string]struct{}) []perfmetrics.GroupResult {
-	filtered := make([]perfmetrics.GroupResult, 0, len(groups))
-	for _, group := range groups {
-		if _, ok := usableGroups[group.Group]; ok {
-			filtered = append(filtered, group)
-		}
-	}
-	return filtered
 }

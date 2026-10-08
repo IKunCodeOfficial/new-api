@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, it } from 'vitest'
 
-import { mapStatusDataToConfig } from '../use-system-config'
+import { mapStatusDataToConfig } from '@/lib/status-query'
 
 describe('system status mapping', () => {
   it('maps and normalizes the configured top-up link', () => {

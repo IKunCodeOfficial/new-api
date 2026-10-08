@@ -42,6 +42,7 @@ export function getRedemptionFormSchema(t: TFunction) {
     expired_time: z.date().optional(),
     count: z
       .number()
+      .int(msg.COUNT_INVALID)
       .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
       .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
       .optional(),

@@ -9,6 +9,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestPreConsumeBillingTrustedUserSkipsBalanceCheck(t *testing.T) {
 
 	balance := int(80 * common.QuotaPerUnit)
 	preConsume := int(81 * common.QuotaPerUnit)
-	require.Greater(t, balance, common.GetTrustQuota())
+	require.Greater(t, balance, int(operation_setting.GetQuotaSetting().TrustQuotaUSD*common.QuotaPerUnit))
 	seedUser(t, 9101, balance)
 	seedToken(t, 9101, 9101, "trust-key", 0)
 
@@ -56,7 +57,7 @@ func TestPreConsumeBillingUntrustedUserRejectsWhenBalanceInsufficient(t *testing
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 
-	balance := common.GetTrustQuota() / 2
+	balance := int(operation_setting.GetQuotaSetting().TrustQuotaUSD*common.QuotaPerUnit) / 2
 	seedUser(t, 9102, balance)
 	seedToken(t, 9102, 9102, "untrusted-key", 0)
 
@@ -67,6 +68,23 @@ func TestPreConsumeBillingUntrustedUserRejectsWhenBalanceInsufficient(t *testing
 	assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
 	assert.Nil(t, info.Billing)
 	quota, err := model.GetUserQuota(9102, true)
+	require.NoError(t, err)
+	assert.Equal(t, balance, quota)
+}
+
+func TestPreConsumeBillingTrustedUserRejectsSaturatedReservation(t *testing.T) {
+	truncate(t)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	balance := int(80 * common.QuotaPerUnit)
+	seedUser(t, 9103, balance)
+	seedToken(t, 9103, 9103, "saturated-trust-key", 0)
+	info := newWalletOnlyRelayInfo(9103, 9103, "saturated-trust-key")
+	apiErr := PreConsumeBilling(c, common.MaxQuota, info)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+	assert.Nil(t, info.Billing)
+	quota, err := model.GetUserQuota(9103, true)
 	require.NoError(t, err)
 	assert.Equal(t, balance, quota)
 }

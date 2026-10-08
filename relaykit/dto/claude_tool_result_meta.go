@@ -2,52 +2,51 @@ package dto
 
 import (
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
-// appendClaudeToolResultTexts 从 tool_result 内容中提取用于 token 估算的文本。
-// 不能把整个 content 序列化成 JSON 文本，否则截图等 base64 数据会被当成文字估算，
-// 一张图就能被估成十几万 token，导致预扣费虚高。
-// image/document 等媒体块不参与估算，也不放入 Files：Files 中的附件在估算阶段可能被
-// 下载（URL）或完整解码（base64），会给每个请求带来额外开销和失败路径；
-// 媒体的真实用量由结算阶段按上游 usage 补齐。
-// 直接遍历已解析的 []any，只引用原有字符串，不做额外的序列化/反序列化。
-func appendClaudeToolResultTexts(content any, texts []string) []string {
-	switch v := content.(type) {
-	case nil:
-		return texts
-	case string:
-		if v != "" {
-			texts = append(texts, v)
-		}
-		return texts
-	case []any:
-		for _, item := range v {
-			block, ok := item.(map[string]any)
-			if !ok {
+// appendClaudeToolResultMeta keeps media out of text tokenization while retaining
+// FileMeta for media estimation. Unknown tool-result blocks preserve their fields.
+func appendClaudeToolResultMeta(content any, texts []string, files []*types.FileMeta) ([]string, []*types.FileMeta) {
+	if content == nil {
+		return texts, files
+	}
+	if text, ok := content.(string); ok {
+		return append(texts, text), files
+	}
+	blocks, err := kitutil.Any2Type[[]map[string]any](content)
+	if err != nil {
+		data, _ := kitutil.Marshal(content)
+		return append(texts, string(data)), files
+	}
+	for _, block := range blocks {
+		switch block["type"] {
+		case ContentTypeText:
+			if text, ok := block["text"].(string); ok {
+				texts = append(texts, text)
+			}
+		case "image", "document":
+			part, err := kitutil.Any2Type[ClaudeMediaMessage](block)
+			if err != nil {
 				continue
 			}
-			switch block["type"] {
-			case ContentTypeText:
-				if text, _ := block["text"].(string); text != "" {
+			if part.Source != nil && part.Source.Type == ContentTypeText {
+				if text, ok := part.Source.Data.(string); ok {
 					texts = append(texts, text)
 				}
-			case "image":
-			case "document":
-				// 纯文本 document：source.data 就是文本本身，按文字估算
-				source, _ := block["source"].(map[string]any)
-				if source != nil && source["type"] == ContentTypeText {
-					if data, _ := source["data"].(string); data != "" {
-						texts = append(texts, data)
-					}
-				}
-			default:
-				b, _ := kitutil.Marshal(block)
-				texts = append(texts, string(b))
+				continue
 			}
+			if source := part.ToFileSource(); source != nil {
+				fileType := types.FileTypeFile
+				if part.Type == "image" {
+					fileType = types.FileTypeImage
+				}
+				files = append(files, &types.FileMeta{FileType: fileType, Source: source})
+			}
+		default:
+			data, _ := kitutil.Marshal(block)
+			texts = append(texts, string(data))
 		}
-		return texts
-	default:
-		b, _ := kitutil.Marshal(content)
-		return append(texts, string(b))
 	}
+	return texts, files
 }

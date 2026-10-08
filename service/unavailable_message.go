@@ -18,13 +18,13 @@ import (
 //     model.ResolveChannelUnavailableMessage)
 //  2. the group-level fallback message
 //
-// The "auto" group is expanded into the user's auto groups in configured order,
+// The "auto" group uses the request's permitted auto groups in token order,
 // so a request routed through auto still surfaces the message of the concrete
 // group that went dark; "auto" itself stays in the list as a last resort.
 func ResolveUnavailableMessage(c *gin.Context, group string, modelName string, requestPath string) string {
 	groups := []string{group}
 	if group == "auto" {
-		groups = append(GetUserAutoGroup(common.GetContextKeyString(c, constant.ContextKeyUserGroup)), group)
+		groups = append(GetRequestAutoGroups(c, common.GetContextKeyString(c, constant.ContextKeyUserGroup)), group)
 	}
 
 	for _, candidateGroup := range groups {

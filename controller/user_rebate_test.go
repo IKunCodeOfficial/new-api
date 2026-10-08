@@ -92,3 +92,38 @@ func TestManageAddQuotaRechargeRespectsWalletCeiling(t *testing.T) {
 	assert.Equal(t, common.MaxWalletQuota-1, userQuota(t, target))
 	assert.Empty(t, rechargeRows(t, target), "额度未到账时不得留下充值记录")
 }
+
+func TestManageAddQuotaRechargeRollsBackWithPaidRecord(t *testing.T) {
+	db := setupRebateControllerTest(t)
+	target := createRebateTestUser(t, 1000, common.RoleCommonUser)
+	require.NoError(t, db.Migrator().DropTable(&model.RebateAdminRecharge{}))
+	response := manageAddQuota(t, target, `,"recharge":true,"paid_quota":9000`)
+	require.Equal(t, false, response["success"])
+	assert.Equal(t, 1000, userQuota(t, target))
+	var audit model.AuditLog
+	require.NoError(t, model.LOG_DB.Where("category = ?", model.AuditCategoryOperation).First(&audit).Error)
+	assert.False(t, audit.Success)
+	encoded, err := common.Marshal(audit.Other.Op.Params)
+	require.NoError(t, err)
+	var params map[string]any
+	require.NoError(t, common.Unmarshal(encoded, &params))
+	assert.Equal(t, "database_error", params["failure_reason"])
+	var topups int64
+	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeTopup).Count(&topups).Error)
+	assert.Zero(t, topups)
+}
+
+func TestManageAddQuotaRechargeEnforcesAdjustmentPermissions(t *testing.T) {
+	setupRebateControllerTest(t)
+	target := createRebateTestUser(t, 1000, common.RoleAdminUser)
+	_, err := model.AdjustUserQuota(target, common.RoleAdminUser, "add", 10000, &model.UserQuotaRecharge{OperatorID: 1, PaidQuota: 9000})
+	require.ErrorIs(t, err, model.ErrUserQuotaPermission)
+	assert.Equal(t, 1000, userQuota(t, target))
+	assert.Empty(t, rechargeRows(t, target))
+	for _, mode := range []string{"subtract", "override"} {
+		_, err = model.AdjustUserQuota(target, common.RoleRootUser, mode, 10000, &model.UserQuotaRecharge{OperatorID: 1, PaidQuota: 9000})
+		require.ErrorIs(t, err, model.ErrInvalidUserQuotaAdjustment)
+	}
+	assert.Equal(t, 1000, userQuota(t, target))
+	assert.Empty(t, rechargeRows(t, target))
+}

@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"maps"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -48,9 +50,7 @@ func GetPricing(c *gin.Context) {
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
-	for s, f := range ratio_setting.GetGroupRatioCopy() {
-		groupRatio[s] = f
-	}
+	maps.Copy(groupRatio, ratio_setting.GetGroupRatioCopy())
 	var group string
 	role := common.RoleGuestUser
 	if exists {

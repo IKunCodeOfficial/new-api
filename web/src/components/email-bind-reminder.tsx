@@ -90,7 +90,7 @@ export function EmailBindReminder() {
 
   const goToBind = () => {
     dismiss()
-    navigate({ to: '/profile' })
+    navigate({ to: '/security' })
   }
 
   return (

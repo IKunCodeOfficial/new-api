@@ -13,7 +13,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,9 +116,6 @@ func TestRewriteKeepsInjectedDelayLeftmost(t *testing.T) {
 
 func newResponsesStreamFixture(t *testing.T) (*gin.Context, *httptest.ResponseRecorder, *io.PipeWriter, *http.Response, *relaycommon.RelayInfo) {
 	t.Helper()
-
-	// 流结束后的 completion-token 兜底统计需要已初始化的 tokenizer
-	service.InitTokenEncoders()
 
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)

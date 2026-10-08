@@ -99,8 +99,8 @@ func TestRebateExclusionWritesAuditLogs(t *testing.T) {
 	out := postJSON(t, DeleteRebateExclusion, "DELETE", "/api/rebate/exclusions/"+id, "", 1, gin.Param{Key: "id", Value: id})
 	require.Equal(t, true, out["success"], out["message"])
 
-	var logs []model.Log
-	require.NoError(t, db.Where("type = ?", model.LogTypeManage).Order("id asc").Find(&logs).Error)
+	var logs []model.AuditLog
+	require.NoError(t, model.LOG_DB.Where("category = ?", model.AuditCategoryOperation).Order("id asc").Find(&logs).Error)
 	require.Len(t, logs, 2)
 	assert.Equal(t, "Excluded user 1247 from rebates as inviter", logs[0].Content)
 	assert.Equal(t, "Removed user 1247 (inviter) from the rebate exclusion list", logs[1].Content)

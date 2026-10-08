@@ -1,7 +1,7 @@
 package controller
 
 // Fork-only file (ikun): shared in-memory DB fixture for invite-rebate tests.
-// It reuses setupLogControllerTestDB (controller/log_test.go) for the DB
+// It reuses setupManageUserTestDB for the cross-database
 // lifecycle and only adds the models rebate controllers touch.
 
 import (
@@ -20,9 +20,9 @@ import (
 
 func setupRebateControllerTest(t *testing.T) *gorm.DB {
 	t.Helper()
-	db := setupLogControllerTestDB(t)
+	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(
-		&model.User{}, &model.Option{}, &model.TopUp{},
+		&model.User{}, &model.Option{}, &model.TopUp{}, &model.AuditLog{},
 		&model.RebateAdminRecharge{}, &model.RebateTopupPaid{}, &model.RebateExclusion{},
 	))
 

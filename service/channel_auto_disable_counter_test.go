@@ -11,12 +11,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net/http/httptest"
 )
 
 func clearAutoDisableCounterTestState() {
@@ -245,4 +248,47 @@ func TestThresholdOneDisablesImmediatelyWithoutCounterState(t *testing.T) {
 	_, throttleExists := autoDisableResetThrottles.Load(autoDisableCounterKey(channelID, false, ""))
 	assert.False(t, counterExists)
 	assert.False(t, throttleExists)
+}
+
+func TestRequestPolicyResetsDisableHitsOnlyAfterRealSuccess(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		outcome   relaycommon.ResponseOutcome
+		wantReset bool
+	}{
+		{"completed", relaycommon.ResponseOutcomeCompleted, true},
+		{"failed HTTP 200 stream", relaycommon.ResponseOutcomeFailed, false},
+		{"incomplete", relaycommon.ResponseOutcomeIncomplete, false},
+		{"missing terminal", relaycommon.ResponseOutcomeUnknown, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useMemoryAutoDisableCounters(t, 3)
+			const channelID = 9103
+			key := autoDisableCounterKey(channelID, false, "")
+			_, _ = recordAutoDisableHit(key, 3)
+			_, _ = recordAutoDisableHit(key, 3)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set("channel_id", channelID)
+			stream := relaycommon.NewStreamStatus()
+			stream.RequireTerminal()
+			stream.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+			switch tc.outcome {
+			case relaycommon.ResponseOutcomeCompleted:
+				stream.MarkCompleted()
+			case relaycommon.ResponseOutcomeFailed:
+				stream.MarkFailed("server_error", "server_error", 500)
+			case relaycommon.ResponseOutcomeIncomplete:
+				stream.MarkIncomplete("max_output_tokens")
+			}
+			MarkRequestPolicySuccess(c, stream)
+			assert.Equal(t, tc.wantReset, RequestPolicy(c).Successful)
+			reached, hits := recordAutoDisableHit(key, 3)
+			assert.Equal(t, !tc.wantReset, reached)
+			if tc.wantReset {
+				assert.Equal(t, int64(1), hits)
+			} else {
+				assert.Equal(t, int64(3), hits)
+			}
+		})
+	}
 }

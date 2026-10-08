@@ -255,5 +255,7 @@ func TestFormatUserLogsDropsMalformedMetadata(t *testing.T) {
 	assert.Equal(t, 1, logs[0].UserId)
 	assert.Equal(t, "admin-1", logs[0].Username)
 	assert.Equal(t, "198.51.100.1", logs[0].Ip)
-	assert.Equal(t, "null", logs[0].Other)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
+	assert.Empty(t, other, "malformed metadata must not expose partial privileged fields")
 }

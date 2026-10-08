@@ -25,6 +25,7 @@ import {
 } from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
 
+import { getRedemptionFormSchema } from '../../lib/redemption-form'
 import type { Redemption } from '../../types'
 
 const i18n = (await import('i18next')).default
@@ -213,7 +214,7 @@ describe('redemption drawer', () => {
 
     await renderDrawer(redemption(1))
     await waitFor(() =>
-      expect(document.body).toHaveTextContent('Something went wrong!')
+      expect(document.body).toHaveTextContent('network failure')
     )
 
     expect(getSaveButton()).toBeDisabled()
@@ -221,19 +222,23 @@ describe('redemption drawer', () => {
     expect(updates).toEqual([])
   })
 
-  test('blocks updates and uses localized feedback for unsuccessful responses', async () => {
-    apiClient.get = async () => ({
-      data: { success: false, message: 'raw server message' },
-    })
-
-    await renderDrawer(redemption(1))
-    await waitFor(() =>
-      expect(document.body).toHaveTextContent('Failed to load')
-    )
-
-    expect(getSaveButton()).toBeDisabled()
-    expect(document.body).not.toHaveTextContent('raw server message')
-  })
+  test.each([
+    {
+      message: 'Redemption code is no longer available',
+      expected: 'Redemption code is no longer available',
+    },
+    { message: undefined, expected: 'Failed to load' },
+  ])(
+    'blocks updates and reports the server reason or localized fallback: $expected',
+    async ({ message, expected }) => {
+      apiClient.get = async () => ({
+        data: { success: false, message },
+      })
+      await renderDrawer(redemption(1))
+      await waitFor(() => expect(document.body).toHaveTextContent(expected))
+      expect(getSaveButton()).toBeDisabled()
+    }
+  )
 
   test('keeps the original quota when another field changes', async () => {
     const original = redemption(1)
@@ -311,4 +316,20 @@ describe('redemption drawer', () => {
     expect(updates[0]?.id).toBe(2)
     expect(updates[0]?.quota).toBe(1000001)
   })
+})
+
+test.each([
+  [1, true],
+  [500, true],
+  [0, false],
+  [501, false],
+  [1.5, false],
+])('redemption batch count %s validates as %s', (count, valid) => {
+  expect(
+    getRedemptionFormSchema(i18n.t).safeParse({
+      name: 'Batch',
+      quota_dollars: 1,
+      count,
+    }).success
+  ).toBe(valid)
 })

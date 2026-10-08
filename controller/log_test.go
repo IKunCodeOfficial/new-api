@@ -48,6 +48,7 @@ func setupLogControllerTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestGetAllLogsRejectsInvalidTargetUserId(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	for _, targetUserId := range []string{"", "0", "-1", "invalid", "92233720368547758070"} {
 		t.Run(targetUserId, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -63,12 +64,13 @@ func TestGetAllLogsRejectsInvalidTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.MsgInvalidParams, response.Message)
+			assert.Equal(t, i18n.T(ctx, i18n.MsgInvalidParams), response.Message)
 		})
 	}
 }
 
 func TestGetAllLogsRequiresManageTypeForTargetUserId(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	for _, target := range []string{
 		"/api/log/?target_user_id=42",
 		"/api/log/?type=0&target_user_id=42",
@@ -88,7 +90,7 @@ func TestGetAllLogsRequiresManageTypeForTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.MsgInvalidParams, response.Message)
+			assert.Equal(t, i18n.T(ctx, i18n.MsgInvalidParams), response.Message)
 		})
 	}
 }
