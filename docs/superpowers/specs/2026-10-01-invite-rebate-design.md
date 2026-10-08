@@ -42,9 +42,11 @@ settled_base += delta
 
 | 来源 | 取数 | 计入 R 的值 |
 |---|---|---|
-| 在线充值 | `top_ups` 中 `status='success'` **且 `amount > 0`**，按 `complete_time` 落日 | `min(到账额度, paid_quota)`；`rebate_topup_paid` 无该 `trade_no` 时取到账额度 |
+| 在线充值 | `top_ups` 中 `status='success'` **且 `amount > 0`**，`complete_time > 0` 时按完成时间落日，否则按 `create_time` 落日 | `min(到账额度, paid_quota)`；`rebate_topup_paid` 无该 `trade_no` 时取到账额度 |
 | 兑换码 | `redemptions` 中 `status=3`，按 `redeemed_time` 落日，归属 `used_user_id`。**必须忽略 `deleted_at`**：管理员"清理无效兑换码"（`model.DeleteInvalidRedemptions`）会对 `status=3` 的行软删除，直连 SQL 若不过滤就会静默少算 R | `quota` 全额 |
 | 管理员充值 | `rebate_admin_recharges`，按 `created_at` 落日 | `paid_quota` |
+
+历史在线订单正常情况下可能没有 `complete_time`（NULL 或 0）。2026-10-08 经业务备份验证并确认，采用完成时间优先、创建时间兜底；有完成时间的订单不得按创建时间提前计入。兜底订单跨午夜支付时可能归入下单日，仍受活动起点与成功状态约束，不回填或修改原始订单。MySQL 历史 `top_ups` 与新建 `rebate_topup_paid` 可能使用不同排序规则，读取实付记录时按订单号分批参数查询，避免跨表字符串 JOIN 的排序规则冲突。
 
 在线充值到账额度（与 `model/topup.go` 入账一致；渠道按 `payment_provider` 判定，为空的旧行按 `payment_method` 推断：`stripe`/`creem`/`waffo`/`waffo_pancake` 同名，其余视为 `epay`）：
 

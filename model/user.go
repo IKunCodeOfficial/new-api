@@ -548,6 +548,12 @@ func inviteUser(inviterId int) error {
 }
 
 func (user *User) TransferAffQuotaToQuota(quota int) error {
+	if quota <= 0 {
+		return ErrInvalidTopUpQuota
+	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return err
+	}
 	// 检查quota是否小于最小额度
 	if float64(quota) < common.QuotaPerUnit {
 		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
@@ -569,6 +575,9 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	// 再次检查用户的AffQuota是否足够
 	if user.AffQuota < quota {
 		return errors.New("邀请额度不足！")
+	}
+	if user.Quota > common.MaxWalletQuota-quota {
+		return ErrWalletQuotaLimitExceeded
 	}
 
 	// 更新用户额度
