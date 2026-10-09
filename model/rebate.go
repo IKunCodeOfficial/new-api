@@ -5,7 +5,6 @@ package model
 // docs/superpowers/specs/2026-10-01-invite-rebate-design.md.
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
@@ -150,37 +149,4 @@ func (topUp *TopUp) AfterCreate(tx *gorm.DB) error {
 		PaidQuota: int64(paid),
 		CreatedAt: common.GetTimestamp(),
 	}).Error
-}
-
-var errRebatePaidQuotaOutOfRange = errors.New("paid quota must be > 0 and <= granted quota")
-
-// IncreaseUserQuotaAsRecharge grants quota and records it as a recharge in one
-// transaction, so a grant counts toward the rebate base only when the quota
-// actually landed, and the wallet ceiling is enforced atomically by the shared
-// credit primitive (which resolves into gorm.ErrRecordNotFound for a missing
-// user and ErrTopUpQuotaLimitExceeded for a wallet at the ceiling).
-func IncreaseUserQuotaAsRecharge(userId int, quota int, paidQuota int, operatorId int) error {
-	if quota <= 0 || paidQuota <= 0 || paidQuota > quota {
-		return errRebatePaidQuotaOutOfRange
-	}
-	if err := common.ValidateWalletQuota(quota); err != nil {
-		return err
-	}
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := creditTopUpQuota(tx, userId, quota, nil); err != nil {
-			return err
-		}
-		return tx.Create(&RebateAdminRecharge{
-			UserId:     userId,
-			Quota:      int64(quota),
-			PaidQuota:  int64(paidQuota),
-			OperatorId: operatorId,
-			CreatedAt:  common.GetTimestamp(),
-		}).Error
-	})
-	if err != nil {
-		return err
-	}
-	syncCreditUserQuotaCache(userId, quota, "admin recharge")
-	return nil
 }

@@ -109,12 +109,14 @@ func TestRebateMySQLRechargeLifecycle(t *testing.T) {
 	assert.Positive(t, order.CompleteTime)
 	assert.Equal(t, common.TopUpStatusSuccess, order.Status)
 
-	require.NoError(t, IncreaseUserQuotaAsRecharge(user.Id, 1000000, 900000, user.Id))
+	_, err = AdjustUserQuota(user.Id, common.RoleRootUser, "add", 1000000, &UserQuotaRecharge{OperatorID: user.Id, PaidQuota: 900000})
+	require.NoError(t, err)
 	var recharge RebateAdminRecharge
 	require.NoError(t, DB.Where("user_id = ?", user.Id).Order("id desc").First(&recharge).Error)
 	assert.Equal(t, int64(1000000), recharge.Quota)
 	assert.Equal(t, int64(900000), recharge.PaidQuota)
-	assert.Error(t, IncreaseUserQuotaAsRecharge(user.Id, 1000000, 1000001, user.Id))
+	_, err = AdjustUserQuota(user.Id, common.RoleRootUser, "add", 1000000, &UserQuotaRecharge{OperatorID: user.Id, PaidQuota: 1000001})
+	assert.ErrorIs(t, err, ErrInvalidUserQuotaAdjustment)
 	var rechargeCount int64
 	require.NoError(t, DB.Model(&RebateAdminRecharge{}).Where("user_id = ?", user.Id).Count(&rechargeCount).Error)
 	assert.Equal(t, int64(1), rechargeCount)
