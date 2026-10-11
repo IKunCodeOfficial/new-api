@@ -72,7 +72,7 @@ settled_base += delta
 
 ### 2.2 实付 `paid_quota`
 
-- **在线充值**：fork 在 `TopUp` 的 GORM `AfterCreate` 钩子里，于下单时刻按当时单价换算：
+- **在线充值**：fork 在 `TopUp` 的 GORM `AfterCreate` 钩子里，于下单时刻按当时单价换算。epay、Waffo、Waffo Pancake 的 `TopUp.Money` 必须先按各网关实际发送的金额字符串固化，不能保留币种舍入前的价格；发送和落库复用同一金额。保留各渠道已有的舍入规则（epay/Waffo 的浮点格式化、Pancake 的 Decimal 格式化；Waffo 零小数币种按整数）。舍入后为零的订单在创建前拒绝：
 
   | 渠道 | `paid_quota` |
   |---|---|

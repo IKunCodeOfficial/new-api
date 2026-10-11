@@ -288,8 +288,11 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney := getPayMoney(req.Amount, group)
-	if payMoney < 0.01 {
+	// Persist the exact amount sent to the gateway so the rebate paid snapshot
+	// reflects the charge after currency rounding.
+	paymentAmount := strconv.FormatFloat(getPayMoney(req.Amount, group), 'f', 2, 64)
+	payMoney, err := strconv.ParseFloat(paymentAmount, 64)
+	if err != nil || payMoney < 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
@@ -313,7 +316,7 @@ func RequestEpay(c *gin.Context) {
 		Type:           req.PaymentMethod,
 		ServiceTradeNo: tradeNo,
 		Name:           fmt.Sprintf("TUC%d", req.Amount),
-		Money:          strconv.FormatFloat(payMoney, 'f', 2, 64),
+		Money:          paymentAmount,
 		Device:         epay.PC,
 		NotifyUrl:      notifyUrl,
 		ReturnUrl:      returnUrl,
