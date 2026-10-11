@@ -452,7 +452,12 @@ func GetAffCode(c *gin.Context) {
 		return
 	}
 	if user.AffCode == "" {
-		user.AffCode = common.GetRandomString(4)
+		affCode, err := model.NewAffCode(model.DB) // fork (ikun): collision-free allocation
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		user.AffCode = affCode
 		if err := user.Update(false); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
