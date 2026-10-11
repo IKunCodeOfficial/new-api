@@ -624,8 +624,10 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	user.AffQuota -= quota
 	user.Quota += quota
 
-	// 保存用户状态
-	if err := tx.Save(user).Error; err != nil {
+	// 仅更新余额，避免整行保存将历史 NULL 字段写成零值。
+	if err := tx.Model(user).Updates(map[string]any{
+		"quota": user.Quota, "aff_quota": user.AffQuota,
+	}).Error; err != nil {
 		return err
 	}
 
@@ -1272,11 +1274,9 @@ func ValidateAccessToken(token string) (*User, error) {
 	return user, nil
 }
 
-// GetUserQuota gets quota from Redis first, falls back to DB if needed
-func GetUserQuota(id int, fromDB bool) (quota int, err error) {
-	if !fromDB && common.RedisEnabled {
-		return getUserQuotaCache(id)
-	}
+// GetUserQuota always reads the authoritative wallet balance. The legacy
+// fromDB argument is retained for callers; Redis quota is only a display snapshot.
+func GetUserQuota(id int, _ bool) (quota int, err error) {
 	err = DB.Model(&User{}).Where("id = ?", id).Select("quota").Find(&quota).Error
 	if err != nil {
 		return 0, err
@@ -1361,30 +1361,24 @@ func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error)
 	return userBase.GetSetting(), nil
 }
 
-func IncreaseUserQuota(id int, quota int, db bool) (err error) {
+// IncreaseUserQuota commits wallet credits synchronously, including refunds.
+// The legacy db flag remains accepted; wallet balances no longer use batching.
+func IncreaseUserQuota(id int, quota int, _ bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
+	}
+	if quota == 0 {
+		return nil
 	}
 	if err := common.ValidateWalletQuota(quota); err != nil {
 		return err
 	}
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
-		gopool.Go(func() {
-			if err := cacheIncrUserQuota(id, int64(quota)); err != nil {
-				common.SysLog("failed to increase user quota: " + err.Error())
-			}
-		})
-		return nil
-	}
 	if err := increaseUserQuota(id, quota); err != nil {
 		return err
 	}
-	gopool.Go(func() {
-		if err := cacheIncrUserQuota(id, int64(quota)); err != nil {
-			common.SysLog("failed to increase user quota: " + err.Error())
-		}
-	})
+	if err := refreshUserQuotaCache(id); err != nil {
+		common.SysLog("failed to refresh increased user quota snapshot: " + err.Error())
+	}
 	return nil
 }
 
@@ -1408,21 +1402,19 @@ func increaseUserQuota(id int, quota int) (err error) {
 	return ErrWalletQuotaLimitExceeded
 }
 
-func DecreaseUserQuota(id int, quota int, db bool) (err error) {
+// DecreaseUserQuota commits settlement differences before returning. Unlike
+// reservations, final settlement may overdraw a wallet when actual usage grows.
+func DecreaseUserQuota(id int, quota int, _ bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
-	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to decrease user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
+	if err := decreaseUserQuota(id, quota); err != nil {
+		return err
 	}
-	return decreaseUserQuota(id, quota)
+	if err := refreshUserQuotaCache(id); err != nil {
+		common.SysLog("failed to refresh decreased user quota snapshot: " + err.Error())
+	}
+	return nil
 }
 
 func decreaseUserQuota(id int, quota int) (err error) {

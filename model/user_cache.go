@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -75,8 +76,8 @@ func populateUserCache(user User) error {
 }
 
 // updateUserCache refreshes non-quota user cache fields.
-// Quota is maintained by atomic quota delta paths and must not be overwritten
-// by stale user snapshots from profile/settings updates.
+// Quota is a best-effort database snapshot, refreshed by wallet mutations.
+// Profile/settings updates must not replace it with their older user snapshot.
 func updateUserCache(user User) error {
 	if !common.RedisEnabled {
 		return nil
@@ -137,29 +138,36 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	return &userCache, nil
 }
 
-// Add atomic quota operations using hash fields.
-// 通过守卫式 Lua 脚本执行：哈希不存在时直接跳过（下次读取会从数据库水合），
-// 不会像裸 HINCRBY 那样创建只含 Quota 字段的残缺哈希。
-func cacheIncrUserQuota(userId int, delta int64) error {
+// refreshUserQuotaCache publishes a display snapshot only. Wallet reads and
+// reservations always use the database, so delayed cache writes cannot grant
+// spending authority. A newly hydrated hash may already include a credit.
+func refreshUserQuotaCache(userId int) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	_, err := cacheApplyUserQuotaDelta(userId, delta)
-	return err
+	quota, err := GetUserQuota(userId, true)
+	if err != nil {
+		return err
+	}
+	const script = `
+if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
+  or tonumber(redis.call('HGET', KEYS[1], 'CacheSchema') or '0') ~= tonumber(ARGV[3])
+  or redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
+  return 0
+end
+redis.call('HSET', KEYS[1], 'Quota', ARGV[1])
+return 1`
+	return common.RDB.Eval(context.Background(), script,
+		[]string{getUserCacheKey(userId)}, quota, userId, userCacheSchemaVersion).Err()
 }
 
-func cacheDecrUserQuota(userId int, delta int64) error {
-	return cacheIncrUserQuota(userId, -delta)
-}
-
-// syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
-// 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
-// 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
+// syncCreditUserQuotaCache refreshes the optional snapshot after a committed
+// recharge or transfer. Cache failures never undo or repeat the database credit.
 func syncCreditUserQuotaCache(userId int, quota int, operation string) {
 	if quota <= 0 {
 		return
 	}
-	if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
+	if err := refreshUserQuotaCache(userId); err != nil {
 		common.SysLog(fmt.Sprintf("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
 	}
 }

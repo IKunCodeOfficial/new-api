@@ -574,17 +574,17 @@ func TestManageUserQuotaConcurrentSnapshots(t *testing.T) {
 	assert.Equal(t, balance, user.Quota)
 }
 
-func TestManageUserQuotaCacheUsesCommittedIntegerDifference(t *testing.T) {
+func TestManageUserQuotaUpdatesCommittedWalletSnapshot(t *testing.T) {
 	for _, tc := range []struct {
-		name, mode                               string
-		before, cached, value, after, wantCached int
-		failUpdate, failCache, missingCache      bool
+		name, mode                                 string
+		before, reserved, value, after, wantCached int
+		failUpdate, failCache, missingCache        bool
 	}{
-		{name: "add_preserves_reservations", mode: "add", before: 1000, cached: 900, value: 500, after: 1500, wantCached: 1400},
-		{name: "subtract_preserves_reservations", mode: "subtract", before: 1000, cached: 900, value: 500, after: 500, wantCached: 400},
-		{name: "override_preserves_reservations", mode: "override", before: 1000, cached: 900, value: 2000, after: 2000, wantCached: 1900},
-		{name: "large_odd_difference", mode: "override", before: common.MaxWalletQuota - 1, cached: common.MaxWalletQuota - 1, value: -common.MaxWalletQuota, after: -common.MaxWalletQuota, wantCached: -common.MaxWalletQuota},
-		{name: "rollback_does_not_change_cache", mode: "subtract", before: 1000, cached: 900, value: 500, after: 1000, wantCached: 900, failUpdate: true},
+		{name: "add_after_reservation", mode: "add", before: 1000, reserved: 100, value: 500, after: 1400, wantCached: 1400},
+		{name: "subtract_after_reservation", mode: "subtract", before: 1000, reserved: 100, value: 500, after: 400, wantCached: 400},
+		{name: "override_after_reservation", mode: "override", before: 1000, reserved: 100, value: 2000, after: 2000, wantCached: 2000},
+		{name: "large_odd_difference", mode: "override", before: common.MaxWalletQuota - 1, value: -common.MaxWalletQuota, after: -common.MaxWalletQuota, wantCached: -common.MaxWalletQuota},
+		{name: "rollback_does_not_change_cache", mode: "subtract", before: 1000, reserved: 100, value: 500, after: 900, wantCached: 900, failUpdate: true},
 		{name: "cache_error_keeps_committed_change", mode: "add", before: 1000, value: 500, after: 1500, failCache: true},
 		{name: "missing_cache_is_not_partially_created", mode: "add", before: 1000, value: 500, after: 1500, missingCache: true},
 	} {
@@ -612,7 +612,13 @@ func TestManageUserQuotaCacheUsesCommittedIntegerDifference(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, quotaKey)
-			server.HSet(quotaKey, "Quota", strconv.Itoa(tc.cached))
+			if tc.reserved > 0 {
+				reserved, err := model.TryReserveUserQuota(user.Id, tc.reserved)
+				require.NoError(t, err)
+				require.True(t, reserved)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.Equal(t, tc.before-tc.reserved, user.Quota, "reservations are committed before adjustment")
+			}
 			if tc.missingCache {
 				server.Del(quotaKey)
 			}

@@ -115,7 +115,7 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 
 	// 事务成功后，异步更新缓存
 	go func() {
-		_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
+		_ = refreshUserQuotaCache(userId)
 	}()
 
 	return checkin, nil

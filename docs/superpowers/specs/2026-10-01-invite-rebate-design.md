@@ -184,15 +184,17 @@ settled_base += delta
 1. upsert `rebate_days[D]`：`status=running`，写入 `rate` 与 `disabled` 快照。
 2. 聚合当日活动：按受邀用户求当日 `r`（§2.1 三个来源）与 `c`（type=2 的 `quota` 之和减 type=6 的 `quota` 之和，不含订阅计费的日志，见 §2.1.1），只保留 `inviter_id ≠ 0` 且 `r ≠ 0 或 c ≠ 0` 的受邀用户，按当前 `inviter_id` 分组。
 3. 每个邀请人一个数据库事务：
-   1. `SELECT ... FOR UPDATE` 锁邀请人 `users` 行（SQLAlchemy `with_for_update()`，两种库都生成 `FOR UPDATE`）。
+   1. 先锁当日 `rebate_days` 行，在锁内再次确认 Redis 锁仍属于本进程；已为 `done` 时停止写入。再 `SELECT ... FOR UPDATE` 锁邀请人 `users` 行（SQLAlchemy `with_for_update()`，两种库都生成 `FOR UPDATE`）。日状态写入也遵守相同的锁内检查，防止旧进程暂停后恢复并覆盖接管者。
    2. 插入 `rebate_credits(D, I)`；唯一冲突 → 回滚并跳过该邀请人（已结算过）。
    3. 读取并锁定其名下受邀用户的 `rebate_watermarks` 行（不存在则视为全 0），**跳过 `last_day >= D` 的受邀用户**（见 §4.3），其余按 §2 更新 `cum_recharge`、`cum_consume`、`settled_base`、`last_day`。
    4. 判定作废（§2.3）；作废的份额不进入 `rebate`。
    5. `rebate > 0` 时：校验 `aff_quota + rebate ≤ 上限` **且** `aff_history + rebate ≤ 上限`（上限按列宽：`BIGINT` 为 2^53−1，32 位列为 2147483647，见 §2.3）。超限按 `overflow` 作废（§2.3），不写余额、不写日志、当日照常继续；否则 `UPDATE users SET aff_quota = aff_quota + rebate, aff_history = aff_history + rebate`，并插入一条日志（§5）。
    6. 回填 `rebate_credits` 的统计字段，提交。
-4. 全部邀请人完成后，`rebate_days[D]` 置 `done` 并写汇总；任何异常置 `failed` 并写 `error`，然后停止。
+4. 全部邀请人完成后，`rebate_days[D]` 置 `done` 并写汇总；仍持锁时遇到异常置 `failed` 并写 `error`。失锁进程只返回失败并停止，不再写日状态；未完成的 `running` 日由接管者或下次运行恢复。
 
 返利只写 `aff_quota`/`aff_history`，不动 `users.quota`。`aff_quota` 不在 Redis 用户缓存里（缓存哈希只含 `quota` 等基础字段，且 `GetUserById` 直读数据库），**无需失效任何缓存**。用户提取到钱包余额走已有接口 `POST /api/user/aff_transfer`（`model.TransferAffQuotaToQuota`，最小 1 单位，`FOR UPDATE` 锁定用户行）。
+
+钱包的额度读取、预扣、退款及差额结算同步读写数据库；Redis 的 `quota` 仅是可滞后的快照，不决定能否消费。钱包余额不再随批量统计延迟落库，避免提现/充值提交与缓存重建交错时重复授信。原有信任额度免预扣、实际用量超过预估后的差额扣款规则不变。
 
 崩溃在任意点：已提交的邀请人有 `rebate_credits` 行，重跑跳过；未提交的整体回滚。无需 pending 状态或入账标记核对。
 
@@ -204,7 +206,8 @@ settled_base += delta
 
 ### 4.4 快照语义（按什么时刻的口径算）
 
-- **开关与比例**：按执行结算那一刻的配置判定，不按 D 日当天。开关关闭期间 cron 仍逐日写出 `disabled` 日并推进水位（因此不会事后补发）；补结历史日期时用的是补结时刻的开关与比例，不保留比例历史。
+- **开关与比例**：按执行结算那一刻的配置判定，不按 D 日当天。开关关闭期间 cron 仍逐日写出 `disabled` 日并推进水位（因此不会事后补发）；补结历史日期时用的是补结时刻的开关与比例，不按充值或消费发生时的历史比例回溯。
+- **部分入账后的配置变更**：重跑继续按本次执行配置处理未完成的邀请人，已提交入账不重算。若配置与上次不同，在 `rebate_days.error` 保留 `config_changed` 审计，记录前后比例/开关及变更前已提交的邀请人，以便还原混合比例日；不能只用最终 `rebate_days.rate` 重算整日。
 - **开关关闭时 `rate` 允许缺失**：此时不校验、按 0 发放，`rebate_days.rate` 写 NULL；只有开关打开时才要求比例合法（§6）。
 - **金额展示单位**：日志金额按执行结算那一刻的展示设置格式化，补结旧日期也用当前设置。
 - **支付单价**：在线充值的实付额度在下单时刻固化进 `rebate_topup_paid`，之后改价不影响历史订单；若某笔订单没有该行（部署前下单、部署后支付完成），结算时以到账额度为上界，不会多算。
@@ -336,7 +339,7 @@ CUSTOM 分支例外：它是自己拼字符串（`${meta.symbol} ${decimal}`）�
 运行中：
 
 - 当日存在未知渠道的成功充值订单、邀请人事务数据库错误 → 当日 `failed`，停止。（余额溢出**不在此列**：按 `overflow` 作废该邀请人、当日照常 `done`，见 §2.3。）
-- 锁续期失败 → 不再开启新的邀请人事务，当日 `failed`（原因写明锁丢失），退出。
+- 锁续期失败 → 当前执行返回失败（原因写明锁丢失）并退出，不再写任何日状态或开启新的邀请人事务。数据库可保留 `running`，也可已被接管者推进；下次运行将未完成日期按幂等规则恢复。已在日行锁内确认持锁的在途事务可以完成，接管者需等待该事务释放数据库锁。
 - 不写任何缓存失效动作：`aff_quota`/`aff_history` 不进 Redis 用户缓存，`GetUserById` 直读数据库，因此没有可失败的缓存步骤。
 
 告警：暂以退出码 + 容器日志为准。由于 `overflow` 作废不改变退出码，这类永久性异常只能靠日志发现：

@@ -103,7 +103,7 @@ func TestTryReserveQuotaWithoutRedis(t *testing.T) {
 	assert.Equal(t, 55, getTokenFromDB(t, token.Id).RemainQuota)
 }
 
-func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
+func TestWalletReserveIsDurableWhileTokenUpdatesRemainBatched(t *testing.T) {
 	truncateTables(t)
 	resetBatchUpdateTestState(t)
 	useUserCacheMiniRedis(t)
@@ -113,7 +113,7 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	reserved, err := TryReserveUserQuota(user.Id, 8)
 	require.NoError(t, err)
 	assert.True(t, reserved)
-	assert.Equal(t, 10, getUserQuotaFromDB(t, user.Id), "batch delta is not flushed yet")
+	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id), "wallet reservations commit even with batching enabled")
 
 	reserved, err = TryReserveUserQuota(user.Id, 3)
 	require.NoError(t, err)
@@ -146,6 +146,7 @@ func TestBatchUpdateAccumulatesTwoMaximumRequestCharges(t *testing.T) {
 	user := createReserveTestUser(t, common.MaxQuota*2+100)
 	require.NoError(t, DecreaseUserQuota(user.Id, common.MaxQuota, false))
 	require.NoError(t, DecreaseUserQuota(user.Id, common.MaxQuota, false))
+	assert.Equal(t, 100, getUserQuotaFromDB(t, user.Id), "settlement must not wait for batch flush")
 
 	batchUpdate()
 	assert.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
@@ -202,7 +203,7 @@ func TestSynchronousReserveCompensatesCacheWhenPersistenceFails(t *testing.T) {
 
 	reserved, err := TryReserveUserQuota(user.Id, 6)
 	assert.False(t, reserved)
-	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	assert.NoError(t, err)
 	cached, cacheErr := cacheGetUserBase(user.Id)
 	require.NoError(t, cacheErr)
 	assert.Equal(t, 10, cached.Quota)
