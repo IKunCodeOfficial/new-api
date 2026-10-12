@@ -58,9 +58,10 @@ func TestTokenCountMetaCountsAgentLoopContent(t *testing.T) {
 					{"type":"tool_result","tool_use_id":"c1","content":"package main\n\nfunc main() {\n\tprintln(\"hi\")\n}"},
 					{"type":"tool_result","tool_use_id":"c2","content":[{"type":"text","text":"screenshot taken"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + imageData + `"}}]}]}],
 				"tools":[{"name":"read_file","description":"Read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`,
-			request:   &ClaudeRequest{},
-			contains:  []string{"read_file", `{"path":"main.go"}`, toolOutput, "screenshot taken", "Read a file", `"properties":{"path":{"type":"string"}}`},
-			files:     1,
+			request:  &ClaudeRequest{},
+			contains: []string{"read_file", `{"path":"main.go"}`, toolOutput, "screenshot taken", "Read a file", `"properties":{"path":{"type":"string"}}`},
+			// Tool-result screenshots are excluded from the pre-consume estimate.
+			files:     0,
 			toolCount: 1,
 		},
 		{

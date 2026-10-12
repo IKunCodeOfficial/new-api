@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tool-result media must use FileMeta, never base64 or URLs as text tokens.
+// Tool-result images must be excluded from estimation; documents retain FileMeta.
 func TestClaudeGetTokenCountMetaToolResultMediaMetadata(t *testing.T) {
 	screenshot := strings.Repeat("iVBORw0KGgoAAAANSUhEUgAA", 20000)
 	raw := `{
@@ -36,9 +36,21 @@ func TestClaudeGetTokenCountMetaToolResultMediaMetadata(t *testing.T) {
 	assert.Contains(t, meta.CombineText, "screenshot taken")
 	assert.NotContains(t, meta.CombineText, "iVBORw0KGgo")
 	assert.NotContains(t, meta.CombineText, "example.com")
-	require.Len(t, meta.Files, 4)
+	require.Len(t, meta.Files, 2)
+	for _, file := range meta.Files {
+		assert.Equal(t, types.FileTypeFile, file.FileType)
+	}
+}
+
+func TestClaudeGetTokenCountMetaMessageImageRetained(t *testing.T) {
+	var req ClaudeRequest
+	require.NoError(t, kitutil.UnmarshalJsonStr(`{"model":"claude-opus-4-1","messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}]}]}`, &req))
+
+	meta := req.GetTokenCountMeta()
+
+	require.Len(t, meta.Files, 1)
 	assert.Equal(t, types.FileTypeImage, meta.Files[0].FileType)
-	assert.Equal(t, types.FileTypeFile, meta.Files[2].FileType)
+	assert.NotContains(t, meta.CombineText, "example.com")
 }
 
 func TestClaudeGetTokenCountMetaToolResultTextForms(t *testing.T) {

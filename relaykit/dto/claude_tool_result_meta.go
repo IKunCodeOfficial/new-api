@@ -5,8 +5,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
-// appendClaudeToolResultMeta keeps media out of text tokenization while retaining
-// FileMeta for media estimation. Unknown tool-result blocks preserve their fields.
+// appendClaudeToolResultMeta excludes tool-result images from token estimation
+// so screenshots are neither tokenized as text nor loaded for media estimation.
+// Their usage is accounted for by upstream usage at settlement. Documents retain
+// FileMeta, and unknown tool-result blocks preserve their fields.
 func appendClaudeToolResultMeta(content any, texts []string, files []*types.FileMeta) ([]string, []*types.FileMeta) {
 	if content == nil {
 		return texts, files
@@ -25,7 +27,9 @@ func appendClaudeToolResultMeta(content any, texts []string, files []*types.File
 			if text, ok := block["text"].(string); ok {
 				texts = append(texts, text)
 			}
-		case "image", "document":
+		case "image":
+			continue
+		case "document":
 			part, err := kitutil.Any2Type[ClaudeMediaMessage](block)
 			if err != nil {
 				continue
@@ -37,11 +41,7 @@ func appendClaudeToolResultMeta(content any, texts []string, files []*types.File
 				continue
 			}
 			if source := part.ToFileSource(); source != nil {
-				fileType := types.FileTypeFile
-				if part.Type == "image" {
-					fileType = types.FileTypeImage
-				}
-				files = append(files, &types.FileMeta{FileType: fileType, Source: source})
+				files = append(files, &types.FileMeta{FileType: types.FileTypeFile, Source: source})
 			}
 		default:
 			data, _ := kitutil.Marshal(block)
