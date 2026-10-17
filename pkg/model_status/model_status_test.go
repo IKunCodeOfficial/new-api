@@ -2,10 +2,12 @@ package modelstatus
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
@@ -213,4 +215,172 @@ func TestModuleEnabledParsing(t *testing.T) {
 
 	setModuleState(t, false, nil, `{"status":false}`)
 	assert.False(t, ModuleEnabled())
+}
+
+// setupStatusDB points model.DB at a fresh SQLite perf_metrics table.
+func setupStatusDB(t *testing.T) {
+	t.Helper()
+	t.Setenv("SQL_DSN", "")
+	oldDB, oldPath, oldMaster, oldRedis := model.DB, common.SQLitePath, common.IsMasterNode, common.RedisEnabled
+	oldType, oldLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	common.SQLitePath, common.IsMasterNode, common.RedisEnabled = filepath.Join(t.TempDir(), "status.db"), false, false
+	t.Cleanup(func() {
+		model.DB, common.SQLitePath, common.IsMasterNode, common.RedisEnabled = oldDB, oldPath, oldMaster, oldRedis
+		common.SetDatabaseTypes(oldType, oldLogType)
+	})
+	require.NoError(t, model.InitDB())
+	sqlDB, err := model.DB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, model.DB.AutoMigrate(&model.PerfMetric{}))
+}
+
+func TestBuildSnapshotWindowShape(t *testing.T) {
+	setupStatusDB(t)
+	setModuleState(t, false, nil, "")
+	tests := []struct {
+		key           string
+		buckets       int
+		bucketSeconds int64
+		ttl           time.Duration
+		detail        bool
+	}{
+		{"5m", 30, 10, 10 * time.Second, true},
+		{"1h", 60, 60, 30 * time.Second, true},
+		{"24h", 24, 3600, 300 * time.Second, false},
+		{"7d", 42, 14400, 1800 * time.Second, false},
+		{"30d", 60, 43200, 3600 * time.Second, false},
+	}
+	now := time.Unix(1_760_000_005, 0)
+	for _, tt := range tests {
+		spec, ok := ParseRange(tt.key)
+		require.True(t, ok, tt.key)
+		assert.Equal(t, RangeSpec{Key: tt.key, Buckets: tt.buckets, BucketSeconds: tt.bucketSeconds, TTL: tt.ttl, Detail: tt.detail}, spec)
+
+		snap, err := BuildSnapshot(context.Background(), spec, now)
+		require.NoError(t, err, tt.key)
+		assert.Equal(t, spec, snap.Range)
+		assert.Equal(t, now.Unix(), snap.UpdatedAt)
+		assert.Zero(t, snap.WindowStart%spec.BucketSeconds, tt.key)
+		end := snap.WindowStart + int64(spec.Buckets)*spec.BucketSeconds
+		assert.Greater(t, end, now.Unix(), tt.key)
+		assert.LessOrEqual(t, end, now.Unix()+spec.BucketSeconds, tt.key)
+		for pair, series := range snap.Pairs {
+			assert.Len(t, series.Buckets, spec.Buckets, "%s %+v", tt.key, pair)
+		}
+	}
+	_, ok := ParseRange("2h")
+	assert.False(t, ok)
+}
+
+func TestBuildSnapshotShortRange(t *testing.T) {
+	setModuleState(t, false, nil, "")
+	pair := PairKey{Group: "short-g", Model: "short-model"}
+	now := time.Unix(1_760_000_005, 0)
+	RecordLocal(Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 250}, now.Add(-25*time.Second))
+	RecordLocal(Sample{Model: pair.Model, Group: pair.Group, LatencyMs: 900, Failure: Failure429}, now.Add(-5*time.Second))
+	RecordLocal(Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 3000}, now.Add(-5*time.Second))
+	RecordLocal(Sample{Model: pair.Model, Group: "auto", Success: true}, now)
+	RecordLocal(Sample{Model: pair.Model, Group: "", Success: true}, now)
+
+	spec, _ := ParseRange("5m")
+	snap, err := BuildSnapshot(context.Background(), spec, now)
+	require.NoError(t, err)
+	assert.NotContains(t, snap.Pairs, PairKey{Group: "auto", Model: pair.Model})
+	assert.NotContains(t, snap.Pairs, PairKey{Group: "", Model: pair.Model})
+	series := snap.Pairs[pair]
+	require.NotNil(t, series)
+	require.Len(t, series.Buckets, 30)
+	assert.Equal(t, int64(1), series.Buckets[27].Req)
+	assert.Equal(t, int64(2), series.Buckets[29].Req)
+	assert.Equal(t, int64(1), series.Buckets[29].Fail[Failure429-1])
+	assert.Equal(t, int64(3), series.Total.Req)
+	assert.Equal(t, int64(2), series.Total.Ok)
+	assert.Equal(t, int64(1), series.Total.LatHist[histIndex(250)])
+	assert.Equal(t, int64(1), series.Total.LatHist[histIndex(900)])
+	assert.Equal(t, int64(1), series.Total.Fail[Failure429-1])
+}
+
+func TestBuildSnapshotLongRangeUsesDBForCompletedHours(t *testing.T) {
+	setupStatusDB(t)
+	setModuleState(t, false, nil, "")
+	pair := PairKey{Group: "long-g", Model: "long-model"}
+	now := time.Unix(1_760_000_005, 0)
+	curHour := now.Unix() - now.Unix()%3600
+	for _, row := range []model.PerfMetric{
+		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 3600, RequestCount: 10, SuccessCount: 9, TotalLatencyMs: 5000, TtftSumMs: 800, TtftCount: 8, OutputTokens: 400, GenerationMs: 4000},
+		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour, RequestCount: 99, SuccessCount: 99},
+		{ModelName: pair.Model, Group: "auto", BucketTs: curHour - 3600, RequestCount: 5, SuccessCount: 5},
+	} {
+		require.NoError(t, model.UpsertPerfMetric(&row))
+	}
+	RecordLocal(Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 250}, now.Add(-30*time.Second))
+	RecordLocal(Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 250}, now.Add(-30*time.Second))
+
+	spec, _ := ParseRange("24h")
+	snap, err := BuildSnapshot(context.Background(), spec, now)
+	require.NoError(t, err)
+	assert.NotContains(t, snap.Pairs, PairKey{Group: "auto", Model: pair.Model})
+	series := snap.Pairs[pair]
+	require.NotNil(t, series)
+	require.Len(t, series.Buckets, 24)
+	last := series.Buckets[23]
+	assert.Equal(t, int64(2), last.Req)
+	assert.Equal(t, int64(2), last.Ok)
+	assert.Equal(t, int64(500), last.LatSum)
+	assert.Equal(t, Counters{Req: 10, Ok: 9, LatSum: 5000, TtftSum: 800, TtftN: 8, Out: 400, GenMs: 4000}, series.Buckets[22])
+	assert.Equal(t, int64(12), series.Total.Req)
+	assert.Equal(t, int64(11), series.Total.Ok)
+	assert.Equal(t, [HistBins]int64{}, series.Total.LatHist)
+	assert.Equal(t, [4]int64{}, series.Total.Fail)
+
+	rows, err := model.GetPerfMetricRows(curHour-3600, curHour)
+	require.NoError(t, err)
+	assert.Len(t, rows, 2)
+}
+
+func TestBuildSnapshotRedisErrorDegrades(t *testing.T) {
+	setupStatusDB(t)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	mr.Close()
+	setModuleState(t, true, rdb, "")
+
+	pair := PairKey{Group: "redis-down-g", Model: "redis-down-model"}
+	now := time.Unix(1_760_000_005, 0)
+	curHour := now.Unix() - now.Unix()%3600
+	require.NoError(t, model.UpsertPerfMetric(&model.PerfMetric{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 7200, RequestCount: 4, SuccessCount: 4}))
+
+	long, _ := ParseRange("24h")
+	snap, err := BuildSnapshot(context.Background(), long, now)
+	require.NoError(t, err)
+	require.NotNil(t, snap.Pairs[pair])
+	assert.Equal(t, int64(4), snap.Pairs[pair].Buckets[21].Req)
+	assert.Equal(t, int64(4), snap.Pairs[pair].Total.Req)
+
+	short, _ := ParseRange("5m")
+	snap, err = BuildSnapshot(context.Background(), short, now)
+	require.NoError(t, err)
+	assert.Empty(t, snap.Pairs)
+}
+
+func TestGetSnapshotCaches(t *testing.T) {
+	setModuleState(t, false, nil, "")
+	spec, _ := ParseRange("5m")
+	snapshotCache.Delete(spec.Key)
+	t.Cleanup(func() { snapshotCache.Delete(spec.Key) })
+
+	first, err := GetSnapshot(context.Background(), spec)
+	require.NoError(t, err)
+	second, err := GetSnapshot(context.Background(), spec)
+	require.NoError(t, err)
+	assert.Same(t, first, second)
+
+	entry, ok := snapshotCache.Load(spec.Key)
+	require.True(t, ok)
+	entry.(*cacheEntry).current.Store(nil)
+	third, err := GetSnapshot(context.Background(), spec)
+	require.NoError(t, err)
+	assert.NotSame(t, first, third)
 }
