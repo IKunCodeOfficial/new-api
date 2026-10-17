@@ -391,3 +391,141 @@ func TestGetSnapshotCaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotSame(t, first, third)
 }
+
+func newTestSnapshot(t *testing.T, rangeKey string) *Snapshot {
+	t.Helper()
+	spec, ok := ParseRange(rangeKey)
+	require.True(t, ok)
+	return &Snapshot{Range: spec, WindowStart: 1000, UpdatedAt: 2000, Pairs: map[PairKey]*Series{}}
+}
+
+func TestBuildResponseVisibilityAndNoCounts(t *testing.T) {
+	snap := newTestSnapshot(t, "1h")
+	snap.add(PairKey{Group: "vip", Model: "m3"}, 5, Counters{Req: 7, Ok: 7})
+	snap.add(PairKey{Group: "default", Model: "m1"}, 5, Counters{Req: 4, Ok: 3, LatSum: 400, Fail: [4]int64{1, 0, 0, 0}})
+	snap.add(PairKey{Group: "default", Model: "gone"}, 5, Counters{Req: 9, Ok: 9})
+	pricing := []model.Pricing{
+		{ModelName: "m1", EnableGroup: []string{"default", "vip"}},
+		{ModelName: "m2", EnableGroup: []string{"all"}},
+		{ModelName: "m3", EnableGroup: []string{"vip"}},
+	}
+
+	resp := BuildResponse(snap, pricing, nil, Viewer{
+		Groups: map[string]string{"default": "Public"},
+		Ratios: map[string]float64{"default": 0.8},
+	})
+
+	require.Len(t, resp.Groups, 1)
+	group := resp.Groups[0]
+	assert.Equal(t, "default", group.Key)
+	assert.Equal(t, "Public", group.Desc)
+	assert.Equal(t, 0.8, group.Ratio)
+	require.Len(t, group.Models, 2)
+	assert.Equal(t, "m1", group.Models[0].Name)
+	assert.Equal(t, "m2", group.Models[1].Name)
+	assert.Nil(t, group.Models[1].Availability)
+	require.Len(t, group.Models[1].Buckets, 60)
+	for _, bucket := range group.Models[1].Buckets {
+		assert.Nil(t, bucket)
+	}
+
+	body, err := common.Marshal(resp)
+	require.NoError(t, err)
+	for _, key := range []string{`"req"`, `"total"`, `"count"`, `"success"`} {
+		assert.NotContains(t, string(body), key+":")
+	}
+	assert.NotContains(t, string(body), "m3")
+	assert.NotContains(t, string(body), "gone")
+	assert.NotContains(t, string(body), `"vip"`)
+}
+
+func TestBuildResponseRatesAndOrdering(t *testing.T) {
+	snap := newTestSnapshot(t, "1h")
+	m1, m2 := PairKey{Group: "default", Model: "m1"}, PairKey{Group: "default", Model: "m2"}
+	// Bucket 54 lies just outside the last max(3, ceil(60*0.08)) = 5 buckets.
+	snap.add(m1, 54, Counters{Req: 50, Ok: 49, Fail: [4]int64{1, 0, 0, 0}})
+	snap.add(m1, 55, Counters{Req: 50, Ok: 50})
+	var latHist [HistBins]int64
+	latHist[histIndex(900)] = 300
+	snap.add(m2, 10, Counters{Req: 300, Ok: 300, LatSum: 300000, TtftSum: 60000, TtftN: 300, Out: 6000, GenMs: 100000, LatHist: latHist})
+	pricing := []model.Pricing{
+		{ModelName: "m1", EnableGroup: []string{"default"}},
+		{ModelName: "m2", EnableGroup: []string{"default"}},
+	}
+	viewer := Viewer{Groups: map[string]string{"default": "Public"}, Ratios: map[string]float64{"default": 1}}
+
+	resp := BuildResponse(snap, pricing, nil, viewer)
+
+	assert.Equal(t, "1h", resp.Range)
+	assert.Equal(t, int64(60), resp.BucketSeconds)
+	assert.Equal(t, int64(1000), resp.WindowStart)
+	assert.Equal(t, int64(2000), resp.UpdatedAt)
+	assert.True(t, resp.HasDetail)
+	require.Len(t, resp.Groups, 1)
+	group := resp.Groups[0]
+	require.NotNil(t, group.Availability)
+	assert.InDelta(t, 399.0/400.0, *group.Availability, 1e-9)
+	require.Len(t, group.Models, 2)
+
+	busy, light := group.Models[0], group.Models[1]
+	assert.Equal(t, "m2", busy.Name)
+	assert.Equal(t, "m1", light.Name)
+	require.NotNil(t, light.Availability)
+	assert.InDelta(t, 0.99, *light.Availability, 1e-9)
+	require.NotNil(t, light.Current)
+	assert.Equal(t, 1.0, *light.Current)
+	require.NotNil(t, light.Detail)
+	assert.Equal(t, map[string]float64{"5xx": 1, "429": 0, "timeout": 0, "other": 0}, light.Detail.FailShare)
+
+	assert.Nil(t, busy.Current)
+	assert.Equal(t, int64(1000), busy.LatencyAvgMs)
+	assert.Equal(t, int64(200), busy.TtftAvgMs)
+	assert.Equal(t, 60.0, busy.Tps)
+	require.NotNil(t, busy.Buckets[10])
+	assert.Equal(t, BucketView{Rate: 1, TtftMs: 200}, *busy.Buckets[10])
+	require.NotNil(t, busy.Detail)
+	assert.Equal(t, int64(1000), busy.Detail.LatencyP50)
+	assert.Nil(t, busy.Detail.FailShare)
+
+	long := newTestSnapshot(t, "24h")
+	long.add(m1, 3, Counters{Req: 10, Ok: 10})
+	resp = BuildResponse(long, pricing, nil, viewer)
+	assert.False(t, resp.HasDetail)
+	require.Len(t, resp.Groups, 1)
+	for _, m := range resp.Groups[0].Models {
+		assert.Nil(t, m.Detail)
+	}
+}
+
+func TestBuildResponseVendorIcon(t *testing.T) {
+	snap := newTestSnapshot(t, "5m")
+	pricing := []model.Pricing{
+		{ModelName: "a", Icon: "Own", VendorID: 1, EnableGroup: []string{"default"}},
+		{ModelName: "b", VendorID: 1, EnableGroup: []string{"default"}},
+		{ModelName: "c", EnableGroup: []string{"default"}},
+	}
+	vendors := []model.PricingVendor{{ID: 1, Name: "OpenAI", Icon: "OpenAI"}}
+
+	resp := BuildResponse(snap, pricing, vendors, Viewer{Groups: map[string]string{"default": ""}})
+
+	require.Len(t, resp.Groups, 1)
+	icons := map[string]string{}
+	for _, m := range resp.Groups[0].Models {
+		icons[m.Name] = m.VendorIcon
+	}
+	assert.Equal(t, map[string]string{"a": "Own", "b": "OpenAI", "c": ""}, icons)
+}
+
+func TestBuildResponseGroupOrderSkipsHiddenAndEmptyGroups(t *testing.T) {
+	snap := newTestSnapshot(t, "5m")
+	pricing := []model.Pricing{{ModelName: "m", EnableGroup: []string{"zeta", "beta", "default", "auto", ""}}}
+	viewer := Viewer{Groups: map[string]string{"zeta": "", "beta": "", "default": "", "auto": "", "": "", "empty": ""}}
+
+	resp := BuildResponse(snap, pricing, nil, viewer)
+
+	keys := make([]string, 0, len(resp.Groups))
+	for _, g := range resp.Groups {
+		keys = append(keys, g.Key)
+	}
+	assert.Equal(t, []string{"default", "beta", "zeta"}, keys)
+}
