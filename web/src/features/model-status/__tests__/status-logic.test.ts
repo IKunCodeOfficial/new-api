@@ -21,6 +21,8 @@ import { describe, expect, it } from 'vitest'
 import {
   bannerSummary,
   bucketTimeFormat,
+  EMPTY_VALUE,
+  formatDuration,
   problemChips,
   severityRank,
   sortModels,
@@ -180,5 +182,20 @@ describe('bucketTimeFormat', () => {
     expect(bucketTimeFormat('24h')).toBe('HH:mm')
     expect(bucketTimeFormat('7d')).toBe('MM-DD HH:mm')
     expect(bucketTimeFormat('30d')).toBe('MM-DD HH:mm')
+  })
+})
+
+describe('formatDuration', () => {
+  it.each([
+    [null, EMPTY_VALUE],
+    [0, EMPTY_VALUE],
+    [820, '820 ms'],
+    [999.4, '999 ms'],
+    [999.5, '1.0 s'],
+    [999.9, '1.0 s'],
+    [1449, '1.4 s'],
+    [12000, '12.0 s'],
+  ])('formats %s', (ms, want) => {
+    expect(formatDuration(ms, 'en-US')).toBe(want)
   })
 })

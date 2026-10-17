@@ -27,6 +27,7 @@ import type { ModelStatusModel, ModelStatusResponse } from '../types'
 const mocks = vi.hoisted(() => ({
   search: {} as Record<string, string>,
   data: undefined as unknown,
+  isError: false,
   pageRenders: 0,
 }))
 
@@ -54,7 +55,7 @@ vi.mock('../api', () => ({
   useModelStatus: () => ({
     data: mocks.data,
     isLoading: false,
-    isError: false,
+    isError: mocks.isError,
     isFetching: false,
     refetch: vi.fn(),
   }),
@@ -120,6 +121,7 @@ function modelRows() {
 afterEach(() => {
   mocks.search = {}
   mocks.data = undefined
+  mocks.isError = false
   mocks.pageRenders = 0
 })
 
@@ -130,6 +132,24 @@ describe('ModelStatus page', () => {
 
     expect(screen.getByText('1 model failing')).toBeInTheDocument()
     expect(within(modelRows()[0]).getByText('broken-model')).toBeVisible()
+  })
+
+  it('keeps showing the last data when a background refetch fails', () => {
+    mocks.data = payload('1h')
+    mocks.isError = true
+    render(<ModelStatus />)
+
+    expect(modelRows()).toHaveLength(2)
+    expect(
+      screen.queryByText('Failed to load model status')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the error state when the first load fails', () => {
+    mocks.isError = true
+    render(<ModelStatus />)
+
+    expect(screen.getByText('Failed to load model status')).toBeInTheDocument()
   })
 
   it('never renders a request count', () => {

@@ -80,7 +80,8 @@ export function ModelStatus() {
     if (status.isLoading) {
       return <LoadingState className='py-24' />
     }
-    if (status.isError || !data) {
+    // A failed background refetch keeps the last payload on screen.
+    if (!data) {
       return (
         <ErrorState
           description={t('Failed to load model status')}

@@ -112,16 +112,21 @@ export function bannerSummary(groups: ModelStatusGroup[]): BannerSummary {
 
 export const EMPTY_VALUE = '—'
 
-// Durations below one second render in whole milliseconds ("820 ms"),
-// longer ones in seconds with one decimal ("1.4 s"). Zero or missing values
-// mean "no data" and render as an em dash.
+// Durations that round below one second render in whole milliseconds
+// ("820 ms"), longer ones in seconds with one fixed decimal ("1.0 s",
+// "1.4 s"); formatNumber would trim "1.0" to "1". Zero or missing values mean
+// "no data" and render as an em dash.
 export function formatDuration(
   ms: number | null | undefined,
   locale?: string
 ): string {
   if (ms == null || !(ms > 0)) return EMPTY_VALUE
-  if (ms < 1000) return `${formatNumber(Math.round(ms), locale)} ms`
-  return `${formatNumber(Math.round(ms / 100) / 10, locale)} s`
+  if (Math.round(ms) < 1000) return `${formatNumber(Math.round(ms), locale)} ms`
+  const seconds = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(Math.round(ms / 100) / 10)
+  return `${seconds} s`
 }
 
 // Availability is read at two-decimal precision (99.95%), so the digits are

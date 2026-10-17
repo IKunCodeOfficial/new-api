@@ -51,7 +51,7 @@ export function StatusToolbar(props: StatusToolbarProps) {
   return (
     <div className='bg-background/85 sticky top-[72px] z-20 mb-4 rounded-xl border p-3 backdrop-blur-lg'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
-        <div className='flex flex-wrap items-center gap-2'>
+        <div className='flex min-w-0 flex-wrap items-center gap-2'>
           <SegmentedControl
             value={props.range}
             onValueChange={props.onRangeChange}
@@ -61,15 +61,18 @@ export function StatusToolbar(props: StatusToolbarProps) {
               label: t(r.labelKey),
             }))}
           />
-          <SegmentedControl
-            value={props.group}
-            onValueChange={props.onGroupChange}
-            ariaLabel={t('Group')}
-            options={[
-              { value: ALL_GROUPS, label: t('All groups') },
-              ...props.groupKeys.map((key) => ({ value: key, label: key })),
-            ]}
-          />
+          {/* Many groups scroll inside the toolbar instead of widening the page on phones. */}
+          <div className='max-w-full overflow-x-auto'>
+            <SegmentedControl
+              value={props.group}
+              onValueChange={props.onGroupChange}
+              ariaLabel={t('Group')}
+              options={[
+                { value: ALL_GROUPS, label: t('All groups') },
+                ...props.groupKeys.map((key) => ({ value: key, label: key })),
+              ]}
+            />
+          </div>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
           <InputGroup className='bg-background h-8 w-[220px] rounded-md'>
