@@ -102,29 +102,49 @@ func TestModelStatusViewerScopesGroupsAndRatios(t *testing.T) {
 		{Id: 9102, Username: "status-admin", Password: "password", AffCode: "status-admin", Group: "default", Role: common.RoleAdminUser, Status: common.UserStatusEnabled},
 	}).Error)
 
-	viewerFor := func(userID int) modelstatus.Viewer {
+	// The auth middleware sets id, role and group together; the viewer reads
+	// role and group from there. Without them it falls back to the user lookup.
+	viewerFor := func(userID int, fromMiddleware bool) modelstatus.Viewer {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodGet, "/api/model_status", nil)
 		if userID != 0 {
 			c.Set("id", userID)
 		}
+		if userID != 0 && fromMiddleware {
+			var user model.User
+			require.NoError(t, db.First(&user, userID).Error)
+			c.Set("role", user.Role)
+			c.Set("group", user.Group)
+		}
 		return modelStatusViewer(c)
 	}
 
-	guest := viewerFor(0)
+	guest := viewerFor(0, true)
 	assert.Equal(t, map[string]string{"default": "Public"}, guest.Groups)
 	assert.Equal(t, map[string]float64{"default": 1}, guest.Ratios)
 
-	vip := viewerFor(9101)
+	assert.Equal(t, viewerFor(9101, false), viewerFor(9101, true))
+	assert.Equal(t, viewerFor(9102, false), viewerFor(9102, true))
+
+	vip := viewerFor(9101, true)
 	assert.ElementsMatch(t, []string{"default", "vip"}, slices.Collect(maps.Keys(vip.Groups)))
 	assert.Equal(t, "VIP", vip.Groups["vip"])
 	assert.Equal(t, "Public", vip.Groups["default"])
 	assert.Equal(t, map[string]float64{"default": 0.5, "vip": 2}, vip.Ratios)
 
-	admin := viewerFor(9102)
+	admin := viewerFor(9102, true)
 	assert.ElementsMatch(t, []string{"default", "vip", "internal"}, slices.Collect(maps.Keys(admin.Groups)))
 	assert.Equal(t, "Public", admin.Groups["default"])
 	assert.Equal(t, map[string]float64{"default": 1, "vip": 2, "internal": 3}, admin.Ratios)
+
+	// Ratios use the group from the auth context, not a second user lookup.
+	// Visibility still comes from getUsablePerfMetricGroups.
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/model_status", nil)
+	c.Set("id", 9199) // not in the users table
+	c.Set("role", common.RoleCommonUser)
+	c.Set("group", "vip")
+	assert.Equal(t, map[string]float64{"default": 0.5}, modelStatusViewer(c).Ratios)
 }
 
 func TestGetModelStatusRejectsBadRange(t *testing.T) {

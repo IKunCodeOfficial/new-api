@@ -43,11 +43,17 @@ func modelStatusViewer(c *gin.Context) modelstatus.Viewer {
 	userGroup := ""
 	role := common.RoleGuestUser
 	if userID := c.GetInt("id"); userID != 0 {
-		if group, err := model.GetUserGroup(userID, false); err == nil {
-			userGroup = group
-		}
-		if model.IsAdmin(userID) {
-			role = common.RoleAdminUser
+		// The dashboard auth middleware sets role and group with id; look the
+		// user up only when another auth path left them out.
+		if _, ok := c.Get("role"); ok {
+			userGroup, role = c.GetString("group"), c.GetInt("role")
+		} else {
+			if group, err := model.GetUserGroup(userID, false); err == nil {
+				userGroup = group
+			}
+			if model.IsAdmin(userID) {
+				role = common.RoleAdminUser
+			}
 		}
 	}
 
