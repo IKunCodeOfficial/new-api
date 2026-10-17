@@ -3,6 +3,7 @@ package modelstatus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,14 +16,20 @@ import (
 )
 
 const (
-	SlotSeconds int64 = 10
-	slotCount         = 396 // 66 minutes of 10s slots
+	SlotSeconds   int64 = 10
+	MinuteSeconds int64 = 60
+	slotCount           = 396 // 66 minutes of 10s slots
 
 	slotWindowSeconds = slotCount * SlotSeconds
-	redisSlotTTL      = 70 * time.Minute
 	ringIdleTimeout   = 70 * time.Minute
 	janitorInterval   = 10 * time.Minute
+
+	// Redis keeps 10s keys only for the 5m range and 1m keys for everything
+	// else, so one snapshot reads at most 30 or 60 keys.
 	redisSlotPrefix   = "model_status:10s:"
+	redisSlotTTL      = 7 * time.Minute
+	redisMinutePrefix = "model_status:1m:"
+	redisMinuteTTL    = 70 * time.Minute
 )
 
 type PairKey struct{ Group, Model string }
@@ -130,11 +137,14 @@ func AppendRedis(ctx context.Context, pipe redis.Pipeliner, s Sample, now time.T
 	var c Counters
 	c.AddSample(s)
 
-	key := redisSlotPrefix + strconv.FormatInt(slotStart(now.Unix()), 10)
+	nowTs := now.Unix()
+	slotKey := redisSlotPrefix + strconv.FormatInt(slotStart(nowTs), 10)
+	minuteKey := redisMinutePrefix + strconv.FormatInt(nowTs-nowTs%MinuteSeconds, 10)
 	prefix := s.Group + "\x00" + s.Model + "\x00"
 	incr := func(name string, value int64) {
 		if value != 0 {
-			pipe.HIncrBy(ctx, key, prefix+name, value)
+			pipe.HIncrBy(ctx, slotKey, prefix+name, value)
+			pipe.HIncrBy(ctx, minuteKey, prefix+name, value)
 		}
 	}
 	incr("req", c.Req)
@@ -156,21 +166,27 @@ func AppendRedis(ctx context.Context, pipe redis.Pipeliner, s Sample, now time.T
 	for i, n := range c.Fail {
 		incr("f"+strconv.Itoa(i+1), n)
 	}
-	pipe.Expire(ctx, key, redisSlotTTL)
+	pipe.Expire(ctx, slotKey, redisSlotTTL)
+	pipe.Expire(ctx, minuteKey, redisMinuteTTL)
 }
 
 // ReadSlots returns non-empty counters keyed by pair and slot start for slots
-// starting in [fromTs, toTs). The range is clamped to the 66 minutes the
-// collector retains. Redis is read when enabled, else process memory.
-func ReadSlots(ctx context.Context, fromTs, toTs int64) (map[PairKey]map[int64]Counters, error) {
-	first := slotStart(fromTs + SlotSeconds - 1)
-	first = max(first, slotStart(toTs-1)-slotWindowSeconds+SlotSeconds)
+// of step seconds (SlotSeconds or MinuteSeconds) starting in [fromTs, toTs).
+// The range is clamped to the 66 minutes the collector retains. Redis is read
+// when enabled, else process memory, whose 10s slots are merged per step.
+func ReadSlots(ctx context.Context, fromTs, toTs, step int64) (map[PairKey]map[int64]Counters, error) {
+	if step != SlotSeconds && step != MinuteSeconds {
+		return nil, fmt.Errorf("model status: unsupported slot step %d", step)
+	}
+	first := fromTs + (step-fromTs%step)%step
+	last := toTs - 1 - (toTs-1)%step
+	first = max(first, last-slotWindowSeconds+step)
 	result := map[PairKey]map[int64]Counters{}
 	if first >= toTs {
 		return result, nil
 	}
 	if common.RedisEnabled {
-		return readRedisSlots(ctx, first, toTs, result)
+		return readRedisSlots(ctx, first, toTs, step, result)
 	}
 
 	rings.Range(func(key, value any) bool {
@@ -189,14 +205,17 @@ func ReadSlots(ctx context.Context, fromTs, toTs int64) (map[PairKey]map[int64]C
 			if result[pair] == nil {
 				result[pair] = map[int64]Counters{}
 			}
-			result[pair][ts] = *slot.c
+			start := ts - ts%step
+			merged := result[pair][start]
+			merged.Merge(*slot.c)
+			result[pair][start] = merged
 		}
 		return true
 	})
 	return result, nil
 }
 
-func readRedisSlots(ctx context.Context, first, toTs int64, result map[PairKey]map[int64]Counters) (map[PairKey]map[int64]Counters, error) {
+func readRedisSlots(ctx context.Context, first, toTs, step int64, result map[PairKey]map[int64]Counters) (map[PairKey]map[int64]Counters, error) {
 	if common.RDB == nil {
 		return result, nil
 	}
@@ -205,9 +224,13 @@ func readRedisSlots(ctx context.Context, first, toTs int64, result map[PairKey]m
 		ts  int64
 		cmd *redis.StringStringMapCmd
 	}
-	reads := make([]slotRead, 0, (toTs-first)/SlotSeconds+1)
-	for ts := first; ts < toTs; ts += SlotSeconds {
-		reads = append(reads, slotRead{ts: ts, cmd: pipe.HGetAll(ctx, redisSlotPrefix+strconv.FormatInt(ts, 10))})
+	prefix := redisSlotPrefix
+	if step == MinuteSeconds {
+		prefix = redisMinutePrefix
+	}
+	reads := make([]slotRead, 0, (toTs-first)/step+1)
+	for ts := first; ts < toTs; ts += step {
+		reads = append(reads, slotRead{ts: ts, cmd: pipe.HGetAll(ctx, prefix+strconv.FormatInt(ts, 10))})
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return nil, err

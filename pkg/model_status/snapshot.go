@@ -47,6 +47,8 @@ type Snapshot struct {
 	WindowStart int64
 	UpdatedAt   int64
 	Pairs       map[PairKey]*Series
+	// partial is set when a slot read failed and the data is incomplete.
+	partial bool
 }
 
 // add merges c into the bucket of pair, skipping groups that are never shown.
@@ -64,10 +66,10 @@ func (s *Snapshot) add(pair PairKey, bucket int, c Counters) {
 }
 
 // BuildSnapshot aggregates the range whose last bucket contains now. Short
-// ranges read only the 10s slots. Long ranges read completed hours from
-// perf_metrics and the current hour from the slots, which are shared across
-// instances when Redis is enabled. Slot read failures are logged and the
-// snapshot is built from the remaining data.
+// ranges read only the slots of their bucket size. Long ranges read completed
+// hours from perf_metrics and the current hour from the 1m slots, which are
+// shared across instances when Redis is enabled. Slot read failures are logged
+// and the snapshot is built from the remaining data.
 func BuildSnapshot(ctx context.Context, spec RangeSpec, now time.Time) (*Snapshot, error) {
 	nowTs := now.Unix()
 	end := nowTs - nowTs%spec.BucketSeconds + spec.BucketSeconds
@@ -79,8 +81,9 @@ func BuildSnapshot(ctx context.Context, spec RangeSpec, now time.Time) (*Snapsho
 	}
 
 	if spec.Detail {
-		slots, err := ReadSlots(ctx, snap.WindowStart, end)
+		slots, err := ReadSlots(ctx, snap.WindowStart, end, spec.BucketSeconds)
 		if err != nil {
+			snap.partial = true
 			common.SysError(fmt.Sprintf("model status: read %s slots: %v", spec.Key, err))
 		}
 		for pair, bySlot := range slots {
@@ -92,7 +95,7 @@ func BuildSnapshot(ctx context.Context, spec RangeSpec, now time.Time) (*Snapsho
 	}
 
 	curHour := nowTs - nowTs%3600
-	rows, err := model.GetPerfMetricRows(snap.WindowStart, curHour)
+	rows, err := model.GetPerfMetricRows(ctx, snap.WindowStart, curHour)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +113,9 @@ func BuildSnapshot(ctx context.Context, spec RangeSpec, now time.Time) (*Snapsho
 
 	// The current hour is not flushed yet; it always lies in the last bucket
 	// because bucket sizes are whole multiples of an hour.
-	slots, err := ReadSlots(ctx, curHour, nowTs+SlotSeconds)
+	slots, err := ReadSlots(ctx, curHour, nowTs+1, MinuteSeconds)
 	if err != nil {
+		snap.partial = true
 		common.SysError(fmt.Sprintf("model status: read %s current-hour slots: %v", spec.Key, err))
 	}
 	last := spec.Buckets - 1
@@ -139,6 +143,8 @@ var snapshotCache sync.Map // range key -> *cacheEntry
 
 // GetSnapshot returns the cached snapshot of spec. Once it expires, at most one
 // build per range runs at a time and concurrent callers wait for its result.
+// The build is detached from the caller, whose cancellation would otherwise
+// leave an empty snapshot in the shared cache.
 func GetSnapshot(ctx context.Context, spec RangeSpec) (*Snapshot, error) {
 	value, _ := snapshotCache.LoadOrStore(spec.Key, &cacheEntry{})
 	entry := value.(*cacheEntry)
@@ -151,11 +157,18 @@ func GetSnapshot(ctx context.Context, spec RangeSpec) (*Snapshot, error) {
 	if cached := entry.current.Load(); cached != nil && time.Now().Before(cached.expiresAt) {
 		return cached.snap, nil
 	}
+	buildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 	now := time.Now()
-	snap, err := BuildSnapshot(ctx, spec, now)
+	snap, err := BuildSnapshot(buildCtx, spec, now)
 	if err != nil {
 		return nil, err
 	}
-	entry.current.Store(&cachedSnapshot{snap: snap, expiresAt: now.Add(spec.TTL)})
+	ttl := spec.TTL
+	if snap.partial {
+		// Incomplete data is cached briefly so a Redis outage heals within seconds.
+		ttl = min(spec.TTL, 5*time.Second)
+	}
+	entry.current.Store(&cachedSnapshot{snap: snap, expiresAt: now.Add(ttl)})
 	return snap, nil
 }

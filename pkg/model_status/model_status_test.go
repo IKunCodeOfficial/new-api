@@ -2,7 +2,9 @@ package modelstatus
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -137,7 +139,7 @@ func TestLocalSlotsRecordAndRead(t *testing.T) {
 	}
 	RecordLocal(sample, t0.Add(10*time.Second))
 
-	slots, err := ReadSlots(context.Background(), t0.Unix()-60, t0.Unix()+20)
+	slots, err := ReadSlots(context.Background(), t0.Unix()-60, t0.Unix()+20, SlotSeconds)
 	require.NoError(t, err)
 	got := slots[pair]
 	require.Len(t, got, 2)
@@ -146,14 +148,22 @@ func TestLocalSlotsRecordAndRead(t *testing.T) {
 	assert.Equal(t, int64(3), got[t0.Unix()].LatHist[histIndex(250)])
 	assert.Equal(t, int64(1), got[t0.Unix()+10].Req)
 
-	old, err := ReadSlots(context.Background(), t0.Unix()-70*60, t0.Unix()-70*60+10)
+	// t0 is 20s past a minute; the 1m view merges both 10s slots of that minute.
+	minuteTs := t0.Unix() - t0.Unix()%60
+	minutes, err := ReadSlots(context.Background(), minuteTs, minuteTs+60, 60)
+	require.NoError(t, err)
+	require.Len(t, minutes[pair], 1)
+	assert.Equal(t, int64(4), minutes[pair][minuteTs].Req)
+	assert.Equal(t, int64(4), minutes[pair][minuteTs].LatHist[histIndex(250)])
+
+	old, err := ReadSlots(context.Background(), t0.Unix()-70*60, t0.Unix()-70*60+10, SlotSeconds)
 	require.NoError(t, err)
 	assert.NotContains(t, old, pair)
 
 	disabled := PairKey{Group: "local-g", Model: "disabled-model"}
 	setModuleState(t, false, nil, `{"status":false}`)
 	RecordLocal(Sample{Model: disabled.Model, Group: disabled.Group, Success: true}, t0)
-	slots, err = ReadSlots(context.Background(), t0.Unix(), t0.Unix()+10)
+	slots, err = ReadSlots(context.Background(), t0.Unix(), t0.Unix()+10, SlotSeconds)
 	require.NoError(t, err)
 	assert.NotContains(t, slots, disabled)
 }
@@ -176,7 +186,7 @@ func TestRedisSlotsRoundTrip(t *testing.T) {
 	// Local memory is bypassed when Redis is enabled.
 	RecordLocal(Sample{Model: "a:b", Group: "g:1", Success: true}, now)
 
-	slots, err := ReadSlots(ctx, slotTs-60, slotTs+SlotSeconds)
+	slots, err := ReadSlots(ctx, slotTs-60, slotTs+SlotSeconds, SlotSeconds)
 	require.NoError(t, err)
 	require.Len(t, slots, 1)
 	got := slots[PairKey{Group: "g:1", Model: "a:b"}]
@@ -187,7 +197,15 @@ func TestRedisSlotsRoundTrip(t *testing.T) {
 	want.Fail[Failure429-1] = 1
 	assert.Equal(t, want, got[slotTs])
 
-	assert.Greater(t, mr.TTL("model_status:10s:1760000000"), time.Duration(0))
+	// The same increments land in the 1m key of the minute (one pipeline).
+	minuteTs := now.Unix() - now.Unix()%60
+	minutes, err := ReadSlots(ctx, minuteTs, minuteTs+60, 60)
+	require.NoError(t, err)
+	require.Len(t, minutes, 1)
+	assert.Equal(t, map[int64]Counters{minuteTs: want}, minutes[PairKey{Group: "g:1", Model: "a:b"}])
+
+	assert.Equal(t, 7*time.Minute, mr.TTL("model_status:10s:1760000000"))
+	assert.Equal(t, 70*time.Minute, mr.TTL("model_status:1m:1759999980"))
 
 	setModuleState(t, true, rdb, `{"status":{"enabled":false}}`)
 	pipe = rdb.TxPipeline()
@@ -217,10 +235,16 @@ func TestModuleEnabledParsing(t *testing.T) {
 	assert.False(t, ModuleEnabled())
 }
 
-// setupStatusDB points model.DB at a fresh SQLite perf_metrics table.
+// statusTestModels are the perf_metrics model names the DB tests write; they
+// are deleted around each test when MODEL_STATUS_TEST_DSN points at a shared DB.
+var statusTestModels = []string{"long-model", "redis-down-model"}
+
+// setupStatusDB points model.DB at a fresh SQLite perf_metrics table, or at
+// the MySQL/PostgreSQL database in MODEL_STATUS_TEST_DSN when it is set.
 func setupStatusDB(t *testing.T) {
 	t.Helper()
-	t.Setenv("SQL_DSN", "")
+	dsn := os.Getenv("MODEL_STATUS_TEST_DSN")
+	t.Setenv("SQL_DSN", dsn)
 	oldDB, oldPath, oldMaster, oldRedis := model.DB, common.SQLitePath, common.IsMasterNode, common.RedisEnabled
 	oldType, oldLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	common.SQLitePath, common.IsMasterNode, common.RedisEnabled = filepath.Join(t.TempDir(), "status.db"), false, false
@@ -233,6 +257,14 @@ func setupStatusDB(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	require.NoError(t, model.DB.AutoMigrate(&model.PerfMetric{}))
+	if dsn == "" {
+		return
+	}
+	cleanRows := func() {
+		require.NoError(t, model.DB.Where("model_name IN ?", statusTestModels).Delete(&model.PerfMetric{}).Error)
+	}
+	cleanRows()
+	t.Cleanup(cleanRows)
 }
 
 func TestBuildSnapshotWindowShape(t *testing.T) {
@@ -336,7 +368,7 @@ func TestBuildSnapshotLongRangeUsesDBForCompletedHours(t *testing.T) {
 	assert.Equal(t, [HistBins]int64{}, series.Total.LatHist)
 	assert.Equal(t, [4]int64{}, series.Total.Fail)
 
-	rows, err := model.GetPerfMetricRows(curHour-3600, curHour)
+	rows, err := model.GetPerfMetricRows(context.Background(), curHour-3600, curHour)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	for _, row := range rows {
@@ -370,6 +402,81 @@ func TestBuildSnapshotRedisErrorDegrades(t *testing.T) {
 	snap, err = BuildSnapshot(context.Background(), short, now)
 	require.NoError(t, err)
 	assert.Empty(t, snap.Pairs)
+}
+
+func TestBuildSnapshotRedisKeyBudget(t *testing.T) {
+	setupStatusDB(t)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	setModuleState(t, true, rdb, "")
+	ctx := context.Background()
+	require.NoError(t, rdb.Ping(ctx).Err())
+
+	pair := PairKey{Group: "budget-g", Model: "budget-model"}
+	now := time.Unix(1_760_000_005, 0)
+	pipe := rdb.TxPipeline()
+	AppendRedis(ctx, pipe, Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 250}, now.Add(-90*time.Second))
+	AppendRedis(ctx, pipe, Sample{Model: pair.Model, Group: pair.Group, Success: true, LatencyMs: 250}, now.Add(-5*time.Second))
+	_, err := pipe.Exec(ctx)
+	require.NoError(t, err)
+
+	tests := []struct {
+		key      string
+		maxReads int
+		bucket   map[int]int64 // bucket index -> expected Req
+	}{
+		{"5m", 31, map[int]int64{20: 1, 29: 1}},
+		{"1h", 61, map[int]int64{57: 1, 59: 1}},
+		{"24h", 61, map[int]int64{23: 2}},
+		{"7d", 61, map[int]int64{41: 2}},
+		{"30d", 61, map[int]int64{59: 2}},
+	}
+	for _, tt := range tests {
+		spec, _ := ParseRange(tt.key)
+		before := mr.CommandCount()
+		snap, err := BuildSnapshot(ctx, spec, now)
+		require.NoError(t, err, tt.key)
+		assert.LessOrEqual(t, mr.CommandCount()-before, tt.maxReads, tt.key)
+		series := snap.Pairs[pair]
+		require.NotNil(t, series, tt.key)
+		for bucket, req := range tt.bucket {
+			assert.Equal(t, req, series.Buckets[bucket].Req, "%s bucket %d", tt.key, bucket)
+		}
+	}
+}
+
+func TestGetSnapshotDetachesAndShortCachesDegraded(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	setModuleState(t, true, rdb, "")
+	spec, _ := ParseRange("1h")
+	snapshotCache.Delete(spec.Key)
+	t.Cleanup(func() { snapshotCache.Delete(spec.Key) })
+
+	// A caller that has already gone away does not poison the shared build.
+	pair := PairKey{Group: "detach-g", Model: "detach-model"}
+	pipe := rdb.TxPipeline()
+	AppendRedis(context.Background(), pipe, Sample{Model: pair.Model, Group: pair.Group, Success: true}, time.Now())
+	_, err := pipe.Exec(context.Background())
+	require.NoError(t, err)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	snap, err := GetSnapshot(cancelled, spec)
+	require.NoError(t, err)
+	assert.Contains(t, snap.Pairs, pair)
+	entry, ok := snapshotCache.Load(spec.Key)
+	require.True(t, ok)
+	assert.Greater(t, time.Until(entry.(*cacheEntry).current.Load().expiresAt), 5*time.Second)
+
+	// A snapshot built while Redis is down is only cached briefly.
+	entry.(*cacheEntry).current.Store(nil)
+	mr.Close()
+	snap, err = GetSnapshot(context.Background(), spec)
+	require.NoError(t, err)
+	assert.Empty(t, snap.Pairs)
+	assert.LessOrEqual(t, time.Until(entry.(*cacheEntry).current.Load().expiresAt), 5*time.Second)
 }
 
 func TestGetSnapshotCaches(t *testing.T) {
@@ -410,10 +517,17 @@ func TestBuildResponseVisibilityAndNoCounts(t *testing.T) {
 		{ModelName: "m3", EnableGroup: []string{"vip"}},
 	}
 
+	before := &Snapshot{Range: snap.Range, WindowStart: snap.WindowStart, UpdatedAt: snap.UpdatedAt, Pairs: map[PairKey]*Series{}}
+	for pair, series := range snap.Pairs {
+		before.Pairs[pair] = &Series{Buckets: slices.Clone(series.Buckets), Total: series.Total}
+	}
+
 	resp := BuildResponse(snap, pricing, nil, Viewer{
 		Groups: map[string]string{"default": "Public"},
 		Ratios: map[string]float64{"default": 0.8},
 	})
+	// The snapshot is shared through the cache; filtering must not modify it.
+	assert.Equal(t, before, snap)
 
 	require.Len(t, resp.Groups, 1)
 	group := resp.Groups[0]
