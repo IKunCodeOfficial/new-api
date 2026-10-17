@@ -117,10 +117,13 @@ func TestModelStatusViewerScopesGroupsAndRatios(t *testing.T) {
 
 	vip := viewerFor(9101)
 	assert.ElementsMatch(t, []string{"default", "vip"}, slices.Collect(maps.Keys(vip.Groups)))
+	assert.Equal(t, "VIP", vip.Groups["vip"])
+	assert.Equal(t, "Public", vip.Groups["default"])
 	assert.Equal(t, map[string]float64{"default": 0.5, "vip": 2}, vip.Ratios)
 
 	admin := viewerFor(9102)
 	assert.ElementsMatch(t, []string{"default", "vip", "internal"}, slices.Collect(maps.Keys(admin.Groups)))
+	assert.Equal(t, "Public", admin.Groups["default"])
 	assert.Equal(t, map[string]float64{"default": 1, "vip": 2, "internal": 3}, admin.Ratios)
 }
 
