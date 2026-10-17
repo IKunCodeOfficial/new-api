@@ -905,4 +905,13 @@ export const STATIC_I18N_KEYS = [
   'Verification method',
   'Admin permissions updated',
   'Provider ID',
+  // Model status page: range labels and current-status labels from constants.
+  '5 min',
+  '1 hour',
+  '24 hours',
+  '7 days',
+  'Healthy now',
+  'Degraded now',
+  'Failing now',
+  'No requests',
 ] as const

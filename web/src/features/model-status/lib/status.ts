@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { formatNumber } from '@/lib/format'
+
 import type { ModelStatusGroup, ModelStatusModel, StatusRange } from '../types'
 
 export type StatusLevel = 'success' | 'warning' | 'danger' | 'neutral'
@@ -106,4 +108,34 @@ export function bannerSummary(groups: ModelStatusGroup[]): BannerSummary {
   else if (degraded > 0) level = 'warning'
   else if (healthy > 0) level = 'success'
   return { level, failing, degraded, healthy, total }
+}
+
+export const EMPTY_VALUE = '—'
+
+// Durations below one second render in whole milliseconds ("820 ms"),
+// longer ones in seconds with one decimal ("1.4 s"). Zero or missing values
+// mean "no data" and render as an em dash.
+export function formatDuration(
+  ms: number | null | undefined,
+  locale?: string
+): string {
+  if (ms == null || !(ms > 0)) return EMPTY_VALUE
+  if (ms < 1000) return `${formatNumber(Math.round(ms), locale)} ms`
+  return `${formatNumber(Math.round(ms / 100) / 10, locale)} s`
+}
+
+// Availability is read at two-decimal precision (99.95%), so the digits are
+// fixed instead of trimmed; formatPercent in @/lib/format trims trailing zeros
+// and ignores the viewer's locale.
+export function formatRate(
+  rate: number | null | undefined,
+  locale?: string,
+  fractionDigits = 2
+): string {
+  if (rate == null || Number.isNaN(rate)) return EMPTY_VALUE
+  return new Intl.NumberFormat(locale, {
+    style: 'percent',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(rate)
 }

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { StatusLevel } from './lib/status'
 import type { StatusRange } from './types'
 
 export const REFRESH_MS: Record<StatusRange, number> = {
@@ -34,3 +35,55 @@ export const RANGES: { value: StatusRange; labelKey: string }[] = [
   { value: '7d', labelKey: '7 days' },
   { value: '30d', labelKey: '30 days' },
 ]
+
+export type StatusView = 'list' | 'matrix'
+
+// Group filter value meaning "every group"; also the URL default.
+export const ALL_GROUPS = 'all'
+
+// Shared by the list column header and every model row so columns line up.
+export const LIST_GRID_CLASS =
+  'grid grid-cols-[236px_minmax(260px,1fr)_84px_92px_92px_28px] items-center gap-4'
+
+export const EMPTY_BAR_CLASS =
+  'bg-[oklch(0.93_0.008_255)] dark:bg-[oklch(0.33_0.016_265)]'
+
+// Tailwind classes per status level: dot and bar fills, text colour, and the
+// tinted background + border used by non-healthy matrix cells.
+export const STATUS_STYLES: Record<
+  StatusLevel,
+  { dot: string; bar: string; text: string; cell: string }
+> = {
+  success: {
+    dot: 'bg-emerald-500',
+    bar: 'bg-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-400',
+    cell: 'bg-background border-border',
+  },
+  warning: {
+    dot: 'bg-amber-500',
+    bar: 'bg-amber-500',
+    text: 'text-amber-700 dark:text-amber-400',
+    cell: 'bg-amber-500/9 border-amber-500/35',
+  },
+  danger: {
+    dot: 'bg-rose-500',
+    bar: 'bg-rose-500',
+    text: 'text-rose-700 dark:text-rose-400',
+    cell: 'bg-rose-500/9 border-rose-500/35',
+  },
+  neutral: {
+    dot: 'bg-slate-400',
+    bar: EMPTY_BAR_CLASS,
+    text: 'text-muted-foreground',
+    cell: 'bg-background border-border',
+  },
+}
+
+// labelKey values are i18n keys; translate with t() at render time.
+export const CURRENT_STATUS_LABEL_KEYS: Record<StatusLevel, string> = {
+  success: 'Healthy now',
+  warning: 'Degraded now',
+  danger: 'Failing now',
+  neutral: 'No requests',
+}

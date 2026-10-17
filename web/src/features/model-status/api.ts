@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
@@ -40,5 +40,7 @@ export function useModelStatus(range: StatusRange) {
     queryKey: ['model-status', range],
     queryFn: () => getModelStatus(range),
     refetchInterval: REFRESH_MS[range],
+    // Keep the previous range on screen while the next one loads.
+    placeholderData: keepPreviousData,
   })
 }
