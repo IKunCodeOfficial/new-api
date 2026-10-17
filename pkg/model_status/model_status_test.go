@@ -308,7 +308,9 @@ func TestBuildSnapshotLongRangeUsesDBForCompletedHours(t *testing.T) {
 	now := time.Unix(1_760_000_005, 0)
 	curHour := now.Unix() - now.Unix()%3600
 	for _, row := range []model.PerfMetric{
-		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 3600, RequestCount: 10, SuccessCount: 9, TotalLatencyMs: 5000, TtftSumMs: 800, TtftCount: 8, OutputTokens: 400, GenerationMs: 4000},
+		// Minute-level rows (sub-hour bucket_time) of one completed hour sum into one row.
+		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 3600, RequestCount: 7, SuccessCount: 6, TotalLatencyMs: 3000, TtftSumMs: 500, TtftCount: 5, OutputTokens: 300, GenerationMs: 3000},
+		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 3540, RequestCount: 3, SuccessCount: 3, TotalLatencyMs: 2000, TtftSumMs: 300, TtftCount: 3, OutputTokens: 100, GenerationMs: 1000},
 		{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour, RequestCount: 99, SuccessCount: 99},
 		{ModelName: pair.Model, Group: "auto", BucketTs: curHour - 3600, RequestCount: 5, SuccessCount: 5},
 	} {
@@ -336,7 +338,12 @@ func TestBuildSnapshotLongRangeUsesDBForCompletedHours(t *testing.T) {
 
 	rows, err := model.GetPerfMetricRows(curHour-3600, curHour)
 	require.NoError(t, err)
-	assert.Len(t, rows, 2)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		if row.Group == pair.Group {
+			assert.Equal(t, model.PerfMetric{ModelName: pair.Model, Group: pair.Group, BucketTs: curHour - 3600, RequestCount: 10, SuccessCount: 9, TotalLatencyMs: 5000, TtftSumMs: 800, TtftCount: 8, OutputTokens: 400, GenerationMs: 4000}, row)
+		}
+	}
 }
 
 func TestBuildSnapshotRedisErrorDegrades(t *testing.T) {
