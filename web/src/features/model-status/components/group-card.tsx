@@ -31,7 +31,6 @@ import {
   type StatusLevel,
 } from '../lib/status'
 import type { ModelStatusGroup, StatusRange } from '../types'
-import type { BucketTip } from './bucket-tooltip'
 import { ModelRow } from './model-row'
 
 type GroupCardProps = {
@@ -41,7 +40,6 @@ type GroupCardProps = {
   query: string
   expandedKey: string | null
   onExpandedChange: (key: string | null) => void
-  onBucketHover: (tip: BucketTip | null) => void
 }
 
 export function GroupCard(props: GroupCardProps) {
@@ -148,11 +146,9 @@ export function GroupCard(props: GroupCardProps) {
                 key={key}
                 model={model}
                 hasDetail={props.hasDetail}
+                rowKey={key}
                 open={props.expandedKey === key}
-                onOpenChange={(open) =>
-                  props.onExpandedChange(open ? key : null)
-                }
-                onBucketHover={props.onBucketHover}
+                onExpandedChange={props.onExpandedChange}
               />
             )
           })}

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getRouteApi } from '@tanstack/react-router'
 import { Activity } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { EmptyState } from '@/components/empty-state'
@@ -27,13 +27,14 @@ import { PublicLayout } from '@/components/layout'
 import { LoadingState } from '@/components/loading-state'
 
 import { useModelStatus } from './api'
-import { BucketTooltip, type BucketTip } from './components/bucket-tooltip'
+import { BucketTooltip } from './components/bucket-tooltip'
 import { GroupCard } from './components/group-card'
 import { StatusBanner } from './components/status-banner'
 import { StatusLegend } from './components/status-legend'
 import { StatusMatrix } from './components/status-matrix'
 import { StatusToolbar } from './components/status-toolbar'
 import { ALL_GROUPS, type StatusView } from './constants'
+import { hideBucketTip } from './lib/bucket-tip-store'
 import type { StatusRange } from './types'
 
 const routeApi = getRouteApi('/status/')
@@ -56,21 +57,8 @@ export function ModelStatus() {
   const view: StatusView = search.view ?? 'list'
   const [query, setQuery] = useState(search.q ?? '')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
-  const [tip, setTip] = useState<BucketTip | null>(null)
   const status = useModelStatus(range)
   const data = status.data
-
-  const hasTip = tip != null
-
-  // The tooltip is anchored to viewport coordinates, so any scroll detaches
-  // it from its bar.
-  useEffect(() => {
-    if (!hasTip) return
-    const hide = () => setTip(null)
-    window.addEventListener('scroll', hide, { passive: true, capture: true })
-    return () => window.removeEventListener('scroll', hide, { capture: true })
-  }, [hasTip])
-
   const groupKeys = data?.groups.map((g) => g.key) ?? []
   const group =
     search.group && groupKeys.includes(search.group) ? search.group : ALL_GROUPS
@@ -78,7 +66,7 @@ export function ModelStatus() {
     data?.groups.filter((g) => group === ALL_GROUPS || g.key === group) ?? []
 
   const updateSearch = (patch: Record<string, string | undefined>) => {
-    setTip(null)
+    hideBucketTip()
     void navigate({
       search: (prev) => ({ ...prev, ...patch }),
       replace: true,
@@ -124,7 +112,6 @@ export function ModelStatus() {
             query={query}
             expandedKey={expandedKey}
             onExpandedChange={setExpandedKey}
-            onBucketHover={setTip}
           />
         ))}
       </div>
@@ -189,9 +176,8 @@ export function ModelStatus() {
           />
           {renderContent()}
           <StatusLegend />
-          {tip && data && (
+          {data && (
             <BucketTooltip
-              tip={tip}
               range={data.range}
               windowStart={data.window_start}
               bucketSeconds={data.bucket_seconds}

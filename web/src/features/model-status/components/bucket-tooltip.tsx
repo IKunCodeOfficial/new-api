@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { toIntlLocale } from '@/i18n/languages'
@@ -24,44 +25,61 @@ import { cn } from '@/lib/utils'
 
 import { STATUS_STYLES } from '../constants'
 import {
+  getBucketTip,
+  hideBucketTip,
+  subscribeBucketTip,
+} from '../lib/bucket-tip-store'
+import {
   bucketTimeFormat,
   formatDuration,
   formatRate,
   statusOf,
 } from '../lib/status'
-import type { ModelStatusBucket, StatusRange } from '../types'
-
-// Viewport anchor (top-centre of the hovered bar) plus the bucket it shows.
-export type BucketTip = {
-  x: number
-  y: number
-  index: number
-  bucket: ModelStatusBucket | null
-}
+import type { StatusRange } from '../types'
 
 type BucketTooltipProps = {
-  tip: BucketTip
   range: StatusRange
   windowStart: number
   bucketSeconds: number
 }
 
 // One shared fixed-position tooltip for every timeline bar; per-bar Tooltip
-// instances would mount thousands of popups on a busy page.
+// instances would mount thousands of popups on a busy page. Hover state comes
+// from the bucket-tip store, so only this component re-renders on hover.
 export function BucketTooltip(props: BucketTooltipProps) {
   const { t, i18n } = useTranslation()
+  const tip = useSyncExternalStore(subscribeBucketTip, getBucketTip)
+  const visible = tip != null
+
+  // The tooltip is anchored to viewport coordinates, so any scroll detaches
+  // it from its bar.
+  useEffect(() => {
+    if (!visible) return
+    window.addEventListener('scroll', hideBucketTip, {
+      passive: true,
+      capture: true,
+    })
+    return () =>
+      window.removeEventListener('scroll', hideBucketTip, { capture: true })
+  }, [visible])
+
+  // Payload or range changes invalidate whatever bar was hovered.
+  useEffect(() => hideBucketTip, [props.range, props.windowStart])
+
+  if (!tip) return null
+
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const format = bucketTimeFormat(props.range)
-  const start = props.windowStart + props.tip.index * props.bucketSeconds
+  const start = props.windowStart + tip.index * props.bucketSeconds
   const end = start + props.bucketSeconds
-  const bucket = props.tip.bucket
+  const bucket = tip.bucket
   const level = statusOf(bucket?.rate)
 
   return (
     <div
       role='tooltip'
       className='bg-card pointer-events-none fixed z-60 min-w-[168px] -translate-x-1/2 -translate-y-full rounded-md border px-2.5 py-2 text-xs shadow-md'
-      style={{ left: props.tip.x, top: props.tip.y - 8 }}
+      style={{ left: tip.x, top: tip.y - 8 }}
     >
       <div className='mb-1.5 font-semibold tabular-nums'>
         {dayjs.unix(start).format(format)} – {dayjs.unix(end).format(format)}

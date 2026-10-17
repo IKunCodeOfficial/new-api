@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDown } from 'lucide-react'
-import type { MouseEvent } from 'react'
+import { memo, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -35,20 +35,23 @@ import {
   LIST_GRID_CLASS,
   STATUS_STYLES,
 } from '../constants'
+import { hideBucketTip, showBucketTip } from '../lib/bucket-tip-store'
 import { formatDuration, formatRate, statusOf } from '../lib/status'
 import type { ModelStatusModel } from '../types'
-import type { BucketTip } from './bucket-tooltip'
 import { ModelRowDetail } from './model-row-detail'
 
 type ModelRowProps = {
   model: ModelStatusModel
   hasDetail: boolean
+  rowKey: string
   open: boolean
-  onOpenChange: (open: boolean) => void
-  onBucketHover: (tip: BucketTip | null) => void
+  // Must be identity-stable (a state setter) so memo skips unrelated rows.
+  onExpandedChange: (key: string | null) => void
 }
 
-export function ModelRow(props: ModelRowProps) {
+// Memoised: expanding one row or re-rendering its group card must not
+// reconcile every other row's bar spans.
+export const ModelRow = memo(function ModelRow(props: ModelRowProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const model = props.model
@@ -62,7 +65,7 @@ export function ModelRow(props: ModelRowProps) {
     if (!bar) return
     const index = Number(bar.dataset.bucket)
     const rect = bar.getBoundingClientRect()
-    props.onBucketHover({
+    showBucketTip({
       x: rect.left + rect.width / 2,
       y: rect.top,
       index,
@@ -73,7 +76,9 @@ export function ModelRow(props: ModelRowProps) {
   return (
     <Collapsible
       open={props.open}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={(open) =>
+        props.onExpandedChange(open ? props.rowKey : null)
+      }
       className='border-border/40 border-b'
     >
       <CollapsibleTrigger
@@ -112,7 +117,7 @@ export function ModelRow(props: ModelRowProps) {
           aria-hidden='true'
           className='flex h-7 min-w-0 items-stretch gap-px overflow-hidden'
           onMouseOver={handleTimelineOver}
-          onMouseLeave={() => props.onBucketHover(null)}
+          onMouseLeave={hideBucketTip}
         >
           {model.buckets.map((bucket, i) => (
             <span
@@ -156,4 +161,4 @@ export function ModelRow(props: ModelRowProps) {
       </CollapsibleContent>
     </Collapsible>
   )
-}
+})

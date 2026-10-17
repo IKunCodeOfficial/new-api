@@ -27,6 +27,16 @@ import type { ModelStatusModel, ModelStatusResponse } from '../types'
 const mocks = vi.hoisted(() => ({
   search: {} as Record<string, string>,
   data: undefined as unknown,
+  pageRenders: 0,
+}))
+
+// The legend is a plain child of the page, so its render count tracks how
+// often the page component itself renders.
+vi.mock('../components/status-legend', () => ({
+  StatusLegend: () => {
+    mocks.pageRenders++
+    return null
+  },
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -110,6 +120,7 @@ function modelRows() {
 afterEach(() => {
   mocks.search = {}
   mocks.data = undefined
+  mocks.pageRenders = 0
 })
 
 describe('ModelStatus page', () => {
@@ -136,6 +147,26 @@ describe('ModelStatus page', () => {
 
     expect(modelRows()[0]).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('P95')).toBeInTheDocument()
+  })
+
+  it('shows the bucket tooltip on bar hover without re-rendering the page', async () => {
+    mocks.data = payload('1h')
+    const { container } = render(<ModelStatus />)
+    const bar = container.querySelector<HTMLElement>('[data-bucket="0"]')
+    if (!bar) throw new Error('timeline bar not rendered')
+    const rendersBeforeHover = mocks.pageRenders
+    expect(rendersBeforeHover).toBeGreaterThan(0)
+
+    await userEvent.hover(bar)
+
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent(/\d{2}:\d{2} – \d{2}:\d{2}/)
+    expect(within(tooltip).getByText('Success rate')).toBeInTheDocument()
+    expect(mocks.pageRenders).toBe(rendersBeforeHover)
+
+    await userEvent.unhover(bar)
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('shows only throughput when a 24h row is expanded', async () => {
