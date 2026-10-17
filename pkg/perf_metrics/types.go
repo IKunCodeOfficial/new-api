@@ -1,6 +1,10 @@
 package perfmetrics
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	modelstatus "github.com/QuantumNous/new-api/pkg/model_status"
+)
 
 type Store interface {
 	Record(sample Sample)
@@ -16,6 +20,7 @@ type Sample struct {
 	Success      bool
 	OutputTokens int64
 	GenerationMs int64
+	Failure      modelstatus.FailureKind
 }
 
 type QueryParams struct {

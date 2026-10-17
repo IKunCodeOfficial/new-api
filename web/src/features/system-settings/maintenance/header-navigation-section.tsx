@@ -55,7 +55,8 @@ const headerNavSchema = z.object({
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
-  status: z.boolean(),
+  statusEnabled: z.boolean(),
+  statusRequireAuth: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
 })
@@ -90,10 +91,14 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.rankings?.requireAuth === undefined
       ? HEADER_NAV_DEFAULT.rankings.requireAuth
       : Boolean(config.rankings.requireAuth),
-  status:
-    config.status === undefined
-      ? HEADER_NAV_DEFAULT.status
-      : Boolean(config.status),
+  statusEnabled:
+    config.status?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.status.enabled
+      : Boolean(config.status.enabled),
+  statusRequireAuth:
+    config.status?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.status.requireAuth
+      : Boolean(config.status.requireAuth),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
   about:
@@ -124,7 +129,6 @@ export function HeaderNavigationSection({
       ...config,
       home: values.home,
       console: values.console,
-      status: values.status,
       docs: values.docs,
       about: values.about,
       pricing: {
@@ -136,6 +140,11 @@ export function HeaderNavigationSection({
         ...(config.rankings ?? HEADER_NAV_DEFAULT.rankings),
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
+      },
+      status: {
+        ...(config.status ?? HEADER_NAV_DEFAULT.status),
+        enabled: values.statusEnabled,
+        requireAuth: values.statusRequireAuth,
       },
     }
 
@@ -175,11 +184,6 @@ export function HeaderNavigationSection({
       description: t('Documentation or external knowledge base.'),
     },
     {
-      key: 'status',
-      title: t('Status'),
-      description: t('External service status page.'),
-    },
-    {
       key: 'about',
       title: t('About'),
       description: t('Static page describing the platform.'),
@@ -189,7 +193,7 @@ export function HeaderNavigationSection({
   const accessModules: Array<{
     enabledKey: keyof HeaderNavFormValues
     requireAuthKey: keyof HeaderNavFormValues
-    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
+    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled' | 'statusEnabled'
     title: string
     description: string
     requireAuthTitle: string
@@ -215,6 +219,17 @@ export function HeaderNavigationSection({
       requireAuthTitle: t('Require login to view rankings'),
       requireAuthDescription: t(
         'Visitors must authenticate before accessing the rankings page.'
+      ),
+    },
+    {
+      enabledKey: 'statusEnabled',
+      requireAuthKey: 'statusRequireAuth',
+      requireAuthDependsOn: 'statusEnabled',
+      title: t('Model Status'),
+      description: t('Public model status page based on live request data.'),
+      requireAuthTitle: t('Require login to view model status'),
+      requireAuthDescription: t(
+        'Visitors must authenticate before accessing the model status page.'
       ),
     },
   ]

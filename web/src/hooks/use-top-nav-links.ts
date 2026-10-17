@@ -39,6 +39,7 @@ export type TopNavLink = {
  *   console: true,
  *   pricing: { enabled: true, requireAuth: false },
  *   rankings: { enabled: true, requireAuth: false },
+ *   status: { enabled: true, requireAuth: false },
  *   docs: true,
  *   about: true
  * }
@@ -86,13 +87,11 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
-  // Status
-  if (modules?.status !== false) {
-    links.push({
-      title: t('Status'),
-      href: 'https://status.ikuncode.cc/',
-      external: true,
-    })
+  // Model Status
+  const modelStatus = modules?.status
+  if (modelStatus && typeof modelStatus === 'object' && modelStatus.enabled) {
+    const requiresAuth = modelStatus.requireAuth && !isAuthed
+    links.push({ title: t('Model Status'), href: '/status', requiresAuth })
   }
 
   // Docs (supports external links)

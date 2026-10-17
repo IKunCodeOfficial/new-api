@@ -930,4 +930,13 @@ export const STATIC_I18N_KEYS = [
   'Channel priorities changed. Refresh and try again.',
   'Invalid channel priority move',
   'Channel priority is outside the sortable range',
+  // Model status page: range labels and current-status labels from constants.
+  '5 min',
+  '1 hour',
+  '24 hours',
+  '7 days',
+  'Healthy now',
+  'Degraded now',
+  'Failing now',
+  'No requests',
 ] as const

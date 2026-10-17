@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	modelstatus "github.com/QuantumNous/new-api/pkg/model_status"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
@@ -57,7 +58,7 @@ func RecordRelayResult(ctx context.Context, info *relaycommon.RelayInfo, apiErr 
 	if generationMs <= 0 {
 		generationMs = latencyMs
 	}
-	Record(Sample{
+	sample := Sample{
 		Model:        info.OriginModelName,
 		Group:        info.UsingGroup,
 		LatencyMs:    latencyMs,
@@ -66,7 +67,11 @@ func RecordRelayResult(ctx context.Context, info *relaycommon.RelayInfo, apiErr 
 		Success:      outcome == OutcomeSuccess,
 		OutputTokens: info.PerformanceOutputTokens,
 		GenerationMs: generationMs,
-	})
+	}
+	if outcome == OutcomeFailure {
+		sample.Failure = modelstatus.FailureKindOf(info, apiErr)
+	}
+	Record(sample)
 }
 
 // RecordTaskResult samples one async task exactly once, at its terminal
@@ -116,15 +121,23 @@ func Record(sample Sample) {
 		sample.LatencyMs = 0
 	}
 
+	now := time.Now()
+	statusSample := modelstatus.Sample{
+		Model: sample.Model, Group: sample.Group, Success: sample.Success,
+		LatencyMs: sample.LatencyMs, TtftMs: sample.TtftMs, HasTtft: sample.HasTtft,
+		OutputTokens: sample.OutputTokens, GenerationMs: sample.GenerationMs, Failure: sample.Failure,
+	}
+	modelstatus.RecordLocal(statusSample, now)
+
 	key := bucketKey{
 		model:    sample.Model,
 		group:    sample.Group,
-		bucketTs: bucketStart(time.Now().Unix()),
+		bucketTs: bucketStart(now.Unix()),
 	}
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
 	gopool.Go(func() {
-		recordRedis(key, sample)
+		recordRedis(key, sample, statusSample, now)
 	})
 }
 
@@ -549,7 +562,7 @@ func avgTps(value counters) float64 {
 	return float64(value.outputTokens) / (float64(value.generationMs) / 1000)
 }
 
-func recordRedis(key bucketKey, sample Sample) {
+func recordRedis(key bucketKey, sample Sample, statusSample modelstatus.Sample, now time.Time) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return
 	}
@@ -574,6 +587,7 @@ func recordRedis(key bucketKey, sample Sample) {
 		pipe.HIncrBy(ctx, redisKey, "gen_ms", sample.GenerationMs)
 	}
 	pipe.Expire(ctx, redisKey, time.Hour)
+	modelstatus.AppendRedis(ctx, pipe, statusSample, now)
 	_, _ = pipe.Exec(ctx)
 }
 
