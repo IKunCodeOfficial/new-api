@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/tokenkit"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,7 +166,9 @@ func TestOaiStreamHandlerDrainFallsBackToEstimateWithoutUsage(t *testing.T) {
 
 	done, result := runOaiStreamHandlerAsync(c, info, resp)
 
-	_, err := fmt.Fprintf(pw, "data: %s\ndata: %s\n", drainChunkHello, drainChunkWorld)
+	drainedText := "world with enough additional words to distinguish the full response from the delivered prefix"
+	worldChunk := strings.Replace(drainChunkWorld, "world", drainedText, 1)
+	_, err := fmt.Fprintf(pw, "data: %s\ndata: %s\n", drainChunkHello, worldChunk)
 	require.NoError(t, err)
 
 	waitDrainStarted(t, c, info)
@@ -178,7 +181,7 @@ func TestOaiStreamHandlerDrainFallsBackToEstimateWithoutUsage(t *testing.T) {
 	require.Nil(t, result.apiErr)
 	require.NotNil(t, result.usage)
 	assert.Equal(t, 11, result.usage.PromptTokens, "estimate fallback must use the pre-computed prompt token estimate")
-	assert.Equal(t, service.EstimateTokenByModel("gpt-4o-mini", "helloworld"), result.usage.CompletionTokens,
+	assert.Equal(t, tokenkit.Estimate("gpt-4o-mini", "hello"+drainedText), result.usage.CompletionTokens,
 		"estimate must cover the full drained text, including post-disconnect chunks")
 	assert.Equal(t, result.usage.PromptTokens+result.usage.CompletionTokens, result.usage.TotalTokens)
 

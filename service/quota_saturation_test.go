@@ -1,17 +1,20 @@
 package service
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,12 +36,13 @@ func TestAttachQuotaSaturationNestsUnderAdminInfo(t *testing.T) {
 		},
 	}
 
-	other := map[string]interface{}{"model_price": 0.004}
+	other := model.NewLogOther()
+	other.SetPublic("model_price", 0.004)
 	attachQuotaSaturation(ctx, relayInfo, other)
 
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok, "admin_info should be created")
-	sat, ok := adminInfo["quota_saturation"].(map[string]interface{})
+	sat, ok := adminInfo["quota_saturation"].(map[string]any)
 	require.True(t, ok, "quota_saturation should be nested under admin_info")
 	require.Equal(t, "QuotaFromDecimal", sat["op"])
 	require.Equal(t, common.QuotaClampOverflow, sat["kind"])
@@ -76,12 +80,11 @@ func TestAttachQuotaSaturationPreservesExistingAdminInfo(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		QuotaClamp: &common.QuotaClamp{Op: "QuotaFromFloat", Kind: common.QuotaClampUnderflow, Clamped: common.MinQuota},
 	}
-	other := map[string]interface{}{
-		"admin_info": map[string]interface{}{"admin_username": "root"},
-	}
+	other := model.NewLogOther()
+	other.SetAdmin("admin_username", "root")
 	attachQuotaSaturation(ctx, relayInfo, other)
 
-	adminInfo := other["admin_info"].(map[string]interface{})
+	adminInfo := other.Snapshot()["admin_info"].(map[string]any)
 	require.Equal(t, "root", adminInfo["admin_username"], "existing admin_info fields preserved")
 	require.NotNil(t, adminInfo["quota_saturation"])
 }
@@ -93,10 +96,11 @@ func TestAttachQuotaSaturationNoClampNoMarker(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(nil)
 
 	relayInfo := &relaycommon.RelayInfo{QuotaClamp: nil}
-	other := map[string]interface{}{"model_price": 0.004}
+	other := model.NewLogOther()
+	other.SetPublic("model_price", 0.004)
 	attachQuotaSaturation(ctx, relayInfo, other)
 
-	_, hasAdmin := other["admin_info"]
+	_, hasAdmin := other.Snapshot()["admin_info"]
 	require.False(t, hasAdmin, "no admin_info should be added when there is no clamp")
 }
 
@@ -135,4 +139,39 @@ func TestPreConsumeBillingRejectsNegativeQuotaBeforeDeduction(t *testing.T) {
 	require.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
 	require.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 	require.Nil(t, info.Billing)
+}
+
+// Reservations and settlement must contribute the final charge exactly once, for
+// both finite and unlimited tokens and for wallet/subscription funding.
+func TestTokenDailyUsageThroughPreConsumeAndSettlement(t *testing.T) {
+	for _, source := range []string{BillingSourceWallet, BillingSourceSubscription} {
+		for _, unlimited := range []bool{false, true} {
+			for _, actual := range []int{0, 40, 60, 80} {
+				t.Run(fmt.Sprintf("%s/unlimited=%v/actual=%d", source, unlimited, actual), func(t *testing.T) {
+					truncate(t)
+					require.NoError(t, model.DB.AutoMigrate(&model.Option{}))
+					t.Setenv("LOG_SQL_DSN", "")
+					require.NoError(t, model.InitLogDB())
+					seedUser(t, 9401, 1000)
+					seedToken(t, 9401, 9401, "daily-billing-token", 1000)
+					require.NoError(t, model.SetTokenDailyQuotaLimit(9401, 0))
+					require.NoError(t, model.SetTokenDailyQuotaLimit(9401, 500))
+					t.Cleanup(func() { require.NoError(t, model.SetTokenDailyQuotaLimit(9401, 0)) })
+					info := &relaycommon.RelayInfo{UserId: 9401, TokenId: 9401, TokenKey: "daily-billing-token", TokenUnlimited: unlimited, BillingSource: source}
+					if source == BillingSourceSubscription {
+						seedSubscription(t, 9401, 9401, 1000, 60)
+						info.SubscriptionId = 9401
+					}
+					require.NoError(t, PreConsumeTokenQuota(info, 60))
+					assert.Equal(t, int64(60), model.GetTokenDailyUsage(9401), "successful reservation counts immediately")
+					require.NoError(t, PostConsumeQuota(info, actual-60, 60, false))
+					assert.Equal(t, int64(actual), model.GetTokenDailyUsage(9401))
+					var token model.Token
+					require.NoError(t, model.DB.First(&token, 9401).Error)
+					assert.Equal(t, actual, token.UsedQuota)
+					assert.Equal(t, 1000-actual, token.RemainQuota)
+				})
+			}
+		}
+	}
 }

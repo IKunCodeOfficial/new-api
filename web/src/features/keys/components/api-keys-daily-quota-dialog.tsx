@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -27,11 +27,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCurrencyLabel } from '@/lib/currency'
 import { parseQuotaFromDollars } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
 import { batchSetApiKeysDailyQuota } from '../api'
 import { ERROR_MESSAGES } from '../constants'
-import { type ApiKey } from '../types'
+import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
 type ApiKeysDailyQuotaDialogProps<TData> = {
@@ -93,10 +94,10 @@ export function ApiKeysDailyQuotaDialog<TData>({
         triggerRefresh()
         onOpenChange(false)
       } else {
-        toast.error(result.message || t(ERROR_MESSAGES.UNEXPECTED))
+        handleServerError(result, t(ERROR_MESSAGES.UNEXPECTED))
       }
-    } catch (_error) {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } catch (error) {
+      handleServerError(error, t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
     }
@@ -137,7 +138,7 @@ export function ApiKeysDailyQuotaDialog<TData>({
           placeholder={t('0 = unlimited')}
           onChange={(e) => {
             const raw = e.target.value
-            setAmount(raw === '' ? '' : parseFloat(raw) || 0)
+            setAmount(raw === '' ? '' : Number.parseFloat(raw) || 0)
           }}
         />
         <p

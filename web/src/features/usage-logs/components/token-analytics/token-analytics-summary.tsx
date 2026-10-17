@@ -1,7 +1,8 @@
 import { Activity, Coins, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatLogQuota, formatNumber } from '@/lib/format'
+
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatLogQuota, formatNumber } from '@/lib/format'
 
 interface TokenAnalyticsSummaryProps {
   totalQuota: number

@@ -1,26 +1,24 @@
-import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, PaginationState } from '@tanstack/react-table'
-import { toast } from 'sonner'
-import { useTranslation } from 'react-i18next'
+import { useEffect, useMemo } from 'react'
+
 import { useMediaQuery } from '@/hooks'
+import { requireServerSuccess } from '@/lib/server-error-message'
+
+import { getUserTokenAnalytics, getUserTokenAnalyticsTrend } from '../../api'
 import { getDefaultTimeRange } from '../../lib/utils'
-import {
-  getUserTokenAnalytics,
-  getUserTokenAnalyticsTrend,
-} from '../../api'
 import type {
   TokenAnalyticsItem,
   TokenAnalyticsSortBy,
   TokenAnalyticsSortOrder,
   TokenAnalyticsTrendPoint,
 } from '../../types'
-import { secondsFromDate, normalizeNumber } from './token-analytics-utils'
 import { TokenAnalyticsCharts } from './token-analytics-charts'
 import { TokenAnalyticsFilterBar } from './token-analytics-filter-bar'
 import { TokenAnalyticsSummary } from './token-analytics-summary'
 import { TokenAnalyticsTable } from './token-analytics-table'
+import { secondsFromDate, normalizeNumber } from './token-analytics-utils'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -74,13 +72,13 @@ function normalizeTrendPoint(
 }
 
 export function TokenAnalyticsPage() {
-  const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const defaultTimeRange = useMemo(getDefaultTimeRange, [])
 
-  const page = typeof search.page === 'number' && search.page > 0 ? search.page : 1
+  const page =
+    typeof search.page === 'number' && search.page > 0 ? search.page : 1
   const defaultPageSize = isMobile ? 20 : 100
   const pageSize =
     typeof search.pageSize === 'number' && search.pageSize > 0
@@ -124,10 +122,7 @@ export function TokenAnalyticsPage() {
         sort_order: sortOrder,
       })
 
-      if (!result.success) {
-        toast.error(result.message || t('Failed to load token analytics'))
-        return { items: [], total: 0, page, page_size: pageSize }
-      }
+      requireServerSuccess(result)
 
       return {
         items: (result.data?.items ?? []).map(normalizeItem),
@@ -144,14 +139,7 @@ export function TokenAnalyticsPage() {
     queryFn: async () => {
       const result = await getUserTokenAnalyticsTrend(baseParams)
 
-      if (!result.success) {
-        toast.error(result.message || t('Failed to load token analytics'))
-        return {
-          granularity: 'day' as const,
-          series: [],
-          top_tokens: [],
-        }
-      }
+      requireServerSuccess(result)
 
       return {
         granularity: result.data?.granularity ?? ('day' as const),
@@ -194,7 +182,10 @@ export function TokenAnalyticsPage() {
       search: (prev) => ({
         ...prev,
         page: undefined,
-        keyword: filters.keyword === '' ? undefined : (filters.keyword ?? prev.keyword),
+        keyword:
+          filters.keyword === ''
+            ? undefined
+            : (filters.keyword ?? prev.keyword),
         startTime: filters.startTime ?? prev.startTime,
         endTime: filters.endTime ?? prev.endTime,
         sortBy:
@@ -234,7 +225,10 @@ export function TokenAnalyticsPage() {
   }, [navigate, page, pageCount])
 
   const trendSeries = trendQuery.data?.series ?? []
-  const totalQuota = trendSeries.reduce((sum, point) => sum + point.quota_sum, 0)
+  const totalQuota = trendSeries.reduce(
+    (sum, point) => sum + point.quota_sum,
+    0
+  )
   const totalRequests = trendSeries.reduce(
     (sum, point) => sum + point.request_count,
     0

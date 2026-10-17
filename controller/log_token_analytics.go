@@ -16,6 +16,14 @@ func GetUserTokenAnalytics(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if c.GetInt("role") < common.RoleAdminUser {
+		limitedStart, err := limitLogTimeRange(startTimestamp, endTimestamp)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		startTimestamp = limitedStart
+	}
 	keyword := strings.TrimSpace(c.Query("keyword"))
 	sortBy := strings.TrimSpace(c.Query("sort_by"))
 	sortOrder := strings.TrimSpace(c.Query("sort_order"))
@@ -44,6 +52,14 @@ func GetUserTokenAnalyticsTrend(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if c.GetInt("role") < common.RoleAdminUser {
+		limitedStart, err := limitLogTimeRange(startTimestamp, endTimestamp)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		startTimestamp = limitedStart
+	}
 	keyword := strings.TrimSpace(c.Query("keyword"))
 
 	points, topTokens, granularity, err := model.GetUserTokenAnalyticsTrend(

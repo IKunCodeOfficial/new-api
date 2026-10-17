@@ -9,7 +9,10 @@ export function secondsFromDate(value: Date): number {
   return Math.floor(value.getTime() / 1000)
 }
 
-export function formatBucketLabel(timestamp: number, granularity: 'hour' | 'day') {
+export function formatBucketLabel(
+  timestamp: number,
+  granularity: 'hour' | 'day'
+) {
   if (!timestamp || timestamp <= 0) return '-'
   return granularity === 'hour'
     ? dayjs.unix(timestamp).format('MM-DD HH:00')

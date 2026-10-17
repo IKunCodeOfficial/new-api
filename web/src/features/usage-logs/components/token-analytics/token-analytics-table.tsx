@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -7,13 +6,14 @@ import {
   type PaginationState,
   useReactTable,
 } from '@tanstack/react-table'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
-import { Badge } from '@/components/ui/badge'
+
 import { DataTablePagination } from '@/components/data-table'
 import { TableEmpty } from '@/components/data-table/core/table-empty'
 import { TableSkeleton } from '@/components/data-table/core/table-skeleton'
 import { PageFooterPortal } from '@/components/layout'
+import { Badge } from '@/components/ui/badge'
 import {
   Table,
   TableBody,
@@ -22,6 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  formatLogQuota,
+  formatNumber,
+  formatTimestampToDate,
+} from '@/lib/format'
+
 import type { TokenAnalyticsItem } from '../../types'
 
 interface TokenAnalyticsTableProps {
@@ -57,8 +63,7 @@ function TokenStatusBadge({
     },
     4: {
       labelKey: 'Exhausted',
-      className:
-        'border-muted-foreground/20 bg-muted text-muted-foreground',
+      className: 'border-muted-foreground/20 bg-muted text-muted-foreground',
     },
   }
   const resolved = meta[status] ?? {
@@ -106,7 +111,9 @@ export function TokenAnalyticsTable({
       {
         accessorKey: 'token_status',
         header: t('Status'),
-        cell: ({ getValue }) => <TokenStatusBadge status={getValue<number>()} t={t} />,
+        cell: ({ getValue }) => (
+          <TokenStatusBadge status={getValue<number>()} t={t} />
+        ),
       },
       {
         accessorKey: 'token_group',
@@ -162,6 +169,35 @@ export function TokenAnalyticsTable({
     pageCount: Math.ceil(total / pagination.pageSize),
   })
 
+  let tableBody = (
+    <>
+      {table.getRowModel().rows.map((row) => (
+        <TableRow key={row.id}>
+          {row.getVisibleCells().map((cell) => (
+            <TableCell key={cell.id} className='py-2.5'>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
+  )
+  if (loading) {
+    tableBody = (
+      <TableSkeleton table={table} keyPrefix='token-analytics-skeleton' />
+    )
+  } else if (table.getRowModel().rows.length === 0) {
+    tableBody = (
+      <TableEmpty
+        colSpan={columns.length}
+        title={t('No Token Analytics Found')}
+        description={t(
+          'Token analytics will appear once matching API calls are made.'
+        )}
+      />
+    )
+  }
+
   return (
     <>
       <div className='overflow-hidden rounded-md border'>
@@ -183,29 +219,7 @@ export function TokenAnalyticsTable({
                 </TableRow>
               ))}
             </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableSkeleton table={table} keyPrefix='token-analytics-skeleton' />
-              ) : table.getRowModel().rows.length === 0 ? (
-                <TableEmpty
-                  colSpan={columns.length}
-                  title={t('No Token Analytics Found')}
-                  description={t(
-                    'Token analytics will appear once matching API calls are made.'
-                  )}
-                />
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className='py-2.5'>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
+            <TableBody>{tableBody}</TableBody>
           </Table>
         </div>
       </div>

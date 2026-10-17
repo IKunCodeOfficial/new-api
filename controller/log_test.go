@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -63,7 +64,7 @@ func TestGetAllLogsRejectsInvalidTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.MsgInvalidParams, response.Message)
+			assert.Equal(t, "Invalid parameters", response.Message)
 		})
 	}
 }
@@ -88,7 +89,7 @@ func TestGetAllLogsRequiresManageTypeForTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.MsgInvalidParams, response.Message)
+			assert.Equal(t, "Invalid parameters", response.Message)
 		})
 	}
 }
@@ -103,11 +104,11 @@ func TestGetUserLogsIgnoresTargetUserIdQuery(t *testing.T) {
 			Content:   "target-42",
 			Username:  "admin-1",
 			Ip:        "198.51.100.1",
-			Other: common.MapToJsonStr(map[string]interface{}{
-				"admin_info": map[string]interface{}{"admin_id": 1},
-				"audit_info": map[string]interface{}{"route": "/api/user/"},
-				"op": map[string]interface{}{
-					"params": map[string]interface{}{"target_user_id": 42, "username": "target-42"},
+			Other: common.MapToJsonStr(map[string]any{
+				"admin_info": map[string]any{"admin_id": 1},
+				"audit_info": map[string]any{"route": "/api/user/"},
+				"op": map[string]any{
+					"params": map[string]any{"target_user_id": 42, "username": "target-42"},
 				},
 			}),
 		},
@@ -124,7 +125,7 @@ func TestGetUserLogsIgnoresTargetUserIdQuery(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/log/self?type=3&target_user_id=7", nil)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/log/self?type=3&target_user_id=7&start_timestamp=1&end_timestamp=200", nil)
 	ctx.Set("id", 42)
 
 	GetUserLogs(ctx)
@@ -150,4 +151,36 @@ func TestGetUserLogsIgnoresTargetUserIdQuery(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, other, "admin_info")
 	assert.NotContains(t, other, "audit_info")
+}
+
+func TestTokenAnalyticsEnforcesLogTimeRange(t *testing.T) {
+	settings := operation_setting.GetLogSetting()
+	previous := *settings
+	settings.MaxRangeDays = 365
+	t.Cleanup(func() { *settings = previous })
+	for _, handler := range []gin.HandlerFunc{GetUserTokenAnalytics, GetUserTokenAnalyticsTrend} {
+		for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser} {
+			t.Run(fmt.Sprintf("handler=%p/role=%d", handler, role), func(t *testing.T) {
+				db := setupLogControllerTestDB(t)
+				require.NoError(t, db.AutoMigrate(&model.Token{}))
+				end := common.GetTimestamp()
+				start := end - 366*86400
+				recorder := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(recorder)
+				ctx.Request = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/?start_timestamp=%d&end_timestamp=%d", start, end), nil)
+				ctx.Set("id", 42)
+				ctx.Set("role", role)
+				handler(ctx)
+				var body struct {
+					Success    bool   `json:"success"`
+					MessageKey string `json:"message_key"`
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+				assert.Equal(t, role == common.RoleAdminUser, body.Success)
+				if role == common.RoleCommonUser {
+					assert.Equal(t, "The time range cannot exceed {{days}} days", body.MessageKey)
+				}
+			})
+		}
+	}
 }

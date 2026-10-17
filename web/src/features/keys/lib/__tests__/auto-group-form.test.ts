@@ -53,6 +53,7 @@ const baseApiKey: ApiKey = {
   allow_ips: '',
   daily_quota_limit: 0,
   daily_quota_used: 0,
+  allow_user_quota_query: false,
 }
 
 describe('API key Auto group form mapping', () => {
@@ -180,5 +181,75 @@ describe('API key Auto group form mapping', () => {
     expect(result.error.issues[0]?.message).toBe(
       'Auto groups must not contain duplicates'
     )
+  })
+})
+
+describe('API key user quota query form mapping', () => {
+  test('lets a new key query the user quota by default', () => {
+    for (const defaultUseAutoGroup of [true, false]) {
+      const defaults = getApiKeyFormDefaultValues(defaultUseAutoGroup)
+
+      expect(defaults.allow_user_quota_query).toBe(true)
+      expect(transformFormDataToPayload(defaults).allow_user_quota_query).toBe(
+        true
+      )
+    }
+  })
+
+  test.each([true, false])(
+    'keeps the stored value %s when an existing key is edited and saved',
+    (stored) => {
+      const defaults = transformApiKeyToFormDefaults({
+        ...baseApiKey,
+        allow_user_quota_query: stored,
+      })
+
+      expect(defaults.allow_user_quota_query).toBe(stored)
+      expect(transformFormDataToPayload(defaults).allow_user_quota_query).toBe(
+        stored
+      )
+    }
+  )
+})
+
+describe('daily quota and balance-query compatibility', () => {
+  test('legacy responses keep safe defaults while new keys allow balance queries', () => {
+    const legacy: Record<string, unknown> = { ...baseApiKey }
+    delete legacy.daily_quota_limit
+    delete legacy.daily_quota_used
+    delete legacy.allow_user_quota_query
+    expect(apiKeySchema.parse(legacy)).toMatchObject({
+      daily_quota_limit: 0,
+      daily_quota_used: 0,
+      allow_user_quota_query: false,
+    })
+    expect(
+      transformFormDataToPayload(getApiKeyFormDefaultValues(false))
+    ).toMatchObject({
+      daily_quota_limit: 0,
+      allow_user_quota_query: true,
+    })
+  })
+
+  test('edits retain the daily cap and explicit false permission, and zero clears the cap', () => {
+    const values = transformApiKeyToFormDefaults({
+      ...baseApiKey,
+      daily_quota_limit: 1000000,
+    })
+    expect(transformFormDataToPayload(values)).toMatchObject({
+      daily_quota_limit: 1000000,
+      allow_user_quota_query: false,
+    })
+    expect(
+      transformFormDataToPayload({ ...values, daily_quota_limit_dollars: 0 })
+        .daily_quota_limit
+    ).toBe(0)
+    expect(
+      getApiKeyFormSchema(t).safeParse({
+        ...values,
+        unlimited_quota: true,
+        daily_quota_limit_dollars: -1,
+      }).success
+    ).toBe(false)
   })
 })

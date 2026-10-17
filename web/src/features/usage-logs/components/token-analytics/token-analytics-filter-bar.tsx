@@ -1,5 +1,6 @@
 import { Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -9,11 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
+import type { TokenAnalyticsSortBy, TokenAnalyticsSortOrder } from '../../types'
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
-import type {
-  TokenAnalyticsSortBy,
-  TokenAnalyticsSortOrder,
-} from '../../types'
 
 interface TokenAnalyticsFilters {
   keyword: string
@@ -60,7 +59,7 @@ export function TokenAnalyticsFilterBar({
   const { t } = useTranslation()
 
   return (
-    <div className='rounded-md border bg-card/50 p-2 shadow-xs sm:p-3'>
+    <div className='bg-card/50 rounded-md border p-2 shadow-xs sm:p-3'>
       <div className='grid gap-2 lg:grid-cols-[minmax(260px,1.5fr)_minmax(180px,1fr)_minmax(150px,0.7fr)_auto]'>
         <CompactDateTimeRangePicker
           start={dateFromMs(filters.startTime)}
@@ -77,7 +76,9 @@ export function TokenAnalyticsFilterBar({
           <Search className='text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2' />
           <Input
             value={filters.keyword}
-            onChange={(event) => onFiltersChange({ keyword: event.target.value })}
+            onChange={(event) =>
+              onFiltersChange({ keyword: event.target.value })
+            }
             placeholder={t('Token name / ID')}
             className='pl-9'
           />

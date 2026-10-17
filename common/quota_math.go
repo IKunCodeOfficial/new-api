@@ -59,11 +59,11 @@ func (c *QuotaClamp) Error() string {
 // AuditMap renders the clamp as the marker stored under a log's
 // admin_info.quota_saturation. Centralized here so every billing path (consume
 // logs, task billing logs, task compensation logs) records the same shape.
-func (c *QuotaClamp) AuditMap() map[string]interface{} {
+func (c *QuotaClamp) AuditMap() map[string]any {
 	if c == nil {
 		return nil
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"op":       c.Op,
 		"kind":     c.Kind,
 		"original": c.Original,
@@ -172,4 +172,15 @@ func QuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
 func WalletQuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
 	f, _ := d.Round(0).Float64()
 	return strictQuota(saturateQuotaBounded(f, "WalletQuotaFromDecimal", MaxWalletQuota, -MaxWalletQuota))
+}
+
+// GetMaxTokenQuota returns the maximum token balance or daily limit in quota units.
+func GetMaxTokenQuota() int {
+	quota, err := WalletQuotaFromDecimalStrict(
+		decimal.NewFromInt(1_000_000_000).Mul(decimal.NewFromFloat(QuotaPerUnit)),
+	)
+	if err != nil {
+		return MaxWalletQuota
+	}
+	return quota
 }

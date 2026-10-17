@@ -34,7 +34,7 @@ func TestManageUserQuotaAuditIncludesTargetIdentity(t *testing.T) {
 			t.Cleanup(func() {
 				common.RedisEnabled = originalRedisEnabled
 			})
-			require.NoError(t, db.AutoMigrate(&model.User{}))
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}))
 			require.NoError(t, db.Create(&model.User{
 				Id:       21,
 				Username: "sharpeng",
@@ -73,18 +73,23 @@ func TestManageUserQuotaAuditIncludesTargetIdentity(t *testing.T) {
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			require.True(t, response.Success)
 
-			var log model.Log
-			require.NoError(t, db.Where("type = ?", model.LogTypeManage).First(&log).Error)
-			other, err := common.StrToMap(log.Other)
+			var log model.AuditLog
+			require.NoError(t, db.First(&log).Error)
+			require.NotNil(t, log.Other.Op)
+			assert.Equal(t, tt.expectedAction, log.Other.Op.Action)
+			encoded, err := common.Marshal(log.Other.Op.Params)
 			require.NoError(t, err)
-			op, ok := other["op"].(map[string]interface{})
-			require.True(t, ok)
-			assert.Equal(t, tt.expectedAction, op["action"])
-			params, ok := op["params"].(map[string]interface{})
-			require.True(t, ok)
-			assert.Equal(t, float64(42), params["target_user_id"])
-			assert.Equal(t, "target-user", params["username"])
+			var params map[string]any
+			require.NoError(t, common.Unmarshal(encoded, &params))
+			assert.Equal(t, "42", fmt.Sprint(params["target_user_id"]))
+			assert.Equal(t, "target-user", params["target_username"])
+			assert.Equal(t, "1000", fmt.Sprint(params["from"]))
+			assert.True(t, log.Success)
 			assert.Contains(t, log.Content, "target-user (ID: 42)")
+			var balanceLog model.Log
+			require.NoError(t, db.Where("type = ?", model.LogTypeTopup).First(&balanceLog).Error)
+			assert.Equal(t, 42, balanceLog.UserId)
+
 		})
 	}
 }

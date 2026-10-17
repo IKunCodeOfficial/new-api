@@ -24,7 +24,7 @@ import (
 func ResolveUnavailableMessage(c *gin.Context, group string, modelName string, requestPath string) string {
 	groups := []string{group}
 	if group == "auto" {
-		groups = append(GetUserAutoGroup(common.GetContextKeyString(c, constant.ContextKeyUserGroup)), group)
+		groups = append(GetRequestAutoGroups(c, common.GetContextKeyString(c, constant.ContextKeyUserGroup)), group)
 	}
 
 	for _, candidateGroup := range groups {

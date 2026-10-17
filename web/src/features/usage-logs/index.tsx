@@ -27,13 +27,13 @@ import { CacheStatsDialog } from '@/features/system-settings/general/channel-aff
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
+import { TokenAnalyticsPage } from './components/token-analytics'
 import {
   type LogsViewScope,
   UsageLogsProvider,
   useLogsViewScope,
   useUsageLogsContext,
 } from './components/usage-logs-provider'
-import { TokenAnalyticsPage } from './components/token-analytics'
 import { UsageLogsTable } from './components/usage-logs-table'
 import {
   isUsageLogsSectionId,
@@ -153,16 +153,16 @@ function UsageLogsContent() {
             t(pageMeta.titleKey)
           )}
         </SectionPageLayout.Title>
-        {canManageScope && isLogCategory && (
-          <SectionPageLayout.Actions>
+        <SectionPageLayout.Actions>
+          {canManageScope && isLogCategory && (
             <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
               <TabsList>
                 <TabsTrigger value='all'>{t('All')}</TabsTrigger>
                 <TabsTrigger value='self'>{t('Only Mine')}</TabsTrigger>
               </TabsList>
             </Tabs>
-          </SectionPageLayout.Actions>
-        )}
+          )}
+        </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div
             className={

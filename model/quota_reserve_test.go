@@ -1,7 +1,16 @@
 package model
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm/schema"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -59,14 +68,14 @@ func resetBatchUpdateTestState(t *testing.T) {
 	t.Helper()
 	oldBatchEnabled := common.BatchUpdateEnabled
 	common.BatchUpdateEnabled = false
-	for i := 0; i < BatchUpdateTypeCount; i++ {
+	for i := range BatchUpdateTypeCount {
 		batchUpdateLocks[i].Lock()
 		batchUpdateStores[i] = make(map[int]int)
 		batchUpdateLocks[i].Unlock()
 	}
 	t.Cleanup(func() {
 		common.BatchUpdateEnabled = oldBatchEnabled
-		for i := 0; i < BatchUpdateTypeCount; i++ {
+		for i := range BatchUpdateTypeCount {
 			batchUpdateLocks[i].Lock()
 			batchUpdateStores[i] = make(map[int]int)
 			batchUpdateLocks[i].Unlock()
@@ -258,4 +267,149 @@ func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.
 	cached, err = cacheGetTokenByKey(token.Key)
 	require.NoError(t, err)
 	assert.Equal(t, 100, cached.RemainQuota)
+}
+
+func TestDailyQuotaReservationDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				driver = sqlite.Open(":memory:")
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN not configured")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN not configured")
+				}
+				driver = postgres.Open(dsn)
+			}
+			db, err := gorm.Open(driver, &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: "daily_reserve_"}})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			oldDB, oldType := DB, common.MainDatabaseType()
+			DB = db
+			common.SetMainDatabaseType(common.DatabaseType(dialect))
+			initCol()
+			resetBatchUpdateTestState(t)
+			t.Cleanup(func() {
+				require.NoError(t, db.Migrator().DropTable(&Token{}, &Option{}))
+				DB = oldDB
+				common.SetMainDatabaseType(oldType)
+				initCol()
+				require.NoError(t, sqlDB.Close())
+			})
+			require.NoError(t, db.AutoMigrate(&Token{}, &Option{}))
+			require.NoError(t, db.AutoMigrate(&Token{}, &Option{}))
+			var version string
+			query := "SELECT version()"
+			if dialect == "sqlite" {
+				query = "SELECT sqlite_version()"
+			}
+			require.NoError(t, db.Raw(query).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			for _, useRedis := range []bool{false, true} {
+				t.Run(fmt.Sprintf("redis=%v", useRedis), func(t *testing.T) {
+					prevRedis, prevRDB := common.RedisEnabled, common.RDB
+					common.RedisEnabled = useRedis
+					t.Cleanup(func() { common.RedisEnabled, common.RDB = prevRedis, prevRDB })
+					if useRedis {
+						addr := os.Getenv("TEST_REDIS_ADDR")
+						if addr == "" {
+							t.Skip("TEST_REDIS_ADDR not configured")
+						}
+						client := redis.NewClient(&redis.Options{Addr: addr, DB: 13})
+						common.RDB = client
+						require.NoError(t, client.Ping(context.Background()).Err())
+						t.Cleanup(func() { require.NoError(t, client.Close()) })
+					}
+					token := createReserveTestToken(t, 100)
+					t.Cleanup(func() {
+						require.NoError(t, SetTokenDailyQuotaLimit(token.Id, 0))
+						require.NoError(t, DB.Delete(&token).Error)
+						if useRedis {
+							require.NoError(t, common.RDB.Del(context.Background(), getTokenCacheKey(token.Key), tokenDailyLimitRedisKey(token.Id), tokenDailyUsageRedisKey(token.Id)).Err())
+						}
+						invalidateTokenDailyQuotaLimitCache(token.Id)
+					})
+					require.NoError(t, SetTokenDailyQuotaLimit(token.Id, 80))
+					token.AllowUserQuotaQuery = true
+					token.Name = "atomic-quota-update"
+					limit := 90
+					require.NoError(t, UpdateTokenWithDailyQuotaLimit(&token, &limit))
+					assert.True(t, getTokenFromDB(t, token.Id).AllowUserQuotaQuery)
+					require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("daily_matrix:option_fail", func(tx *gorm.DB) {
+						if tx.Statement.Table == "daily_reserve_options" {
+							tx.AddError(errors.New("option write rejected"))
+						}
+					}))
+					token.AllowUserQuotaQuery = false
+					token.Name = "must-roll-back"
+					limit = 100
+					require.Error(t, UpdateTokenWithDailyQuotaLimit(&token, &limit))
+					require.NoError(t, DB.Callback().Update().Remove("daily_matrix:option_fail"))
+					saved := getTokenFromDB(t, token.Id)
+					assert.True(t, saved.AllowUserQuotaQuery)
+					assert.Equal(t, "atomic-quota-update", saved.Name)
+					assert.Equal(t, 90, GetTokenDailyQuotaLimit(token.Id))
+					require.NoError(t, UpdateTokenWithDailyQuotaLimit(&token, nil))
+					assert.False(t, getTokenFromDB(t, token.Id).AllowUserQuotaQuery)
+					assert.Equal(t, 90, GetTokenDailyQuotaLimit(token.Id))
+					// Expire the deliberate mutation fence before testing live cache compensation.
+					if useRedis {
+						require.NoError(t, common.RDB.Del(context.Background(), getTokenCacheFenceKey(token.Key)).Err())
+					}
+					require.NoError(t, SetTokenDailyQuotaLimit(token.Id, 80))
+					reserved, err := TryReserveTokenQuota(token.Id, token.Key, 60, false)
+					require.NoError(t, err)
+					require.True(t, reserved)
+					assert.Equal(t, int64(60), GetTokenDailyUsage(token.Id))
+					reserved, err = TryReserveTokenQuota(token.Id, token.Key, 41, false)
+					require.NoError(t, err)
+					assert.False(t, reserved)
+					assert.Equal(t, int64(60), GetTokenDailyUsage(token.Id))
+					require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("daily_matrix:fail", func(tx *gorm.DB) {
+						if tx.Statement.Table == "daily_reserve_tokens" {
+							tx.AddError(errors.New("write rejected"))
+						}
+					}))
+					t.Cleanup(func() { _ = DB.Callback().Update().Remove("daily_matrix:fail") })
+					for _, operation := range []func() error{
+						func() error { return DecreaseTokenQuota(token.Id, token.Key, 7) },
+						func() error { return IncreaseTokenQuota(token.Id, token.Key, 10) },
+						func() error { _, err := TryReserveTokenQuota(token.Id, token.Key, 5, false); return err },
+					} {
+						require.Error(t, operation())
+						assert.Equal(t, int64(60), GetTokenDailyUsage(token.Id))
+						if useRedis {
+							cached, err := cacheGetTokenByKey(token.Key)
+							require.NoError(t, err)
+							assert.Equal(t, 40, cached.RemainQuota)
+							assert.Equal(t, 60, cached.UsedQuota)
+						}
+					}
+					require.NoError(t, DB.Callback().Update().Remove("daily_matrix:fail"))
+					require.NoError(t, IncreaseTokenQuota(token.Id, token.Key, 20))
+					assert.Equal(t, int64(40), GetTokenDailyUsage(token.Id))
+					reserved, err = TryReserveTokenQuota(token.Id, token.Key, 50, true)
+					require.NoError(t, err)
+					require.True(t, reserved)
+					assert.Equal(t, int64(90), GetTokenDailyUsage(token.Id), "unlimited reservation counted once")
+					exceeded, _, _ := CheckTokenDailyQuota(token.Id)
+					assert.True(t, exceeded)
+					assert.Equal(t, 90, getTokenFromDB(t, token.Id).UsedQuota)
+					require.NoError(t, IncreaseTokenQuota(token.Id, token.Key, 90))
+					assert.Zero(t, GetTokenDailyUsage(token.Id))
+					assert.Equal(t, 100, getTokenFromDB(t, token.Id).RemainQuota)
+				})
+			}
+		})
+	}
 }

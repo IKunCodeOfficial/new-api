@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// tool_result 里的媒体块既不能当成文本估算（base64 会让预扣费虚高），
-// 也不能放入 Files（估算阶段会下载 URL / 解码 base64）。
-func TestClaudeGetTokenCountMetaToolResultMediaExcluded(t *testing.T) {
+// Tool-result media must use FileMeta, never base64 or URLs as text tokens.
+func TestClaudeGetTokenCountMetaToolResultMediaMetadata(t *testing.T) {
 	screenshot := strings.Repeat("iVBORw0KGgoAAAANSUhEUgAA", 20000)
 	raw := `{
 		"model":"claude-opus-4-1",
@@ -36,7 +36,9 @@ func TestClaudeGetTokenCountMetaToolResultMediaExcluded(t *testing.T) {
 	assert.Contains(t, meta.CombineText, "screenshot taken")
 	assert.NotContains(t, meta.CombineText, "iVBORw0KGgo")
 	assert.NotContains(t, meta.CombineText, "example.com")
-	assert.Empty(t, meta.Files)
+	require.Len(t, meta.Files, 4)
+	assert.Equal(t, types.FileTypeImage, meta.Files[0].FileType)
+	assert.Equal(t, types.FileTypeFile, meta.Files[2].FileType)
 }
 
 func TestClaudeGetTokenCountMetaToolResultTextForms(t *testing.T) {

@@ -8,7 +8,7 @@ describe('formatAuditTargetUser', () => {
       formatAuditTargetUser({
         op: {
           action: 'user.quota_add',
-          params: { target_user_id: 42, username: 'target-user' },
+          params: { target_user_id: 42, target_username: 'target-user' },
         },
       })
     ).toBe('target-user (ID: 42)')

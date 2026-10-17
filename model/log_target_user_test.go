@@ -35,12 +35,12 @@ func insertTargetUserLogTestRows(t *testing.T) {
 			Content:   "new-target-comma",
 			Username:  "admin-1",
 			Ip:        "198.51.100.1",
-			Other: common.MapToJsonStr(map[string]interface{}{
-				"admin_info": map[string]interface{}{"admin_id": 1, "admin_username": "admin-1"},
-				"audit_info": map[string]interface{}{"route": "/api/user/"},
-				"op": map[string]interface{}{
+			Other: common.MapToJsonStr(map[string]any{
+				"admin_info": map[string]any{"admin_id": 1, "admin_username": "admin-1"},
+				"audit_info": map[string]any{"route": "/api/user/"},
+				"op": map[string]any{
 					"action": "user.update",
-					"params": map[string]interface{}{"target_user_id": 42, "username": "target-42"},
+					"params": map[string]any{"target_user_id": 42, "username": "target-42"},
 				},
 			}),
 		},
@@ -113,7 +113,7 @@ func TestGetAllLogsFiltersManagementLogsByTargetUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	logs, total, err := GetAllLogs(LogTypeManage, 0, 0, "", "", "", 0, 100, 0, "", "", "", 42)
+	logs, total, err := GetAllLogs(LogFilter{Type: LogTypeManage, TargetUserId: 42}, 0, 100)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), total)
@@ -129,19 +129,19 @@ func TestGetUserLogsIncludesOldAndNewManagementLogFormats(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	manageLogs, manageTotal, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
+	manageLogs, manageTotal, err := GetUserLogs(42, LogFilter{Type: LogTypeManage}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), manageTotal)
 	assert.ElementsMatch(t, []string{"old-owner", "new-target-comma", "new-target-object-end"}, logContents(manageLogs))
 
-	allLogs, allTotal, err := GetUserLogs(42, LogTypeUnknown, 0, 0, "", "", 0, 100, "", "", "")
+	allLogs, allTotal, err := GetUserLogs(42, LogFilter{Type: LogTypeUnknown}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), allTotal)
 	assert.ElementsMatch(t, []string{"old-owner", "new-target-comma", "new-target-object-end", "owned-consume"}, logContents(allLogs))
 	assert.NotContains(t, logContents(allLogs), "new-operator-resource")
 	assert.NotContains(t, logContents(allLogs), "new-operator-different-target")
 
-	consumeLogs, consumeTotal, err := GetUserLogs(42, LogTypeConsume, 0, 0, "", "", 0, 100, "", "", "")
+	consumeLogs, consumeTotal, err := GetUserLogs(42, LogFilter{Type: LogTypeConsume}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), consumeTotal)
 	assert.Equal(t, []string{"owned-consume"}, logContents(consumeLogs))
@@ -210,19 +210,7 @@ func TestGetUserLogsAllTypesAppliesFiltersToOwnerAndTargetBranches(t *testing.T)
 	}
 	require.NoError(t, LOG_DB.Create(&logs).Error)
 
-	filteredLogs, total, err := GetUserLogs(
-		42,
-		LogTypeUnknown,
-		190,
-		300,
-		"wanted-model",
-		"wanted-token",
-		0,
-		100,
-		"",
-		"",
-		"",
-	)
+	filteredLogs, total, err := GetUserLogs(42, LogFilter{Type: LogTypeUnknown, StartTimestamp: 190, EndTimestamp: 300, ModelName: "wanted-model", TokenName: "wanted-token"}, 0, 100)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), total)
@@ -233,7 +221,7 @@ func TestGetUserLogsRedactsOperatorIdentityFromTargetManagementLogs(t *testing.T
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	logs, _, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
+	logs, _, err := GetUserLogs(42, LogFilter{Type: LogTypeManage}, 0, 100)
 	require.NoError(t, err)
 
 	byContent := make(map[string]*Log, len(logs))
@@ -250,9 +238,9 @@ func TestGetUserLogsRedactsOperatorIdentityFromTargetManagementLogs(t *testing.T
 	require.NoError(t, err)
 	assert.NotContains(t, other, "admin_info")
 	assert.NotContains(t, other, "audit_info")
-	op, ok := other["op"].(map[string]interface{})
+	op, ok := other["op"].(map[string]any)
 	require.True(t, ok)
-	params, ok := op["params"].(map[string]interface{})
+	params, ok := op["params"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, float64(42), params["target_user_id"])
 
@@ -275,5 +263,5 @@ func TestFormatUserLogsDropsMalformedTargetLogMetadata(t *testing.T) {
 	assert.Equal(t, 42, logs[0].UserId)
 	assert.Empty(t, logs[0].Username)
 	assert.Empty(t, logs[0].Ip)
-	assert.Equal(t, "null", logs[0].Other)
+	assert.JSONEq(t, "{}", logs[0].Other)
 }

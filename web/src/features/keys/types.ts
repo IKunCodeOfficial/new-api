@@ -50,6 +50,7 @@ export const apiKeySchema = z.object({
   // Optional for backward compatibility with responses that predate this feature.
   daily_quota_limit: z.number().optional().default(0),
   daily_quota_used: z.number().optional().default(0),
+  allow_user_quota_query: z.boolean().optional().default(false),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -95,6 +96,7 @@ export interface ApiKeyFormData {
   model_limits_enabled: boolean
   model_limits: string
   allow_ips: string
+  allow_user_quota_query: boolean
   group: string
   auto_groups: string[]
   cross_group_retry: boolean

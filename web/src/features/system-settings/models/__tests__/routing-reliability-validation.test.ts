@@ -18,9 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, it } from 'vitest'
 
-import { createRoutingReliabilitySchema } from '../routing-reliability-schema'
+import { createChannelHealthSchema } from '../../request-policies/channel-health-schema'
 
-const routingReliabilitySchema = createRoutingReliabilitySchema((key) => key)
+const routingReliabilitySchema = createChannelHealthSchema((key) => key)
 
 const validSettings = {
   RetryTimes: 0,

@@ -1,16 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { VChart } from '@visactor/react-vchart'
 import { BarChart3, LineChart, type LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import { Skeleton } from '@/components/ui/skeleton'
 import { useTheme } from '@/context/theme-provider'
 import { formatLogQuota, formatNumber } from '@/lib/format'
 import { VCHART_OPTION } from '@/lib/vchart'
-import { Skeleton } from '@/components/ui/skeleton'
-import type {
-  TokenAnalyticsItem,
-  TokenAnalyticsTrendPoint,
-} from '../../types'
+
+import type { TokenAnalyticsItem, TokenAnalyticsTrendPoint } from '../../types'
 import { formatBucketLabel, normalizeNumber } from './token-analytics-utils'
 
 let themeManagerPromise: Promise<
@@ -43,6 +41,16 @@ function ChartShell({
   children: ReactNode
 }) {
   const { t } = useTranslation()
+  let content = children
+  if (loading) {
+    content = <Skeleton className='h-full w-full' />
+  } else if (empty) {
+    content = (
+      <div className='text-muted-foreground flex h-full items-center justify-center text-sm'>
+        {t('No analytics data')}
+      </div>
+    )
+  }
 
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -53,17 +61,7 @@ function ChartShell({
           {t('Total:')} {total}
         </span>
       </div>
-      <div className='h-[280px] p-1.5 sm:h-80 sm:p-2'>
-        {loading ? (
-          <Skeleton className='h-full w-full' />
-        ) : empty ? (
-          <div className='text-muted-foreground flex h-full items-center justify-center text-sm'>
-            {t('No analytics data')}
-          </div>
-        ) : (
-          children
-        )}
-      </div>
+      <div className='h-[280px] p-1.5 sm:h-80 sm:p-2'>{content}</div>
     </div>
   )
 }
@@ -140,11 +138,13 @@ export function TokenAnalyticsCharts({
           content: [
             {
               key: () => t('Usage'),
-              value: (datum: Record<string, number>) => formatLogQuota(datum.Usage),
+              value: (datum: Record<string, number>) =>
+                formatLogQuota(datum.Usage),
             },
             {
               key: () => t('Requests'),
-              value: (datum: Record<string, number>) => formatNumber(datum.Requests),
+              value: (datum: Record<string, number>) =>
+                formatNumber(datum.Requests),
             },
           ],
         },
@@ -172,11 +172,13 @@ export function TokenAnalyticsCharts({
           content: [
             {
               key: () => t('Usage'),
-              value: (datum: Record<string, number>) => formatLogQuota(datum.Usage),
+              value: (datum: Record<string, number>) =>
+                formatLogQuota(datum.Usage),
             },
             {
               key: () => t('Requests'),
-              value: (datum: Record<string, number>) => formatNumber(datum.Requests),
+              value: (datum: Record<string, number>) =>
+                formatNumber(datum.Requests),
             },
           ],
         },
