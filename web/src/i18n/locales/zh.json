@@ -6931,6 +6931,10 @@
     "Zhipu": "智谱",
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Model Status": "模型状态",
+    "Public model status page based on live request data.": "基于真实请求数据的公开模型状态页面。",
+    "Require login to view model status": "登录后才能查看模型状态",
+    "Visitors must authenticate before accessing the model status page.": "访客需登录后才能访问模型状态页面。"
   }
 }

@@ -6931,6 +6931,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Model Status": "モデルステータス",
+    "Public model status page based on live request data.": "実際のリクエストデータに基づく公開モデルステータスページ。",
+    "Require login to view model status": "モデルステータスの表示にはログインが必要",
+    "Visitors must authenticate before accessing the model status page.": "モデルステータスページにアクセスする前に、訪問者は認証する必要があります。"
   }
 }

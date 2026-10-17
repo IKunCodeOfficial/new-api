@@ -6931,6 +6931,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Model Status": "Trạng thái mô hình",
+    "Public model status page based on live request data.": "Trang trạng thái mô hình công khai dựa trên dữ liệu yêu cầu thực.",
+    "Require login to view model status": "Yêu cầu đăng nhập để xem trạng thái mô hình",
+    "Visitors must authenticate before accessing the model status page.": "Khách phải xác thực trước khi truy cập trang trạng thái mô hình."
   }
 }

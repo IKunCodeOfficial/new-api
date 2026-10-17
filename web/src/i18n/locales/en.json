@@ -6931,6 +6931,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Model Status": "Model Status",
+    "Public model status page based on live request data.": "Public model status page based on live request data.",
+    "Require login to view model status": "Require login to view model status",
+    "Visitors must authenticate before accessing the model status page.": "Visitors must authenticate before accessing the model status page."
   }
 }
