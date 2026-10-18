@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;overflow-x:hidden;font-family:'Public Sans',sans-serif;-webkit-font-smoothing:antialiased;
+--background:oklch(0.994 0.002 247.858);--foreground:oklch(0.18 0.035 264.695);--card:oklch(0.997 0.002 247.858);--primary:oklch(0.255 0.042 265.755);--primary-foreground:oklch(0.985 0.004 247.858);--muted:oklch(0.972 0.004 247.896);--muted-foreground:oklch(0.49 0.04 257.417);--accent:oklch(0.972 0.004 247.896);--border:oklch(0.925 0.01 255.508);
+--ok:oklch(0.696 0.17 162.48);--warn:oklch(0.769 0.188 70.08);--bad:oklch(0.645 0.246 16.439);--ok-fg:oklch(0.508 0.118 165.612);--warn-fg:oklch(0.555 0.163 48.998);--bad-fg:oklch(0.514 0.222 16.935);--none:oklch(0.704 0.04 256.788);--bar-empty:oklch(0.93 0.008 255);--teal:oklch(0.6 0.118 184.704);--mono-filter:none;--glow-op:0.2;
+background:var(--background);color:var(--foreground)}
+body.dark{--background:oklch(0.245 0.018 265);--foreground:oklch(0.88 0.014 252);--card:oklch(0.275 0.017 265);--primary:oklch(0.68 0.12 236);--primary-foreground:oklch(0.985 0.004 247.858);--muted:oklch(0.305 0.016 265);--muted-foreground:oklch(0.72 0.018 252);--accent:oklch(0.34 0.024 255);--border:oklch(0.38 0.018 265);
+--ok-fg:oklch(0.765 0.177 163.223);--warn-fg:oklch(0.828 0.189 84.429);--bad-fg:oklch(0.712 0.194 13.428);--bar-empty:oklch(0.33 0.016 265);--mono-filter:invert(1);--glow-op:0.1}
+a{color:var(--foreground);text-decoration:none}a:hover{color:var(--muted-foreground)}
+input::placeholder{color:color-mix(in oklch,var(--muted-foreground) 50%,transparent)}
+@keyframes ns-ping{0%{transform:scale(1);opacity:.7}80%,100%{transform:scale(2.6);opacity:0}}
+@keyframes ns-spin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div style="position:relative;min-height:100vh;background:var(--background);color:var(--foreground);overflow:hidden">
+  <header style="pointer-events:none;position:fixed;left:0;right:0;top:0;z-index:50">
+    <div style="pointer-events:auto;margin:0 auto;max-width:{{ hdr.max }};padding:{{ hdr.pad }};transition:all 700ms cubic-bezier(0.16,1,0.3,1)">
+      <nav style="display:flex;align-items:center;justify-content:space-between;height:{{ hdr.h }};padding:{{ hdr.navPad }};border-radius:{{ hdr.radius }};background:{{ hdr.bg }};box-shadow:{{ hdr.shadow }};backdrop-filter:{{ hdr.blur }};-webkit-backdrop-filter:{{ hdr.blur }};transition:all 700ms cubic-bezier(0.16,1,0.3,1)">
+        <a href="#" style="display:flex;align-items:center;gap:10px;flex-shrink:0;color:var(--foreground)">
+          <img src="web/default/public/logo.png" alt="" style="width:28px;height:28px;border-radius:10px;object-fit:contain">
+          <span style="font-size:14px;font-weight:600;letter-spacing:-0.01em">New API</span>
+        </a>
+        <div style="display:flex;align-items:center;gap:2px">
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted-foreground)" style-hover="color:var(--foreground)">首页</a>
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted-foreground)" style-hover="color:var(--foreground)">控制台</a>
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted-foreground)" style-hover="color:var(--foreground)">模型广场</a>
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--foreground)">模型状态</a>
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted-foreground)" style-hover="color:var(--foreground)">文档</a>
+          <a href="#" style="padding:6px 12px;border-radius:10px;font-size:13px;font-weight:500;color:var(--muted-foreground)" style-hover="color:var(--foreground)">关于</a>
+          <div style="width:1px;height:16px;margin:0 8px;background:color-mix(in oklch,var(--border) 40%,transparent)"></div>
+          <button type="button" aria-label="Change language" style="width:36px;height:36px;border-radius:999px;border:0;background:transparent;color:var(--foreground);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:var(--accent)"><span style="width:19px;height:19px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/languages.svg) center/contain no-repeat"></span></button>
+          <button type="button" aria-label="Toggle theme" onClick="{{ toggleTheme }}" style="width:36px;height:36px;border-radius:999px;border:0;background:transparent;color:var(--foreground);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:var(--accent)">
+            <sc-if value="{{ isDark }}" hint-placeholder-val="{{ false }}"><span style="width:19px;height:19px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/moon.svg) center/contain no-repeat"></span></sc-if>
+            <sc-if value="{{ isLight }}" hint-placeholder-val="{{ true }}"><span style="width:19px;height:19px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/sun.svg) center/contain no-repeat"></span></sc-if>
+          </button>
+          <button type="button" aria-label="Notifications" style="width:36px;height:36px;border-radius:999px;border:0;background:transparent;color:var(--foreground);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:var(--accent)"><span style="width:19px;height:19px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/bell.svg) center/contain no-repeat"></span></button>
+          <div style="width:1px;height:16px;margin:0 4px;background:color-mix(in oklch,var(--border) 40%,transparent)"></div>
+          <a href="#" style="height:32px;display:inline-flex;align-items:center;padding:0 14px;border-radius:10px;font-size:12px;font-weight:500;background:var(--primary);color:var(--primary-foreground)" style-hover="color:var(--primary-foreground);opacity:0.9">登录</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <div aria-hidden="true" style="pointer-events:none;position:absolute;left:0;right:0;top:0;height:600px;opacity:var(--glow-op);background:radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%), radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%), radial-gradient(ellipse 40% 35% at 50% 70%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%);mask-image:linear-gradient(to bottom, black 40%, transparent 100%);-webkit-mask-image:linear-gradient(to bottom, black 40%, transparent 100%)"></div>
+
+  <main data-screen-label="Model Status" style="position:relative;margin:0 auto;max-width:1280px;padding:80px 24px 48px;box-sizing:border-box">
+    <section style="margin:0 auto 32px;max-width:768px;padding-top:32px;text-align:center">
+      <p style="margin:0 0 12px;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted-foreground)">Model Status</p>
+      <h1 style="margin:0;font-size:clamp(2rem,5.5vw,3.5rem);line-height:1.15;font-weight:700;letter-spacing:-0.025em">模型状态</h1>
+      <p style="margin:16px 0 0;font-size:16px;color:color-mix(in oklch,var(--muted-foreground) 80%,transparent)">基于全站真实用户请求统计各分组、各模型的可用性与性能</p>
+      
+    </section>
+
+    <section style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:color-mix(in oklch,var(--card) 70%,transparent);margin-bottom:16px">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+          {{ liveDot }}
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <span style="font-size:15px;font-weight:600;color:{{ banner.fg }}">{{ banner.title }}</span>
+            <span style="font-size:12px;color:var(--muted-foreground)">{{ banner.sub }}</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+          <sc-for list="{{ banner.chips }}" as="c" hint-placeholder-count="0">
+            <span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:6px;font-size:12px;border:1px solid var(--border);background:var(--background)">
+              <span style="width:6px;height:6px;border-radius:999px;background:{{ c.dot }}"></span>
+              <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:600">{{ c.name }}</span>
+              <span style="color:var(--muted-foreground)">{{ c.group }}</span>
+            </span>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+        <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+          
+        </sc-for>
+      </div>
+    </section>
+
+    <div style="position:sticky;top:72px;z-index:20;border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:16px;background:color-mix(in oklch,var(--background) 85%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+          <div role="group" aria-label="时间范围" style="display:inline-flex;align-items:center;height:32px;padding:2px;box-sizing:border-box;border-radius:8px;border:1px solid var(--border);background:color-mix(in oklch,var(--muted) 60%,transparent)">
+            <sc-for list="{{ rangeOpts }}" as="o" hint-placeholder-count="5">
+              <button type="button" onClick="{{ o.onClick }}" style="height:100%;padding:0 12px;border:0;border-radius:5px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;background:{{ o.bg }};color:{{ o.fg }};box-shadow:{{ o.shadow }};transition:all 150ms">{{ o.label }}</button>
+            </sc-for>
+          </div>
+          <div role="group" aria-label="分组" style="display:inline-flex;align-items:center;height:32px;padding:2px;box-sizing:border-box;border-radius:8px;border:1px solid var(--border);background:color-mix(in oklch,var(--muted) 60%,transparent)">
+            <sc-for list="{{ groupOpts }}" as="o" hint-placeholder-count="5">
+              <button type="button" onClick="{{ o.onClick }}" style="height:100%;padding:0 12px;border:0;border-radius:5px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;background:{{ o.bg }};color:{{ o.fg }};box-shadow:{{ o.shadow }};transition:all 150ms">{{ o.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+          <div style="position:relative;width:220px">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;background:color-mix(in oklch,var(--muted-foreground) 60%,transparent);mask:url(https://unpkg.com/lucide-static@latest/icons/search.svg) center/contain no-repeat"></span>
+            <input type="text" value="{{ q }}" onChange="{{ onSearch }}" placeholder="搜索模型名称" style="width:100%;box-sizing:border-box;height:32px;padding:0 10px 0 30px;border-radius:8px;border:1px solid color-mix(in oklch,var(--border) 100%,transparent);background:var(--background);color:var(--foreground);font-family:inherit;font-size:13px;outline:none">
+          </div>
+          <div role="group" aria-label="视图" style="display:inline-flex;align-items:center;height:32px;padding:2px;box-sizing:border-box;border-radius:8px;border:1px solid var(--border);background:color-mix(in oklch,var(--muted) 60%,transparent)">
+            <sc-for list="{{ viewOpts }}" as="o" hint-placeholder-count="2">
+              <button type="button" onClick="{{ o.onClick }}" title="{{ o.label }}" style="height:100%;padding:0 10px;display:inline-flex;align-items:center;gap:6px;border:0;border-radius:5px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;background:{{ o.bg }};color:{{ o.fg }};box-shadow:{{ o.shadow }};transition:all 150ms">
+                <span style="width:14px;height:14px;background:currentColor;mask:{{ o.mask }}"></span>{{ o.label }}
+              </button>
+            </sc-for>
+          </div>
+          <button type="button" onClick="{{ refresh }}" aria-label="刷新" style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted-foreground);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="color:var(--foreground);background:var(--muted)">
+            <span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/rotate-cw.svg) center/contain no-repeat;animation:{{ spinAnim }}"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <section style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:color-mix(in oklch,var(--card) 60%,transparent)">
+            <div style="overflow-x:auto;overflow-y:hidden">
+              <div style="min-width:960px">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;background:color-mix(in oklch,var(--muted) 30%,transparent);border-bottom:1px solid color-mix(in oklch,var(--border) 60%,transparent)">
+                  <div style="display:flex;align-items:baseline;gap:10px;min-width:0">
+                    <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:15px;font-weight:700">{{ g.key }}</span>
+                    <span style="font-size:13px;color:var(--muted-foreground)">{{ g.desc }}</span>
+                    <span style="font-size:12px;color:color-mix(in oklch,var(--muted-foreground) 70%,transparent);font-variant-numeric:tabular-nums">倍率 {{ g.ratio }}x · {{ g.count }} 个模型</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:16px">
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:{{ g.issueFg }}">
+                      <span style="width:6px;height:6px;border-radius:999px;background:{{ g.issueDot }}"></span>{{ g.issueText }}
+                    </span>
+                    <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ g.rateFg }}">{{ g.rateText }}</span>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:236px minmax(260px,1fr) 84px 92px 92px 28px;gap:16px;align-items:center;padding:8px 20px;font-size:11px;font-weight:500;color:color-mix(in oklch,var(--muted-foreground) 70%,transparent);border-bottom:1px solid color-mix(in oklch,var(--border) 40%,transparent)">
+                  <span>模型</span>
+                  <span style="display:flex;justify-content:space-between"><span>{{ axisStart }}</span><span>现在</span></span>
+                  <span style="text-align:right">可用率</span>
+                                    <span style="text-align:right">首字时延</span>
+                  <span style="text-align:right">平均耗时</span>
+                  <span></span>
+                </div>
+                <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="5">
+                  <div style="border-bottom:1px solid color-mix(in oklch,var(--border) 40%,transparent)">
+                    <div onClick="{{ r.onToggle }}" style="display:grid;grid-template-columns:236px minmax(260px,1fr) 84px 92px 92px 28px;gap:16px;align-items:center;padding:10px 20px;cursor:pointer;background:{{ r.rowBg }};transition:background-color 120ms" style-hover="background:color-mix(in oklch,var(--muted) 50%,transparent)">
+                      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                        <div style="width:32px;height:32px;flex-shrink:0;border-radius:8px;background:color-mix(in oklch,var(--muted) 70%,transparent);display:flex;align-items:center;justify-content:center">
+                          <img src="{{ r.icon }}" alt="" style="width:18px;height:18px;filter:{{ r.iconFilter }}">
+                        </div>
+                        <div style="min-width:0;display:flex;flex-direction:column;gap:3px">
+                          <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:{{ r.stFg }}">
+                            <span style="width:6px;height:6px;border-radius:999px;background:{{ r.stDot }}"></span>{{ r.stLabel }}
+                          </span>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:1px;height:28px;align-items:stretch;min-width:0;overflow:hidden">
+                        <sc-for list="{{ r.bars }}" as="b" hint-placeholder-count="30">
+                          <span onMouseEnter="{{ b.onEnter }}" onMouseLeave="{{ hideTip }}" style="flex:1 1 0;min-width:0;border-radius:2px;background:{{ b.bg }};transition:opacity 120ms" style-hover="opacity:0.65"></span>
+                        </sc-for>
+                      </div>
+                      <span style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ r.rateFg }}">{{ r.rateText }}</span>
+                                            <span style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-variant-numeric:tabular-nums">{{ r.ttftText }}</span>
+                      <span style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted-foreground)">{{ r.latText }}</span>
+                      <span style="display:flex;justify-content:flex-end;color:var(--muted-foreground)"><span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@latest/icons/chevron-down.svg) center/contain no-repeat;transform:{{ r.chev }};transition:transform 200ms"></span></span>
+                    </div>
+                    <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:4px 20px 16px 62px">
+                        <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--background)">
+                          <div style="font-size:12px;font-weight:500;color:var(--muted-foreground);margin-bottom:10px">时延分位</div>
+                          <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:6px 12px;font-size:12px;font-variant-numeric:tabular-nums">
+                            <span></span><span style="text-align:right;color:var(--muted-foreground)">首字</span><span style="text-align:right;color:var(--muted-foreground)">总耗时</span>
+                            <sc-for list="{{ r.pct }}" as="p" hint-placeholder-count="3">
+                              <span style="color:var(--muted-foreground)">{{ p.k }}</span>
+                              <span style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:600">{{ p.t }}</span>
+                              <span style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:600">{{ p.l }}</span>
+                            </sc-for>
+                          </div>
+                        </div>
+                        <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--background)">
+                          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:500;color:var(--muted-foreground);margin-bottom:10px"><span>失败原因</span></div>
+                          <div style="display:flex;height:6px;border-radius:999px;overflow:hidden;background:var(--bar-empty);margin-bottom:10px">
+                            <sc-for list="{{ r.errs }}" as="e" hint-placeholder-count="4"><span style="width:{{ e.w }};background:{{ e.c }}"></span></sc-for>
+                          </div>
+                          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px">
+                            <sc-for list="{{ r.errs }}" as="e" hint-placeholder-count="4">
+                              <span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:6px;height:6px;border-radius:2px;flex-shrink:0;background:{{ e.c }}"></span><span style="color:var(--muted-foreground)">{{ e.label }}</span><span style="margin-left:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-variant-numeric:tabular-nums">{{ e.n }}</span></span>
+                            </sc-for>
+                          </div>
+                        </div>
+                        <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--background)">
+                          <div style="font-size:12px;font-weight:500;color:var(--muted-foreground);margin-bottom:10px">吞吐</div>
+                          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-variant-numeric:tabular-nums">
+                            <span style="display:flex;justify-content:space-between"><span style="color:var(--muted-foreground)">输出速度</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:600">{{ r.tps }}</span></span>
+                            
+                                                      </div>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ g.empty }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:28px 20px;text-align:center;font-size:13px;color:var(--muted-foreground)">没有匹配的模型</div>
+                </sc-if>
+              </div>
+            </div>
+          </section>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isMatrix }}" hint-placeholder-val="{{ false }}">
+      <section style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:color-mix(in oklch,var(--card) 60%,transparent)">
+        <div style="overflow-x:auto;overflow-y:hidden">
+          <div style="min-width:860px">
+            <div style="display:grid;grid-template-columns:{{ mxCols }};gap:8px;align-items:end;padding:12px 20px;background:color-mix(in oklch,var(--muted) 30%,transparent);border-bottom:1px solid color-mix(in oklch,var(--border) 60%,transparent)">
+              <span style="font-size:11px;font-weight:500;color:color-mix(in oklch,var(--muted-foreground) 70%,transparent)">模型 / 分组</span>
+              <sc-for list="{{ mxHead }}" as="h" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-weight:700">{{ h.key }}</span>
+                  <span style="font-size:11px;color:var(--muted-foreground)">{{ h.desc }} · {{ h.ratio }}x</span>
+                </div>
+              </sc-for>
+            </div>
+            <sc-for list="{{ mxRows }}" as="m" hint-placeholder-count="8">
+              <div style="display:grid;grid-template-columns:{{ mxCols }};gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid color-mix(in oklch,var(--border) 40%,transparent)">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                  <div style="width:28px;height:28px;flex-shrink:0;border-radius:8px;background:color-mix(in oklch,var(--muted) 70%,transparent);display:flex;align-items:center;justify-content:center">
+                    <img src="{{ m.icon }}" alt="" style="width:16px;height:16px;filter:{{ m.iconFilter }}">
+                  </div>
+                  <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.name }}</span>
+                </div>
+                <sc-for list="{{ m.cells }}" as="c" hint-placeholder-count="4">
+                  <div title="{{ c.title }}" style="height:48px;box-sizing:border-box;border-radius:8px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:{{ c.bg }};border:1px solid {{ c.border }}">
+                    <span style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+                      <span style="width:6px;height:6px;border-radius:999px;flex-shrink:0;background:{{ c.dot }}"></span>
+                      <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ c.fg }}">{{ c.rateText }}</span>
+                    </span>
+                    <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;white-space:nowrap">{{ c.sub }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+    </sc-if>
+
+    <footer style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;padding:0 4px;font-size:12px;color:var(--muted-foreground)">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px">
+        <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--ok)"></span>正常 ≥ 99%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--warn)"></span>降级 95% – 99%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--bad)"></span>异常 &lt; 95%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--bar-empty)"></span>无请求</span>
+      </div>
+      <span style="color:color-mix(in oklch,var(--muted-foreground) 70%,transparent)">状态标签取最近时段数据 · 首字时延仅统计流式请求</span>
+    </footer>
+  </main>
+
+  <sc-if value="{{ hasTip }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:{{ tip.x }};top:{{ tip.y }};transform:translate(-50%,-100%);z-index:60;pointer-events:none;min-width:168px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);box-shadow:0 8px 24px -8px rgb(0 0 0 / 0.18);font-size:12px">
+      <div style="font-weight:600;margin-bottom:6px;font-variant-numeric:tabular-nums">{{ tip.title }}</div>
+      <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--muted-foreground)">成功率</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:600;color:{{ tip.fg }}">{{ tip.rate }}</span></div>
+            <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--muted-foreground)">首字时延</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace">{{ tip.ttft }}</span></div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;defaultRange&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;5m&quot;,&quot;1h&quot;,&quot;24h&quot;,&quot;7d&quot;,&quot;30d&quot;],&quot;default&quot;:&quot;1h&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;list&quot;,&quot;matrix&quot;],&quot;default&quot;:&quot;list&quot;,&quot;tsType&quot;:&quot;'list'|'matrix'&quot;},&quot;issuesFirst&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const RANGES = [
+  { key: '5m', label: '5 分钟', n: 30, step: 10, start: '5 分钟前', auto: '每 10 秒' },
+  { key: '1h', label: '1 小时', n: 60, step: 60, start: '1 小时前', auto: '每 30 秒' },
+  { key: '24h', label: '24 小时', n: 48, step: 1800, start: '24 小时前', auto: '每 5 分钟' },
+  { key: '7d', label: '7 天', n: 42, step: 14400, start: '7 天前', auto: '每 30 分钟' },
+  { key: '30d', label: '30 天', n: 60, step: 43200, start: '30 天前', auto: '每小时' },
+];
+const GROUPS = [
+  { key: 'default', desc: '默认分组', ratio: 1 },
+  { key: 'vip', desc: 'VIP 分组', ratio: 1.5 },
+  { key: 'svip', desc: '企业专线', ratio: 2 },
+  { key: 'free', desc: '公益分组', ratio: 0.5 },
+];
+const GF = { default: 1, vip: 0.55, svip: 0.3, free: 0.8 };
+const TF = { default: 1, vip: 0.95, svip: 0.85, free: 1.25 };
+const LOBE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/';
+const MODELS = [
+  { name: 'gpt-5', icon: 'openai', mono: 1, rpm: 22, ttft: 2400, lat: 14000, tps: 62, groups: ['default', 'vip', 'svip'] },
+  { name: 'gpt-5-mini', icon: 'openai', mono: 1, rpm: 40, ttft: 900, lat: 5200, tps: 110, groups: ['default', 'vip', 'svip', 'free'] },
+  { name: 'gpt-4.1', icon: 'openai', mono: 1, rpm: 14, ttft: 650, lat: 4100, tps: 84, groups: ['default', 'vip', 'svip'] },
+  { name: 'o4-mini', icon: 'openai', mono: 1, rpm: 8, ttft: 1500, lat: 9800, tps: 120, groups: ['vip', 'svip'] },
+  { name: 'claude-sonnet-4-5-20250929', icon: 'claude-color', rpm: 35, ttft: 1100, lat: 8600, tps: 70, groups: ['default', 'vip', 'svip'] },
+  { name: 'claude-opus-4-1-20250805', icon: 'claude-color', rpm: 9, ttft: 1900, lat: 15200, tps: 38, groups: ['vip', 'svip'] },
+  { name: 'gemini-2.5-pro', icon: 'gemini-color', rpm: 18, ttft: 2100, lat: 11800, tps: 95, groups: ['default', 'vip', 'free'] },
+  { name: 'gemini-2.5-flash', icon: 'gemini-color', rpm: 30, ttft: 520, lat: 3100, tps: 180, groups: ['default', 'vip', 'svip', 'free'] },
+  { name: 'deepseek-v3.2', icon: 'deepseek-color', rpm: 26, ttft: 1300, lat: 7400, tps: 48, groups: ['default', 'vip', 'svip', 'free'] },
+  { name: 'qwen3-max', icon: 'qwen-color', rpm: 10, ttft: 900, lat: 6200, tps: 58, groups: ['default', 'free'] },
+  { name: 'kimi-k2-0905', icon: 'moonshot', mono: 1, rpm: 9, ttft: 800, lat: 6900, tps: 52, groups: ['default', 'vip'] },
+  { name: 'glm-4.6', icon: 'zhipu-color', rpm: 8, ttft: 950, lat: 7100, tps: 55, groups: ['default', 'free'] },
+];
+const INC = {
+  'vip|claude-opus-4-1-20250805': [{ from: 0, to: 1500, succ: 0.78 }],
+  'free|gemini-2.5-pro': [{ from: 0, to: 240, succ: 0.965 }, { from: 7200, to: 16000, succ: 0.35 }],
+  'default|kimi-k2-0905': [{ from: 180000, to: 205000, succ: 0.55 }],
+  'svip|gpt-5': [{ from: 900000, to: 1000000, succ: 0.82 }],
+  'default|deepseek-v3.2': [{ from: 40, to: 130, succ: 0.9 }, { from: 30000, to: 34000, succ: 0.88 }],
+};
+const MONO = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace';
+
+function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed) { let a = seed; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+function status(rate) {
+  if (rate == null) return { k: 0, label: '无请求', dot: 'var(--none)', fg: 'var(--muted-foreground)', bar: 'var(--bar-empty)' };
+  if (rate >= 0.99) return { k: 1, label: '正常', dot: 'var(--ok)', fg: 'var(--ok-fg)', bar: 'var(--ok)' };
+  if (rate >= 0.95) return { k: 2, label: '降级', dot: 'var(--warn)', fg: 'var(--warn-fg)', bar: 'var(--warn)' };
+  return { k: 3, label: '异常', dot: 'var(--bad)', fg: 'var(--bad-fg)', bar: 'var(--bad)' };
+}
+const pct = (r) => (r == null ? '—' : (r * 100).toFixed(2) + '%');
+const ms = (t) => (t == null ? '—' : t < 1000 ? Math.round(t) + ' ms' : (t / 1000).toFixed(2) + ' s');
+const num = (n) => n.toLocaleString('en-US');
+const compact = (n) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e4 ? (n / 1e3).toFixed(1) + 'K' : num(n));
+const p2 = (x) => String(x).padStart(2, '0');
+function fmtTime(ts, rk) {
+  const d = new Date(ts);
+  const hm = p2(d.getHours()) + ':' + p2(d.getMinutes());
+  if (rk === '5m') return hm + ':' + p2(d.getSeconds());
+  if (rk === '1h' || rk === '24h') return hm;
+  return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + hm;
+}
+
+function build(rk, now) {
+  const R = RANGES.find((r) => r.key === rk);
+  const nowH = new Date(now).getHours() + new Date(now).getMinutes() / 60;
+  return GROUPS.map((g) => {
+    const items = MODELS.filter((m) => m.groups.includes(g.key)).map((m) => {
+      const key = g.key + '|' + m.name;
+      const r = rng(hash(key + rk));
+      const succBase = Math.min(0.9995, (g.key === 'free' ? 0.993 : 0.9965) + r() * 0.003);
+      const rpm = m.rpm * GF[g.key];
+      const inc = INC[key] || [];
+      const bars = [];
+      let req = 0, ok = 0, tt = 0, lt = 0;
+      for (let i = 0; i < R.n; i++) {
+        const age = (R.n - 1 - i + 0.5) * R.step;
+        const hour = (((nowH - age / 3600) % 24) + 24) % 24;
+        const diurnal = R.step >= 1800 ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(((hour - 9) / 24) * Math.PI * 2)) : 1;
+        const n = Math.round((rpm * R.step) / 60 * diurnal * (0.55 + r() * 0.9));
+        let s = succBase;
+        if (r() < 0.05) s -= r() * 0.03;
+        let slow = 1;
+        for (const x of inc) if (age >= x.from && age <= x.to) { s = x.succ + (r() - 0.5) * 0.04; slow = 1.7; }
+        s = Math.max(0, Math.min(1, s));
+        const o = Math.round(n * s);
+        const t = m.ttft * TF[g.key] * slow * (0.85 + r() * 0.3);
+        const l = m.lat * TF[g.key] * slow * (0.85 + r() * 0.3);
+        req += n; ok += o; tt += t * n; lt += l * n;
+        bars.push({ n, o, t, ts: now - (R.n - i) * R.step * 1000 });
+      }
+      const k = Math.max(3, Math.ceil(R.n * 0.08));
+      let cn = 0, co = 0;
+      for (let i = R.n - k; i < R.n; i++) { cn += bars[i].n; co += bars[i].o; }
+      const fail = req - ok;
+      const w = [0.25 + r(), 0.2 + r(), 0.1 + r() * 0.6, 0.05 + r() * 0.3];
+      const ws = w.reduce((a, b) => a + b, 0);
+      const errN = w.map((x) => Math.round((fail * x) / ws));
+      const ttft = req ? tt / req : null, lat = req ? lt / req : null;
+      return { g: g.key, m, req, ok, rate: req ? ok / req : null, cur: cn ? co / cn : null, ttft, lat, bars, errN, fail,
+        stream: 0.55 + r() * 0.4, tps: (m.tps * (0.9 + r() * 0.2)) / TF[g.key] };
+    });
+    return Object.assign({}, g, { items });
+  });
+}
+
+class Component extends DCLogic {
+  state = { range: null, group: 'all', view: null, q: '', open: null, tip: null, dark: null, scrolled: false, now: Date.now(), spin: false };
+  _cache = {};
+  componentDidMount() {
+    this._onScroll = () => { const s = window.scrollY > 20; if (s !== this.state.scrolled) this.setState({ scrolled: s }); };
+    window.addEventListener('scroll', this._onScroll, { passive: true });
+    this.applyTheme();
+  }
+  componentDidUpdate() { this.applyTheme(); }
+  componentWillUnmount() { window.removeEventListener('scroll', this._onScroll); document.body.classList.remove('dark'); }
+  isDark() { return this.state.dark ?? this.props.theme === 'dark'; }
+  applyTheme() { document.body.classList.toggle('dark', this.isDark()); }
+  data(rk) {
+    const ck = rk + '|' + this.state.now;
+    if (!this._cache[ck]) this._cache = { [ck]: build(rk, this.state.now) };
+    return this._cache[ck];
+  }
+  seg(active) {
+    return active
+      ? { bg: 'var(--foreground)', fg: 'var(--background)', shadow: '0 1px 2px rgb(0 0 0 / 0.08)' }
+      : { bg: 'transparent', fg: 'var(--muted-foreground)', shadow: 'none' };
+  }
+  showTip(e, info) {
+    const rc = e.currentTarget.getBoundingClientRect();
+    this.setState({ tip: Object.assign({ x: rc.left + rc.width / 2 + 'px', y: rc.top - 8 + 'px' }, info) });
+  }
+
+  renderVals() {
+    const rk = this.state.range ?? this.props.defaultRange ?? '1h';
+    const R = RANGES.find((r) => r.key === rk);
+    const view = this.state.view ?? this.props.defaultView ?? 'list';
+    const issuesFirst = this.props.issuesFirst ?? true;
+    const q = this.state.q.trim().toLowerCase();
+    const all = this.data(rk);
+    const gs = all.filter((g) => this.state.group === 'all' || g.key === this.state.group);
+    const match = (it) => !q || it.m.name.toLowerCase().includes(q);
+    const sortFn = (a, b) => {
+      if (issuesFirst) { const d = status(b.cur).k - status(a.cur).k; if (d) return d; }
+      return b.req - a.req;
+    };
+
+    const groups = gs.map((g) => {
+      const items = g.items.filter(match).sort(sortFn);
+      let req = 0, ok = 0;
+      g.items.forEach((it) => { req += it.req; ok += it.ok; });
+      const gr = req ? ok / req : null;
+      const bad = g.items.filter((it) => status(it.cur).k === 3).length;
+      const warn = g.items.filter((it) => status(it.cur).k === 2).length;
+      let issueText = '全部正常', issueDot = 'var(--ok)', issueFg = 'var(--ok-fg)';
+      if (bad) { issueText = bad + ' 个异常' + (warn ? ' · ' + warn + ' 个降级' : ''); issueDot = 'var(--bad)'; issueFg = 'var(--bad-fg)'; }
+      else if (warn) { issueText = warn + ' 个降级'; issueDot = 'var(--warn)'; issueFg = 'var(--warn-fg)'; }
+      const rows = items.map((it) => {
+        const id = it.g + '|' + it.m.name;
+        const open = this.state.open === id;
+        const st = status(it.cur);
+        const rs = status(it.rate);
+        const fails = it.fail || 1;
+        const errDef = [['上游 5xx', 'var(--bad)'], ['限流 429', 'var(--warn)'], ['超时', 'var(--teal)'], ['其他', 'var(--none)']];
+        return {
+          name: it.m.name, icon: LOBE + it.m.icon + '.svg', iconFilter: it.m.mono ? 'var(--mono-filter)' : 'none',
+          stLabel: st.k === 0 ? '无请求' : '当前' + st.label, stFg: st.fg, stDot: st.dot,
+          rateText: pct(it.rate), rateFg: rs.k === 1 ? 'var(--foreground)' : rs.fg,
+          reqText: num(it.req), ttftText: ms(it.ttft), latText: ms(it.lat),
+          rowBg: st.k === 3 ? 'color-mix(in oklch, var(--bad) 5%, transparent)' : 'transparent',
+          open, chev: open ? 'rotate(180deg)' : 'none',
+          onToggle: () => this.setState({ open: open ? null : id }),
+          bars: it.bars.map((b) => {
+            const bs = status(b.n ? b.o / b.n : null);
+            return {
+              bg: bs.bar,
+              onEnter: (e) => this.showTip(e, {
+                title: fmtTime(b.ts, rk) + ' – ' + fmtTime(b.ts + R.step * 1000, rk),
+                rate: b.n ? pct(b.o / b.n) : '无请求', fg: bs.fg, ttft: b.n ? ms(b.t) : '—',
+              }),
+            };
+          }),
+          pct: [
+            { k: 'P50', t: ms(it.ttft * 0.82), l: ms(it.lat * 0.8) },
+            { k: 'P95', t: ms(it.ttft * 2.1), l: ms(it.lat * 2.0) },
+            { k: 'P99', t: ms(it.ttft * 3.4), l: ms(it.lat * 3.1) },
+          ],
+          failText: num(it.fail) + ' 次失败',
+          errs: errDef.map((d, i) => ({ label: d[0], c: d[1], n: ((it.errN[i] / fails) * 100).toFixed(0) + '%', w: ((it.errN[i] / fails) * 100).toFixed(1) + '%' })),
+          tps: Math.round(it.tps) + ' tok/s', stream: Math.round(it.stream * 100) + '%', okText: num(it.ok),
+        };
+      });
+      return { key: g.key, desc: g.desc, ratio: g.ratio, count: g.items.length, rateText: pct(gr), rateFg: status(gr).fg,
+        issueText, issueDot, issueFg, rows, empty: rows.length === 0 };
+    });
+
+    const flat = [];
+    gs.forEach((g) => g.items.forEach((it) => flat.push(it)));
+    let req = 0, ok = 0, tt = 0, lt = 0;
+    flat.forEach((it) => { req += it.req; ok += it.ok; tt += (it.ttft || 0) * it.req; lt += (it.lat || 0) * it.req; });
+    const overall = req ? ok / req : null;
+    const issues = flat.filter((it) => status(it.cur).k >= 2).sort((a, b) => status(b.cur).k - status(a.cur).k);
+    const nBad = issues.filter((it) => status(it.cur).k === 3).length;
+    const nWarn = issues.length - nBad;
+    const healthy = flat.filter((it) => status(it.cur).k === 1).length;
+    const updated = new Date(this.state.now);
+    const updatedText = p2(updated.getHours()) + ':' + p2(updated.getMinutes()) + ':' + p2(updated.getSeconds());
+    let bTitle = '所有模型运行正常', bFg = 'var(--ok-fg)', bDot = 'var(--ok)';
+    if (nBad) { bTitle = nBad + ' 个模型当前异常' + (nWarn ? '，' + nWarn + ' 个降级' : ''); bFg = 'var(--bad-fg)'; bDot = 'var(--bad)'; }
+    else if (nWarn) { bTitle = nWarn + ' 个模型当前降级'; bFg = 'var(--warn-fg)'; bDot = 'var(--warn)'; }
+    const banner = {
+      title: bTitle, fg: bFg,
+      sub: healthy + ' / ' + flat.length + ' 个分组模型正常 · 更新于 ' + updatedText + ' · ' + R.auto + '自动刷新',
+      chips: issues.slice(0, 5).map((it) => ({ name: it.m.name, group: it.g, dot: status(it.cur).dot })),
+    };
+    const h = React.createElement;
+    const liveDot = h('span', { style: { position: 'relative', display: 'inline-flex', width: 10, height: 10, flexShrink: 0 } },
+      h('span', { style: { position: 'absolute', inset: 0, borderRadius: 999, background: bDot, animation: 'ns-ping 1.8s cubic-bezier(0,0,0.2,1) infinite' } }),
+      h('span', { style: { position: 'relative', width: 10, height: 10, borderRadius: 999, background: bDot } }));
+
+    const stats = [
+      { label: '整体可用率', value: pct(overall), fg: status(overall).fg, sub: '最近 ' + R.label + ' · 按请求加权' },
+            { label: '平均首字时延', value: ms(req ? tt / req : null), fg: 'var(--foreground)', sub: '流式请求' },
+      { label: '平均耗时', value: ms(req ? lt / req : null), fg: 'var(--foreground)', sub: '请求开始至完成' },
+    ];
+
+    const mxModels = MODELS.filter((m) => gs.some((g) => m.groups.includes(g.key)) && (!q || m.name.toLowerCase().includes(q)));
+    const mxRows = mxModels.map((m) => ({
+      name: m.name, icon: LOBE + m.icon + '.svg', iconFilter: m.mono ? 'var(--mono-filter)' : 'none',
+      cells: gs.map((g) => {
+        const it = g.items.find((x) => x.m.name === m.name);
+        if (!it) return { rateText: '—', sub: '未开放', fg: 'color-mix(in oklch, var(--muted-foreground) 50%, transparent)', dot: 'transparent', bg: 'transparent', border: 'color-mix(in oklch, var(--border) 50%, transparent)', title: g.key + ' 未开放此模型' };
+        const st = status(it.cur), rs = status(it.rate);
+        return {
+          rateText: pct(it.rate), sub: ms(it.ttft), fg: rs.k === 1 ? 'var(--foreground)' : rs.fg, dot: st.dot,
+          bg: st.k >= 2 ? 'color-mix(in oklch, ' + st.dot + ' 9%, transparent)' : 'var(--background)',
+          border: st.k >= 2 ? 'color-mix(in oklch, ' + st.dot + ' 35%, transparent)' : 'var(--border)',
+          title: m.name + ' @ ' + g.key + ' · 当前' + st.label,
+        };
+      }),
+    }));
+
+    const s = this.state.scrolled;
+    return {
+      hdr: s
+        ? { max: '52rem', pad: '12px 12px 0', h: '48px', navPad: '0 6px 0 16px', radius: '16px', bg: 'color-mix(in oklch, var(--background) 60%, transparent)', shadow: '0 2px 16px -6px rgba(0,0,0,0.08), 0 0 0 0.5px color-mix(in oklch, var(--border) 50%, transparent)', blur: 'blur(40px)' }
+        : { max: '80rem', pad: '0 24px', h: '64px', navPad: '0 8px', radius: '0px', bg: 'transparent', shadow: 'none', blur: 'none' },
+      isDark: this.isDark(), isLight: !this.isDark(),
+      toggleTheme: () => this.setState({ dark: !this.isDark() }),
+      banner, liveDot, stats,
+      rangeOpts: RANGES.map((r) => Object.assign({ label: r.label, onClick: () => this.setState({ range: r.key, open: null, tip: null }) }, this.seg(r.key === rk))),
+      groupOpts: [{ key: 'all', label: '全部分组' }].concat(GROUPS.map((g) => ({ key: g.key, label: g.key }))).map((g) =>
+        Object.assign({ label: g.label, onClick: () => this.setState({ group: g.key, tip: null }) }, this.seg(g.key === this.state.group))),
+      viewOpts: [
+        { key: 'list', label: '列表', mask: 'url(https://unpkg.com/lucide-static@latest/icons/rows-3.svg) center/contain no-repeat' },
+        { key: 'matrix', label: '矩阵', mask: 'url(https://unpkg.com/lucide-static@latest/icons/grid-2x2.svg) center/contain no-repeat' },
+      ].map((v) => Object.assign({ label: v.label, mask: v.mask, onClick: () => this.setState({ view: v.key, tip: null }) }, this.seg(v.key === view))),
+      q: this.state.q,
+      onSearch: (e) => this.setState({ q: e.target.value }),
+      refresh: () => { this.setState({ now: Date.now(), spin: true, tip: null }); setTimeout(() => this.setState({ spin: false }), 700); },
+      spinAnim: this.state.spin ? 'ns-spin 0.7s linear infinite' : 'none',
+      isList: view === 'list', isMatrix: view === 'matrix',
+      axisStart: R.start, groups,
+      mxCols: '236px repeat(' + gs.length + ', minmax(0,1fr))',
+      mxHead: gs.map((g) => ({ key: g.key, desc: g.desc, ratio: g.ratio })),
+      mxRows,
+      hasTip: !!this.state.tip, tip: this.state.tip || {},
+      hideTip: () => this.setState({ tip: null }),
+    };
+  }
+}
+</script>
+</body>
+</html>
