@@ -61,18 +61,17 @@ export function StatusToolbar(props: StatusToolbarProps) {
               label: t(r.labelKey),
             }))}
           />
-          {/* Many groups scroll inside the toolbar instead of widening the page on phones. */}
-          <div className='max-w-full overflow-x-auto'>
-            <SegmentedControl
-              value={props.group}
-              onValueChange={props.onGroupChange}
-              ariaLabel={t('Group')}
-              options={[
-                { value: ALL_GROUPS, label: t('All groups') },
-                ...props.groupKeys.map((key) => ({ value: key, label: key })),
-              ]}
-            />
-          </div>
+          {/* Many groups wrap onto further rows instead of one long strip. */}
+          <SegmentedControl
+            wrap
+            value={props.group}
+            onValueChange={props.onGroupChange}
+            ariaLabel={t('Group')}
+            options={[
+              { value: ALL_GROUPS, label: t('All groups') },
+              ...props.groupKeys.map((key) => ({ value: key, label: key })),
+            ]}
+          />
         </div>
         <div className='flex flex-wrap items-center gap-2'>
           <InputGroup className='bg-background h-8 w-[220px] rounded-md'>
