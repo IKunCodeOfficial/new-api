@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -139,7 +138,7 @@ func SearchRedemptions(keyword string, code string, status string, startIdx int,
 
 func GetRedemptionById(id int) (*Redemption, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, common.NewMessage("ID is empty")
 	}
 	redemption := Redemption{Id: id}
 	var err error = nil
@@ -160,7 +159,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return 0, ErrRedeemCodeInvalid
 	}
 	if userId == 0 {
-		return 0, errors.New("无效的 user id")
+		return 0, errors.New("invalid user id")
 	}
 	redemption := &Redemption{}
 
@@ -208,11 +207,11 @@ func Redeem(key string, userId int) (quota int, err error) {
 			errors.Is(err, ErrRedeemCodeExpired) || errors.Is(err, ErrRedeemCodeDisabled) {
 			return 0, err
 		}
-		common.SysError("redemption failed: " + err.Error())
+		common.SysError(common.LogText("redemption failed: %s", err.Error()))
 		return 0, ErrRedeemFailed
 	}
-	syncCreditUserQuotaCache(userId, redemption.Quota, "redemption")
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+	syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
+	RecordLog(userId, LogTypeTopup, common.NewMessage("Topped up {{quota}} with a redemption code, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(redemption.Quota), "id": redemption.Id}))
 	return redemption.Quota, nil
 }
 
@@ -267,7 +266,7 @@ func (redemption *Redemption) Delete() error {
 
 func DeleteRedemptionById(id int) (err error) {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return common.NewMessage("ID is empty")
 	}
 	redemption := Redemption{Id: id}
 	err = DB.Where(redemption).First(&redemption).Error

@@ -21,12 +21,17 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		}
 	}
 
+	recentModels := c.QueryArray("recent_model")
+	if len(recentModels) > perfmetrics.MaxRecentModels {
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
+		return
+	}
 	usableGroups := getUsablePerfMetricGroups(c)
 	activeGroups := make([]string, 0, len(usableGroups))
 	for group := range usableGroups {
 		activeGroups = append(activeGroups, group)
 	}
-	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups)
+	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups, recentModels...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

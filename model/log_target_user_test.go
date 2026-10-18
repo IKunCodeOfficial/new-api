@@ -113,7 +113,7 @@ func TestGetAllLogsFiltersManagementLogsByTargetUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	logs, total, err := GetAllLogs(LogTypeManage, 0, 0, "", "", "", 0, 100, 0, "", "", "", 42)
+	logs, total, err := GetAllLogs(LogFilter{Type: LogTypeManage, TargetUserId: 42}, 0, 100)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), total)
@@ -129,19 +129,19 @@ func TestGetUserLogsReturnsOnlyLogsOwnedByUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	manageLogs, manageTotal, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
+	manageLogs, manageTotal, err := GetUserLogs(42, LogFilter{Type: LogTypeManage}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), manageTotal)
 	assert.ElementsMatch(t, []string{"old-owner", "new-operator-resource", "new-operator-different-target"}, logContents(manageLogs))
 
-	allLogs, allTotal, err := GetUserLogs(42, LogTypeUnknown, 0, 0, "", "", 0, 100, "", "", "")
+	allLogs, allTotal, err := GetUserLogs(42, LogFilter{}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), allTotal)
 	assert.ElementsMatch(t, []string{"old-owner", "new-operator-resource", "new-operator-different-target", "owned-consume"}, logContents(allLogs))
 	assert.NotContains(t, logContents(allLogs), "new-target-comma")
 	assert.NotContains(t, logContents(allLogs), "new-target-object-end")
 
-	consumeLogs, consumeTotal, err := GetUserLogs(42, LogTypeConsume, 0, 0, "", "", 0, 100, "", "", "")
+	consumeLogs, consumeTotal, err := GetUserLogs(42, LogFilter{Type: LogTypeConsume}, 0, 100)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), consumeTotal)
 	assert.Equal(t, []string{"owned-consume"}, logContents(consumeLogs))
@@ -210,19 +210,12 @@ func TestGetUserLogsAllTypesAppliesFiltersToOwnedLogs(t *testing.T) {
 	}
 	require.NoError(t, LOG_DB.Create(&logs).Error)
 
-	filteredLogs, total, err := GetUserLogs(
-		42,
-		LogTypeUnknown,
-		190,
-		300,
-		"wanted-model",
-		"wanted-token",
-		0,
-		100,
-		"",
-		"",
-		"",
-	)
+	filteredLogs, total, err := GetUserLogs(42, LogFilter{
+		StartTimestamp: 190,
+		EndTimestamp:   300,
+		ModelName:      "wanted-model",
+		TokenName:      "wanted-token",
+	}, 0, 100)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
@@ -233,7 +226,7 @@ func TestGetUserLogsExcludesManagementLogsTargetingUser(t *testing.T) {
 	resetTargetUserLogTestRows(t)
 	insertTargetUserLogTestRows(t)
 
-	logs, _, err := GetUserLogs(42, LogTypeManage, 0, 0, "", "", 0, 100, "", "", "")
+	logs, _, err := GetUserLogs(42, LogFilter{Type: LogTypeManage}, 0, 100)
 	require.NoError(t, err)
 
 	assert.NotContains(t, logContents(logs), "new-target-comma")

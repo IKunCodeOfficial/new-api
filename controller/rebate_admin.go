@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -36,11 +35,11 @@ func ListRebateExclusions(c *gin.Context) {
 func AddRebateExclusion(c *gin.Context) {
 	var req rebateExclusionRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	if req.UserId <= 0 || (req.Role != "inviter" && req.Role != "invitee") || utf8.RuneCountInString(req.Note) > rebateExclusionNoteLimit {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	var existing int64
@@ -50,7 +49,7 @@ func AddRebateExclusion(c *gin.Context) {
 		return
 	}
 	if existing > 0 {
-		common.ApiErrorI18n(c, i18n.MsgAlreadyExists)
+		common.ApiErrorT(c, "Already exists")
 		return
 	}
 	row := &model.RebateExclusion{
@@ -75,7 +74,7 @@ func AddRebateExclusion(c *gin.Context) {
 func DeleteRebateExclusion(c *gin.Context) {
 	id := common.String2Int(c.Param("id"))
 	if id <= 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	var row model.RebateExclusion

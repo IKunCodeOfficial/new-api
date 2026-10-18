@@ -64,7 +64,7 @@ func TestGetAllLogsRejectsInvalidTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.T(ctx, i18n.MsgInvalidParams), response.Message)
+			assert.Equal(t, "Invalid parameters", response.Message)
 		})
 	}
 }
@@ -90,7 +90,7 @@ func TestGetAllLogsRequiresManageTypeForTargetUserId(t *testing.T) {
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.False(t, response.Success)
-			assert.Equal(t, i18n.T(ctx, i18n.MsgInvalidParams), response.Message)
+			assert.Equal(t, "Invalid parameters", response.Message)
 		})
 	}
 }

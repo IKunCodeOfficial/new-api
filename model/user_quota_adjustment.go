@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/shopspring/decimal"
@@ -97,7 +96,7 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int, recharge 
 	// Refresh the optional snapshot only after the wallet transaction commits.
 	if adjustment.After != adjustment.Before {
 		if err := refreshUserQuotaCache(userID); err != nil {
-			common.SysError(fmt.Sprintf("failed to sync manual quota adjustment for user %d: %s", userID, err))
+			common.SysError(common.LogText("failed to sync manual quota adjustment for user %d: %s", userID, err))
 		}
 	}
 	return &adjustment, nil

@@ -51,9 +51,8 @@ export const TIME_RANGE_PRESETS = [
   { label: '3 Months', days: 90 },
 ] as const
 
-// Non-admin dashboard queries are capped at 3 months server side (see
-// selfQuotaDateRange* in controller/usedata.go), so reject longer custom ranges
-// in the filter dialog instead of letting the request fail.
+// Fork cap for non-admin dashboard ranges. The server enforces the separate
+// log_setting.max_range_days limit (limitLogTimeRange in controller/log.go).
 export const MAX_SELF_TIME_RANGE_MONTHS = 3
 export const MAX_SELF_TIME_RANGE_DAYS = 92
 
