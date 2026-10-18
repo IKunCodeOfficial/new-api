@@ -33,6 +33,8 @@ type SegmentedControlProps<T extends string> = {
   options: SegmentedControlOption<T>[]
   ariaLabel: string
   className?: string
+  // Lets segments flow onto further rows when they don't fit the width.
+  wrap?: boolean
 }
 
 // Single-select toggle group that cannot be deselected: pressing the active
@@ -51,6 +53,7 @@ export function SegmentedControl<T extends string>(
       aria-label={props.ariaLabel}
       className={cn(
         'bg-muted/60 h-8 gap-0 rounded-md border p-0.5',
+        props.wrap && 'h-auto max-w-full flex-wrap',
         props.className
       )}
     >
@@ -62,7 +65,8 @@ export function SegmentedControl<T extends string>(
           className={cn(
             'text-muted-foreground h-full min-w-0 rounded-[5px] px-3 text-xs font-medium',
             'hover:text-foreground hover:bg-transparent',
-            'aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:shadow-sm'
+            'aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:shadow-sm',
+            props.wrap && 'h-7'
           )}
         >
           {option.label}

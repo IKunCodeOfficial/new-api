@@ -52,11 +52,11 @@ function healthy(count: number): ModelStatusModel[] {
 }
 
 describe('statusOf', () => {
-  it('maps rates to levels at the 0.99 and 0.95 thresholds', () => {
-    expect(statusOf(0.99)).toBe('success')
-    expect(statusOf(0.9899)).toBe('warning')
-    expect(statusOf(0.95)).toBe('warning')
-    expect(statusOf(0.9499)).toBe('danger')
+  it('maps rates to levels at the 0.95 and 0.6 thresholds', () => {
+    expect(statusOf(0.95)).toBe('success')
+    expect(statusOf(0.9499)).toBe('warning')
+    expect(statusOf(0.6)).toBe('warning')
+    expect(statusOf(0.5999)).toBe('danger')
   })
 
   it('returns neutral when there is no rate', () => {
@@ -80,7 +80,7 @@ describe('sortModels', () => {
       model('ok-A', 1),
       model('bad-B', 0.5),
       model('none-C', null),
-      model('slow-D', 0.97),
+      model('slow-D', 0.8),
     ])
     expect(sorted.map((m) => m.name)).toEqual([
       'bad-B',
@@ -106,9 +106,9 @@ describe('problemChips', () => {
   it('lists danger before warning and caps at max', () => {
     const groups = [
       group('g1', [
-        model('w1', 0.97),
-        model('w2', 0.97),
-        model('w3', 0.97),
+        model('w1', 0.8),
+        model('w2', 0.8),
+        model('w3', 0.8),
         model('ok', 1),
       ]),
       group('g2', [model('d1', 0.1), model('d2', 0.2), model('d3', 0.3)]),
@@ -135,8 +135,8 @@ describe('bannerSummary', () => {
   it('summarises 1 failing + 2 degraded of 10 as danger with 7 healthy', () => {
     const models = [
       model('d', 0.1),
-      model('w1', 0.97),
-      model('w2', 0.96),
+      model('w1', 0.8),
+      model('w2', 0.7),
       ...healthy(7),
     ]
     expect(bannerSummary([group('g', models)])).toEqual({
@@ -162,9 +162,7 @@ describe('bannerSummary', () => {
   })
 
   it('is warning with only degraded models', () => {
-    expect(bannerSummary([group('g', [model('w', 0.97)])]).level).toBe(
-      'warning'
-    )
+    expect(bannerSummary([group('g', [model('w', 0.8)])]).level).toBe('warning')
   })
 
   it('is neutral with no traffic or no groups', () => {

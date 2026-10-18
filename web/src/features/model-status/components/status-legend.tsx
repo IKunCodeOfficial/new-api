@@ -25,9 +25,9 @@ import { STATUS_STYLES } from '../constants'
 export function StatusLegend() {
   const { t } = useTranslation()
   const items = [
-    { level: 'success', label: t('Healthy ≥ 99%') },
-    { level: 'warning', label: t('Degraded 95% – 99%') },
-    { level: 'danger', label: t('Failing < 95%') },
+    { level: 'success', label: t('Healthy ≥ 95%') },
+    { level: 'warning', label: t('Degraded 60% – 95%') },
+    { level: 'danger', label: t('Failing < 60%') },
     { level: 'neutral', label: t('No requests') },
   ] as const
 

@@ -36,8 +36,8 @@ export type BannerSummary = {
   total: number
 }
 
-const SUCCESS_THRESHOLD = 0.99
-const WARNING_THRESHOLD = 0.95
+const SUCCESS_THRESHOLD = 0.95
+const WARNING_THRESHOLD = 0.6
 
 export function statusOf(rate: number | null | undefined): StatusLevel {
   if (rate == null) return 'neutral'
