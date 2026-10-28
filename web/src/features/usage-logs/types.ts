@@ -125,6 +125,12 @@ export interface LogOtherData {
     local_count_tokens?: boolean
     usage_billing_path?: UsageBillingPath | string
     channel_affinity?: ChannelAffinityInfo
+    // Coding-agent session (Claude Code / Codex) that issued the request
+    client_session?: {
+      client: 'claude_code' | 'codex' | string
+      session_id: string
+      source?: string
+    }
     // Top-up audit fields (type=1, admin only)
     payment_method?: string
     callback_payment_method?: string

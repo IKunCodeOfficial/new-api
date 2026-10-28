@@ -5416,6 +5416,7 @@
     "Retry": "Повторить попытку",
     "Retry budget": "Бюджет повторов",
     "Retry Chain": "Цепочка повторов",
+    "Client Session ID": "ID сеанса клиента",
     "Retry Settings": "Настройки повторов",
     "Retry Suggestion": "Рекомендация по повтору",
     "Retry Times": "Количество повторных попыток",

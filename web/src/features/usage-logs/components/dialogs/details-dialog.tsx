@@ -115,6 +115,12 @@ function timingTextColorClass(
   return 'text-rose-600'
 }
 
+function clientSessionLabel(client: string): string {
+  if (client === 'claude_code') return 'Claude Code'
+  if (client === 'codex') return 'Codex'
+  return client
+}
+
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
@@ -694,6 +700,22 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
           {channelChain && props.isAdmin && (
             <DetailRow label={t('Retry Chain')} value={channelChain} mono />
+          )}
+
+          {props.isAdmin && adminInfo?.client_session?.session_id && (
+            <DetailRow
+              label={t('Client Session ID')}
+              value={
+                <span className='break-all'>
+                  {adminInfo.client_session.session_id}
+                  <span className='text-muted-foreground'>
+                    {' '}
+                    ({clientSessionLabel(adminInfo.client_session.client)})
+                  </span>
+                </span>
+              }
+              mono
+            />
           )}
 
           {props.log.token_name && (
