@@ -356,7 +356,15 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		logger.LogWarn(c.Request.Context(), common.LogText("Creem callback customer name is empty trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
 	}
 
-	err := model.RechargeCreem(referenceId, customerEmail, customerName, c.ClientIP())
+	// Discount codes lower what Creem collected below the product sub-total, and
+	// test-mode orders move no real money; both lower the rebate paid snapshot.
+	order := event.Object.Order
+	charge := model.GatewayCharge{
+		Listed:  int64(order.SubTotal),
+		Charged: int64(order.AmountPaid - order.TaxAmount),
+		Test:    order.Mode == "test" || event.Object.Mode == "test",
+	}
+	err := model.RechargeCreem(referenceId, customerEmail, customerName, c.ClientIP(), charge)
 	if err != nil {
 		logger.LogError(c.Request.Context(), common.LogText("Creem top-up processing failed trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
@@ -16,6 +18,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v81"
 	"gorm.io/gorm"
 )
 
@@ -223,6 +226,7 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 	oldRatios := common.TopupGroupRatio2JSONString()
 	oldWaffoEnabled, oldWaffoSandbox := setting.WaffoEnabled, setting.WaffoSandbox
 	oldWaffoKey, oldWaffoPrivate := setting.WaffoSandboxApiKey, setting.WaffoSandboxPrivateKey
+	oldWaffoLiveKey, oldWaffoLivePrivate := setting.WaffoApiKey, setting.WaffoPrivateKey
 	oldWaffoPrice, oldWaffoMin, oldCurrency := setting.WaffoUnitPrice, setting.WaffoMinTopUp, setting.WaffoCurrency
 	oldPancakeMerchant, oldPancakePrivate, oldProduct := setting.WaffoPancakeMerchantID, setting.WaffoPancakePrivateKey, setting.WaffoPancakeProductID
 	oldPancakePrice, oldPancakeMin := setting.WaffoPancakeUnitPrice, setting.WaffoPancakeMinTopUp
@@ -235,6 +239,7 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 		require.NoError(t, common.UpdateTopupGroupRatioByJSONString(oldRatios))
 		setting.WaffoEnabled, setting.WaffoSandbox = oldWaffoEnabled, oldWaffoSandbox
 		setting.WaffoSandboxApiKey, setting.WaffoSandboxPrivateKey = oldWaffoKey, oldWaffoPrivate
+		setting.WaffoApiKey, setting.WaffoPrivateKey = oldWaffoLiveKey, oldWaffoLivePrivate
 		setting.WaffoUnitPrice, setting.WaffoMinTopUp, setting.WaffoCurrency = oldWaffoPrice, oldWaffoMin, oldCurrency
 		setting.WaffoPancakeMerchantID, setting.WaffoPancakePrivateKey, setting.WaffoPancakeProductID = oldPancakeMerchant, oldPancakePrivate, oldProduct
 		setting.WaffoPancakeUnitPrice, setting.WaffoPancakeMinTopUp = oldPancakePrice, oldPancakeMin
@@ -246,8 +251,11 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
 	operation_setting.GetPaymentSetting().ComplianceConfirmed = true
 	operation_setting.GetPaymentSetting().ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
-	setting.WaffoEnabled, setting.WaffoSandbox = true, true
+	// Invalid keys make the Waffo SDK fail before any network call in both
+	// environments; the live slot is used so the snapshot keeps the real price.
+	setting.WaffoEnabled, setting.WaffoSandbox = true, false
 	setting.WaffoSandboxApiKey, setting.WaffoSandboxPrivateKey = "test-key", "invalid-test-private-key"
+	setting.WaffoApiKey, setting.WaffoPrivateKey = "test-key", "invalid-test-private-key"
 	setting.WaffoUnitPrice, setting.WaffoMinTopUp = 1, 1
 	setting.WaffoPancakeMerchantID, setting.WaffoPancakePrivateKey, setting.WaffoPancakeProductID = "test-merchant", "invalid-test-private-key", "test-product"
 	setting.WaffoPancakeUnitPrice, setting.WaffoPancakeMinTopUp = 1, 1
@@ -259,23 +267,27 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 		money    float64
 		paid     int64
 		rejected bool
+		sandbox  bool
 	}{
-		{"epay rounds down", RequestEpay, .3333, "USD", .33, 165000, false},
-		{"epay rounds up", RequestEpay, .6666, "USD", .67, 335000, false},
-		{"epay half cent", RequestEpay, .125, "USD", .12, 60000, false},
-		{"waffo rounds down", RequestWaffoPay, .3333, "USD", .33, 165000, false},
-		{"waffo rounds up", RequestWaffoPay, .6666, "USD", .67, 335000, false},
-		{"waffo half cent", RequestWaffoPay, .125, "USD", .12, 60000, false},
-		{"waffo zero decimal currency", RequestWaffoPay, 1.6, "JPY", 2, 1000000, false},
-		{"waffo rounded to zero", RequestWaffoPay, .4, "JPY", 0, 0, true},
-		{"pancake rounds down", RequestWaffoPancakePay, .3333, "USD", .33, 165000, false},
-		{"pancake rounds up", RequestWaffoPancakePay, .6666, "USD", .67, 335000, false},
-		{"pancake half cent", RequestWaffoPancakePay, .125, "USD", .13, 65000, false},
+		{"epay rounds down", RequestEpay, .3333, "USD", .33, 165000, false, false},
+		{"epay rounds up", RequestEpay, .6666, "USD", .67, 335000, false, false},
+		{"epay half cent", RequestEpay, .125, "USD", .12, 60000, false, false},
+		{"waffo rounds down", RequestWaffoPay, .3333, "USD", .33, 165000, false, false},
+		{"waffo rounds up", RequestWaffoPay, .6666, "USD", .67, 335000, false, false},
+		{"waffo half cent", RequestWaffoPay, .125, "USD", .12, 60000, false, false},
+		{"waffo zero decimal currency", RequestWaffoPay, 1.6, "JPY", 2, 1000000, false, false},
+		{"waffo rounded to zero", RequestWaffoPay, .4, "JPY", 0, 0, true, false},
+		// Sandbox orders move no real money, so they must not count toward rebates.
+		{"waffo sandbox pays nothing", RequestWaffoPay, 1, "USD", 1, 0, false, true},
+		{"pancake rounds down", RequestWaffoPancakePay, .3333, "USD", .33, 165000, false, false},
+		{"pancake rounds up", RequestWaffoPancakePay, .6666, "USD", .67, 335000, false, false},
+		{"pancake half cent", RequestWaffoPancakePay, .125, "USD", .13, 65000, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.NoError(t, common.UpdateTopupGroupRatioByJSONString(fmt.Sprintf(`{"default":%v}`, tc.ratio)))
 			setting.WaffoCurrency = tc.currency
+			setting.WaffoSandbox = tc.sandbox
 			var before int64
 			require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&before).Error)
 			response := postJSON(t, tc.handler, http.MethodPost, "/", `{"amount":1,"payment_method":"alipay"}`, userID)
@@ -299,4 +311,219 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A correctly signed epay notification must still cover the order amount the
+// gateway was asked to collect (two decimals, as RequestEpay formats it). Less
+// is never credited, so neither the wallet nor the rebate paid snapshot can
+// count money that was not received. Orders stored before the gateway amount
+// was rounded must still match what was actually sent.
+func TestEpayNotifyRejectsUnderpayment(t *testing.T) {
+	setupRebateControllerTest(t)
+	confirmPaymentComplianceForTest(t)
+	t.Setenv("LOG_SQL_DSN", "")
+	oldMaster := common.IsMasterNode
+	common.IsMasterNode = false
+	t.Cleanup(func() { common.IsMasterNode = oldMaster })
+	require.NoError(t, model.InitLogDB())
+	oldAddress, oldID, oldKey, oldMethods := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, operation_setting.PayMethods
+	oldQPU := common.QuotaPerUnit
+	t.Cleanup(func() {
+		operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, operation_setting.PayMethods = oldAddress, oldID, oldKey, oldMethods
+		common.QuotaPerUnit = oldQPU
+	})
+	operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = "https://pay.example.com", "epay_id", "test-key"
+	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
+	common.QuotaPerUnit = 500000
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	router := gin.New()
+	router.GET("/api/user/epay/notify", EpayNotify)
+	notify := func(tradeNo, money string) string {
+		params, err := epay.GenerateParamsWithError(map[string]string{
+			"pid": "epay_id", "type": "alipay", "money": money, "name": "TUC1",
+			"out_trade_no": tradeNo, "trade_no": "E" + tradeNo, "trade_status": epay.StatusTradeSuccess,
+		}, "test-key")
+		require.NoError(t, err)
+		query := url.Values{}
+		for k, v := range params {
+			query.Set(k, v)
+		}
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/user/epay/notify?"+query.Encode(), nil))
+		return recorder.Body.String()
+	}
+	cases := []struct {
+		tradeNo string
+		money   float64
+		low     string
+		exact   string
+	}{
+		{"USR-epay-underpaid", 1.00, "0.99", "1.00"},
+		// A legacy order kept the unrounded price; the gateway was sent "6.93".
+		{"USR-epay-legacy", 6.935, "6.92", "6.93"},
+	}
+	for _, tc := range cases {
+		require.NoError(t, model.DB.Create(&model.TopUp{
+			UserId: userID, Amount: 1, Money: tc.money, TradeNo: tc.tradeNo, PaymentMethod: "alipay",
+			PaymentProvider: model.PaymentProviderEpay, Status: common.TopUpStatusPending,
+		}).Error)
+		before, err := model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+
+		assert.Equal(t, "fail", notify(tc.tradeNo, tc.low), tc.tradeNo)
+		order := model.GetTopUpByTradeNo(tc.tradeNo)
+		require.NotNil(t, order)
+		assert.Equal(t, common.TopUpStatusPending, order.Status)
+		quota, err := model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+		assert.Equal(t, before, quota, "an underpaid notification credits nothing")
+
+		assert.Equal(t, "success", notify(tc.tradeNo, tc.exact), tc.tradeNo)
+		assert.Equal(t, "success", notify(tc.tradeNo, tc.exact), "a replay is acknowledged")
+		quota, err = model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+		assert.Equal(t, before+500000, quota, "the order is credited exactly once")
+	}
+}
+
+// Stripe reports amounts in minor units. GetObjectValue renders 1,000,000 and
+// above as "1e+06", which silently dropped the promotion-code discount from the
+// rebate paid snapshot on large orders; the typed session keeps them exact.
+func TestStripeGatewayChargeReadsLargeAmounts(t *testing.T) {
+	live := func(raw string) stripe.Event {
+		return stripe.Event{Livemode: true, Data: &stripe.EventData{Raw: []byte(raw)}}
+	}
+	cases := []struct {
+		name  string
+		event stripe.Event
+		want  model.GatewayCharge
+	}{
+		{"large discounted order", live(`{"object":"checkout.session","amount_subtotal":1460000,"amount_total":1168000}`),
+			model.GatewayCharge{Listed: 1460000, Charged: 1168000}},
+		{"small order without discount", live(`{"object":"checkout.session","amount_subtotal":1000,"amount_total":1000}`),
+			model.GatewayCharge{Listed: 1000, Charged: 1000}},
+		{"test mode", stripe.Event{Livemode: false, Data: &stripe.EventData{Raw: []byte(`{"amount_subtotal":1000,"amount_total":1000}`)}},
+			model.GatewayCharge{Test: true}},
+		{"unreadable session counts nothing", live(`not json`), model.GatewayCharge{Listed: 1, Charged: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, stripeGatewayCharge(t.Context(), tc.event))
+		})
+	}
+	// The value the old code parsed shows the regression this guards against.
+	legacy := live(`{"amount_subtotal":1460000}`)
+	require.NoError(t, common.Unmarshal(legacy.Data.Raw, &legacy.Data.Object))
+	assert.Equal(t, "1.46e+06", legacy.GetObjectValue("amount_subtotal"))
+}
+
+// client_reference_id can be set by a buyer on any Payment Link of the same
+// Stripe account, so a cheap payment there could complete an expensive order.
+// Only a session carrying this server's order metadata may complete, expire
+// or fail an order.
+func TestStripeFulfillmentRequiresTheSessionCreatedForTheOrder(t *testing.T) {
+	setupRebateControllerTest(t)
+	confirmPaymentComplianceForTest(t)
+	oldQPU := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQPU })
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	const tradeNo = "ref_stripe_bound_order"
+	require.NoError(t, model.DB.Create(&model.TopUp{
+		UserId: userID, Amount: 10, Money: 10, TradeNo: tradeNo, PaymentMethod: model.PaymentMethodStripe,
+		PaymentProvider: model.PaymentProviderStripe, Status: common.TopUpStatusPending,
+	}).Error)
+	session := func(status, metadata string) stripe.Event {
+		raw := `{"object":"checkout.session","client_reference_id":"` + tradeNo + `","status":"` + status +
+			`","payment_status":"paid","amount_subtotal":1000,"amount_total":1000` + metadata + `}`
+		event := stripe.Event{ID: "evt_test", Livemode: true, Data: &stripe.EventData{Raw: []byte(raw)}}
+		require.NoError(t, common.Unmarshal(event.Data.Raw, &event.Data.Object))
+		return event
+	}
+
+	for name, metadata := range map[string]string{
+		"payment link without metadata": "",
+		"session of another order":      `,"metadata":{"new_api_trade_no":"ref_other"}`,
+	} {
+		sessionCompleted(t.Context(), session("complete", metadata), "127.0.0.1")
+		order := model.GetTopUpByTradeNo(tradeNo)
+		require.NotNil(t, order)
+		assert.Equal(t, common.TopUpStatusPending, order.Status, name)
+		sessionExpired(t.Context(), session("expired", metadata))
+		assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(tradeNo).Status, name)
+		sessionAsyncPaymentFailed(t.Context(), session("complete", metadata), "127.0.0.1")
+		assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(tradeNo).Status, name)
+	}
+
+	sessionCompleted(t.Context(), session("complete", `,"metadata":{"new_api_trade_no":"`+tradeNo+`"}`), "127.0.0.1")
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tradeNo).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5_000_000, quota)
+
+	// What the completed session collected reaches the rebate paid snapshot:
+	// a promotion code lowers it by amount_total / amount_subtotal, and a
+	// test-mode payment moves no money, so it counts nothing. Both still credit.
+	for _, tc := range []struct {
+		tradeNo        string
+		livemode       bool
+		total          int
+		wantPaid       int64
+		wantCreditedTo int
+	}{
+		{tradeNo: "ref_stripe_promo", livemode: true, total: 250, wantPaid: 1_250_000, wantCreditedTo: 10_000_000},
+		{tradeNo: "ref_stripe_test_mode", total: 1000, wantPaid: 0, wantCreditedTo: 15_000_000},
+	} {
+		require.NoError(t, model.DB.Create(&model.TopUp{
+			UserId: userID, Amount: 10, Money: 10, TradeNo: tc.tradeNo, PaymentMethod: model.PaymentMethodStripe,
+			PaymentProvider: model.PaymentProviderStripe, Status: common.TopUpStatusPending,
+		}).Error)
+		raw := fmt.Sprintf(`{"object":"checkout.session","client_reference_id":%q,"status":"complete","payment_status":"paid",`+
+			`"amount_subtotal":1000,"amount_total":%d,"metadata":{"new_api_trade_no":%q}}`, tc.tradeNo, tc.total, tc.tradeNo)
+		event := stripe.Event{ID: "evt_" + tc.tradeNo, Livemode: tc.livemode, Data: &stripe.EventData{Raw: []byte(raw)}}
+		require.NoError(t, common.Unmarshal(event.Data.Raw, &event.Data.Object))
+
+		sessionCompleted(t.Context(), event, "127.0.0.1")
+
+		assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tc.tradeNo).Status, tc.tradeNo)
+		var paid model.RebateTopupPaid
+		require.NoError(t, model.DB.Where("trade_no = ?", tc.tradeNo).First(&paid).Error, tc.tradeNo)
+		assert.Equal(t, tc.wantPaid, paid.PaidQuota, tc.tradeNo)
+		quota, err = model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+		assert.Equal(t, tc.wantCreditedTo, quota, tc.tradeNo)
+	}
+}
+
+// The administrator's stated collection sets the rebate paid snapshot of a
+// hand-completed order, so it must be a non-negative amount of money in the
+// currency the gateway charged.
+func TestAdminCompleteTopUpValidatesPaidMoney(t *testing.T) {
+	setupRebateControllerTest(t)
+	oldQPU, oldStripePrice := common.QuotaPerUnit, setting.StripeUnitPrice
+	common.QuotaPerUnit, setting.StripeUnitPrice = 500000, 8
+	t.Cleanup(func() { common.QuotaPerUnit, setting.StripeUnitPrice = oldQPU, oldStripePrice })
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	order := &model.TopUp{
+		UserId: userID, Amount: 10, Money: 10, TradeNo: "ref_admin_complete", PaymentMethod: model.PaymentMethodStripe,
+		PaymentProvider: model.PaymentProviderStripe, Status: common.TopUpStatusPending,
+	}
+	require.NoError(t, order.Insert())
+
+	for _, body := range []string{
+		`{"trade_no":"ref_admin_complete","paid_money":-1}`,
+		`{"trade_no":"ref_admin_complete","paid_money":"40"}`,
+	} {
+		res := postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", body, 1)
+		assert.Equal(t, false, res["success"], body)
+		assert.Equal(t, "Invalid parameters", res["message"], body)
+		assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo("ref_admin_complete").Status, body)
+	}
+
+	// Checkout lists 10 units at 8; collecting 40 halves the 10-unit snapshot.
+	res := postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", `{"trade_no":"ref_admin_complete","paid_money":40}`, 1)
+	require.Equal(t, true, res["success"], res["message"])
+	var paid model.RebateTopupPaid
+	require.NoError(t, model.DB.Where("trade_no = ?", "ref_admin_complete").First(&paid).Error)
+	assert.Equal(t, int64(2_500_000), paid.PaidQuota)
 }

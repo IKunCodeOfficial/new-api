@@ -140,10 +140,12 @@ func TestRebateMySQLRechargeLifecycle(t *testing.T) {
 	var paid RebateTopupPaid
 	require.NoError(t, DB.Where("trade_no = ?", order.TradeNo).First(&paid).Error)
 	assert.Equal(t, int64(4500000), paid.PaidQuota)
-	alreadyDone, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1")
+	_, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1", "65.69")
+	require.ErrorIs(t, err, ErrPaymentAmountTooLow, "a signed notification for less than the order is not credited")
+	alreadyDone, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1", "65.70")
 	require.NoError(t, err)
 	assert.False(t, alreadyDone)
-	alreadyDone, err = RechargeEpay(order.TradeNo, "alipay", "127.0.0.1")
+	alreadyDone, err = RechargeEpay(order.TradeNo, "alipay", "127.0.0.1", "65.70")
 	require.NoError(t, err)
 	assert.True(t, alreadyDone)
 	require.NoError(t, DB.First(order, order.Id).Error)
@@ -267,7 +269,7 @@ func TestRebateMySQLTransferCacheMissCannotDoubleCredit(t *testing.T) {
 					&UserQuotaRecharge{OperatorID: user.Id, PaidQuota: 500000})
 				require.NoError(t, err)
 			case "epay":
-				_, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1")
+				_, err := RechargeEpay(order.TradeNo, "alipay", "127.0.0.1", "7.30")
 				require.NoError(t, err)
 			}
 			require.True(t, hook.hydrated.Load(), "the competing cache read must run at the credit boundary")
@@ -324,4 +326,9 @@ func TestRebateMySQLWalletMutationsStayAuthoritativeWithBatchAndRedisFailures(t 
 			})
 		}
 	}
+}
+
+func TestRebateMySQLCheckinRespectsTheWalletCap(t *testing.T) {
+	user := setupRebateMySQLTest(t)
+	assertCheckinRespectsWalletCap(t, user.Id)
 }

@@ -148,6 +148,13 @@ export interface LogOtherData {
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo
+    // Part of the request's cost the wallet or subscription never committed
+    // because settlement failed; the log quota is what was actually charged.
+    // Negative when the cost was below the pre-consumed amount and refunding
+    // the difference failed, so the user was overcharged by its magnitude.
+    unsettled_quota?: number
+    // Would-be cost of a channel test, which charges nobody (log quota is 0).
+    channel_test_quota?: number
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo

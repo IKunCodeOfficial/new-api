@@ -378,6 +378,7 @@ func migrateDB() error {
 		&RebateAdminRecharge{},
 		&RebateTopupPaid{},
 		&RebateExclusion{},
+		&RetiredAffCode{},
 		&UserAccessToken{},
 	)
 	if err != nil {

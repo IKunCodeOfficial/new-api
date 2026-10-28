@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -174,7 +177,14 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 // 在同一个事务内完成，因此同一订单的并发/重复回调（包括多实例部署下）最多充值一次。
 // alreadyDone=true 表示订单此前已完成，本次为幂等重复回调。
 // 进程内的 LockOrder 只是优化，正确性由本函数的数据库行锁保证。
-func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (alreadyDone bool, err error) {
+// ErrPaymentAmountTooLow rejects a gateway notification for less than the
+// amount the order was created for (and that its rebate paid snapshot holds).
+var ErrPaymentAmountTooLow = errors.New("payment amount below the order amount")
+
+// RechargeEpay completes an epay order. notifiedMoney is the signed amount from
+// the gateway notification; it must cover the order amount as it was sent to
+// the gateway (formatted to two decimals, like RequestEpay does).
+func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string, notifiedMoney string) (alreadyDone bool, err error) {
 	if tradeNo == "" {
 		return false, errors.New("payment order number not provided")
 	}
@@ -199,6 +209,11 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		}
 		if topUp.Status != common.TopUpStatusPending {
 			return ErrTopUpStatusInvalid
+		}
+		notified, parseErr := decimal.NewFromString(strings.TrimSpace(notifiedMoney))
+		expected, _ := decimal.NewFromString(strconv.FormatFloat(topUp.Money, 'f', 2, 64))
+		if parseErr != nil || notified.LessThan(expected) {
+			return ErrPaymentAmountTooLow
 		}
 		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
 			topUp.PaymentMethod = actualPaymentMethod
@@ -233,7 +248,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 	return false, nil
 }
 
-func Recharge(referenceId string, customerId string, callerIp string) (err error) {
+func Recharge(referenceId string, customerId string, callerIp string, charge GatewayCharge) (err error) {
 	if referenceId == "" {
 		return errors.New("payment order number not provided")
 	}
@@ -272,6 +287,9 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 		)
 		if err != nil || quota <= 0 {
 			return ErrInvalidTopUpQuota
+		}
+		if err := applyGatewayCharge(tx, topUp, charge); err != nil { // fork (ikun): rebate paid snapshot
+			return err
 		}
 		return creditTopUpQuota(tx, topUp.UserId, quota, map[string]any{
 			"stripe_customer": customerId,
@@ -436,8 +454,12 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 	return topups, total, nil
 }
 
-// ManualCompleteTopUp 管理员手动完成订单并给用户充值
-func ManualCompleteTopUp(tradeNo string, callerIp string) error {
+// ManualCompleteTopUp 管理员手动完成订单并给用户充值。
+// paidMoney（可选）是管理员核对网关后填写的实收金额，币种与订单标价一致：
+// Stripe 的标价为 Amount×StripeUnitPrice，Creem 填不含税金额，其余渠道的标价为 Money。
+// 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake 的实收
+// （优惠码、测试模式）只有网关完成事件才知道，未填写时这些订单不计入返利充值。
+func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) error {
 	if tradeNo == "" {
 		return common.NewMessage("Order number not provided")
 	}
@@ -468,15 +490,19 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return common.NewMessage("Order is not pending payment and cannot be completed")
 		}
 
-		// 计算应充值额度：
+		// 计算应充值额度，与各渠道回调入账保持一致：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
-		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
+		// - Creem 订单：Amount 本身就是额度（RechargeCreem 原样入账）
+		// - 其他订单（易支付、Waffo 等）：Amount 为美元数量，* QuotaPerUnit
 		var quotaErr error
-		if topUp.PaymentProvider == PaymentProviderStripe {
+		switch resolveTopUpProvider(topUp) {
+		case PaymentProviderStripe:
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
-		} else {
+		case PaymentProviderCreem:
+			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
+		default:
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
@@ -489,6 +515,34 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+		// fork (ikun): rebate paid snapshot for an order completed by hand.
+		// The administrator may state what the gateway collected, in the
+		// currency it charged; the snapshot is then scaled by collected ÷ list
+		// price, the rule the gateways' own discount reports follow. Stripe
+		// charges the purchased quantity at the Checkout unit price (its Money
+		// is the credited value); every other gateway charges Money. Without a
+		// stated amount, Stripe, Creem and Waffo Pancake orders, whose
+		// discounts only the gateway knows, count nothing.
+		provider := resolveTopUpProvider(topUp)
+		var charge GatewayCharge
+		switch {
+		case paidMoney != nil:
+			listed := decimal.NewFromFloat(topUp.Money)
+			if provider == PaymentProviderStripe {
+				listed = decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(setting.StripeUnitPrice))
+			}
+			if !listed.IsPositive() {
+				return common.NewMessage("The order has no list price to compare the paid amount with")
+			}
+			// Parts per million of the list price, at most the full price.
+			share := decimal.NewFromFloat(max(*paidMoney, 0)).Div(listed)
+			charge = GatewayCharge{Listed: 1_000_000, Charged: decimal.Min(share, decimal.NewFromInt(1)).Shift(6).Floor().IntPart()}
+		case provider == PaymentProviderStripe || provider == PaymentProviderCreem || provider == PaymentProviderWaffoPancake:
+			charge = GatewayCharge{Listed: 1, Charged: 0}
+		}
+		if err := applyGatewayCharge(tx, topUp, charge); err != nil {
 			return err
 		}
 
@@ -506,13 +560,22 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	if err != nil {
 		return err
 	}
+	if userId == 0 {
+		// The order was already completed; nothing was credited this time.
+		return nil
+	}
 
 	// 事务外记录日志，避免阻塞
 	syncCreditUserQuotaCache(userId, quotaToAdd, common.LogText("manual topup"))
-	RecordTopupLog(userId, common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%f", payMoney)}), callerIp, paymentMethod, "admin")
+	logContent := common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%f", payMoney)})
+	if paidMoney != nil {
+		// fork (ikun): the stated collection changes invite rebates, so it is audited with the order.
+		logContent = common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}, amount collected: {{paid}}", map[string]any{"quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%f", payMoney), "paid": fmt.Sprintf("%f", *paidMoney)})
+	}
+	RecordTopupLog(userId, logContent, callerIp, paymentMethod, "admin")
 	return nil
 }
-func RechargeCreem(referenceId string, customerEmail string, customerName string, callerIp string) (err error) {
+func RechargeCreem(referenceId string, customerEmail string, customerName string, callerIp string, charge GatewayCharge) (err error) {
 	if referenceId == "" {
 		return errors.New("payment order number not provided")
 	}
@@ -550,6 +613,9 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 		quota, err = common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
 		if err != nil || quota <= 0 {
 			return ErrInvalidTopUpQuota
+		}
+		if err := applyGatewayCharge(tx, topUp, charge); err != nil { // fork (ikun): rebate paid snapshot
+			return err
 		}
 
 		// 构建更新字段，优先使用邮箱，如果邮箱为空则使用用户名
@@ -644,7 +710,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 	return nil
 }
 
-func RechargeWaffoPancake(tradeNo string) (err error) {
+func RechargeWaffoPancake(tradeNo string, charge GatewayCharge) (err error) {
 	if tradeNo == "" {
 		return errors.New("payment order number not provided")
 	}
@@ -685,6 +751,9 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+		if err := applyGatewayCharge(tx, topUp, charge); err != nil { // fork (ikun): rebate paid snapshot
 			return err
 		}
 

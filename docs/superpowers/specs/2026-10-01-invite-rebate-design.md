@@ -79,11 +79,13 @@ settled_base += delta
   | epay | `Money ÷ operation_setting.Price × QuotaPerUnit` |
   | waffo | `Money ÷ setting.WaffoUnitPrice × QuotaPerUnit` |
   | waffo_pancake | `Money ÷ setting.WaffoPancakeUnitPrice × QuotaPerUnit` |
-  | stripe | `Money × QuotaPerUnit`（stripe 的 Money 已是分组倍率换算后的美元数量，无折扣可体现） |
-  | creem | `Amount`（固定商品，无原价可比） |
+  | stripe | `Amount × QuotaPerUnit`（Checkout 按 `Quantity=Amount` × 固定 Stripe 价格收款，分组倍率只放大到账额度 `Money = Amount × 倍率`，所以实付按购买数量计；优惠码折扣在支付完成时按 `amount_total / amount_subtotal` 下调快照） |
+  | creem | `Amount`（下单时按商品额度；折扣码在支付完成时按 `(amount_paid − tax_amount) / sub_total` 下调） |
 
   单价 ≤ 0 或结果非正时不写行（结算侧回落为到账额度）。换算使用 `common.QuotaFromDecimal` 等 `common/quota_math.go` 助手，不做裸 `int` 转换。
-  分组倍率 > 1 时 `paid_quota` 会超过到账额度，由结算侧 `min` 封顶。
+  支付完成时网关报告的折扣只会下调快照，不会上调：Stripe 按 `amount_total / amount_subtotal`、Creem 按 `(amount_paid − tax_amount) / sub_total` 向下取整；沙箱/测试环境的支付（Waffo 沙箱、Creem 测试模式下单或测试事件，Stripe `livemode=false`、Waffo Pancake `test` webhook）照常到账，但快照写为 `paid_quota = 0`，结算侧 `min` 后不计入 R。
+  管理员补单（`POST /api/user/topup/complete`）可带 `paid_money`：网关实际收款金额，币种与订单标价一致。服务端按 `实收 ÷ 标价` 下调快照（只降不升，同 webhook 折扣规则），标价为订单 `money`，Stripe 为 `amount × StripeUnitPrice`（`money` 是到账口径，不是收款额，实收填 Stripe 价格币种的 Checkout 合计）；Creem 按 webhook 规则填不含税实收；标价不为正时拒绝补单。实收金额写进补单的充值日志。Stripe、Creem、Waffo Pancake 的实收只有网关完成事件才知道，未填写时快照写 0，不计入 R；epay、Waffo 保留下单时快照。
+  分组倍率造成的偏差由结算侧 `min` 封顶：epay、Waffo、Waffo Pancake 在倍率 > 1 时 `paid_quota` 超过到账额度；Stripe 的快照按购买数量计，倍率 < 1 时 `paid_quota` 超过到账额度。
 - **管理员充值**：管理员在弹窗填写，约束 `0 < paid_quota ≤ value`，违反时按仓库约定返回参数错误（HTTP 200 + `success:false`），额度不变。
 
 ### 2.3 排除与失效
@@ -164,7 +166,7 @@ settled_base += delta
 | key | 值 | 写入方 |
 |---|---|---|
 | `IkunRebateEnabled` | `true`/`false` | 后台设置块（root 的 `PUT /api/option/`） |
-| `IkunRebateRate` | 小数字符串，`0 < rate < 1`，如 `0.05` | 同上 |
+| `IkunRebateRate` | 小数字符串，`0.` 后接 1–4 位数字且 `> 0`（界面为两位小数的百分比），如 `0.05`；保存时校验，`IkunRebateEnabled` 只接受 `true`/`false` | 同上 |
 
 旧的 `IkunRebateConfig` 不再读取。
 
@@ -332,7 +334,7 @@ CUSTOM 分支例外：它是自己拼字符串（`${meta.symbol} ${decimal}`）�
 2. 环境变量 `REBATE_LOGS_IN_MAIN_DB=true`（运维声明 new-api 未配置 `LOG_SQL_DSN`；否则消费日志不在主库，会把消费当 0 永久少发）。
 3. `options.LogConsumeEnabled` 视为开启：这一行不存在，或值**恰好**是 `"true"`（与 Go 的 `== "true"` 一致；`false`、`False`、空串等任何其它值都按关闭处理并拒绝）。
 4. `rebate_meta` 存在且 `activity_start`/`timezone` 合法。
-5. **开关打开时** `IkunRebateRate` 必须合法（`0 < rate < 1`）；开关关闭时不校验，按 0 发放并在 `rebate_days` 标 `disabled`（否则首次部署时 enabled=false 且未填比例会让每天都拒绝，之后一旦填上比例 + 打开开关，cron 会从 `activity_start` 一路补结并全部发钱）。
+5. **开关打开时** `IkunRebateRate` 必须合法（`0 < rate < 1`；Go 侧保存时只接受 `0.` 后 1–4 位数字的写法）；开关关闭时不校验，按 0 发放并在 `rebate_days` 标 `disabled`（否则首次部署时 enabled=false 且未填比例会让每天都拒绝，之后一旦填上比例 + 打开开关，cron 会从 `activity_start` 一路补结并全部发钱）。
 
 不需要、也无法判断"开关曾经打开过"：`options` 只存当前值，没有变更历史。因此口径统一为 §4.4 的"执行时刻配置"——当前打开则比例必须合法，当前关闭则按 0 推水位且不补发。
 
@@ -382,18 +384,37 @@ rebate/
 
 ## 8. fork 改动
 
-原则：新代码放新文件，上游文件只做挂载级改动。
+原则：返利专用代码放新文件；上游文件只做挂载级改动，以及修正会影响返利口径（R、C）的支付与计费缺陷。改动范围以下表为准：代码中只有部分位置带 `fork (ikun)` 注释，合并上游时须按本表逐个文件核对，不能只搜索标记。
 
 ### 8.1 后端
 
 | 文件 | 类型 | 内容 |
 |---|---|---|
-| `model/rebate.go` | 新 | 3 个 GORM 模型；`TopUp.AfterCreate` 钩子（§2.2，与订单插入同一事务，钩子返回错误即下单失败）；`IncreaseUserQuotaAsRecharge(userId, quota, paidQuota, operatorId)`：同一事务内带钱包上限加额度 + 插入 `rebate_admin_recharges`，提交后更新用户缓存 |
-| `model/main.go` | 上游 | `migrateDB` 与 `migrateDBFast` 各注册 3 个模型 |
-| `controller/user.go` | 上游 | `ManageRequest` 加 `Recharge bool`、`PaidQuota *int`；`add_quota` 的 `add` 分支在 `Recharge` 时校验 `PaidQuota`（缺省等于 `Value`，`0 < paid ≤ value`）并改调 `IncreaseUserQuotaAsRecharge`；审计 params 带 `recharge`、`paid_quota` |
-| `controller/rebate_admin.go` | 新 | `GET/POST/DELETE /api/rebate/exclusions`，RootAuth |
-| `router/api-router.go` | 上游 | 挂排除名单路由 |
-| `controller/rebate_info.go` | fork 已有，重写 | 读 `IkunRebateEnabled`/`IkunRebateRate`（直读 DB + 60 秒缓存）与 `rebate_meta`；任一缺失/非法或 `rebate_meta` 表不存在 → `{"enabled":false}`；否则 `{"enabled":true,"rate":..,"activity_start":..,"timezone":..}` |
+| `model/rebate.go` | 新 | 3 个 GORM 模型；`ParseIkunRebateRate` 与选项校验（§3.3）；`paidQuotaFromCharge`；`TopUp.AfterCreate` 快照钩子（§2.2，与订单插入同一事务，钩子返回错误即下单失败；Waffo 沙箱、Creem 测试模式写 0）；`GatewayCharge` 与 `applyGatewayCharge`（按网关报告的折扣或测试标记只下调快照） |
+| `model/aff_code.go` | 新 | `retired_aff_codes`：硬删除用户的邀请码入表，`NewAffCode` 永不重发；`EnsureAffCode` 只写 `aff_code` 一列 |
+| `model/main.go` | 上游 | `migrateDB` 注册上面的 4 个模型（含 `RetiredAffCode`） |
+| `model/user_quota_adjustment.go` | 上游 | `AdjustUserQuota(..., recharge *UserQuotaRecharge)`：`add` 且带 `recharge` 时，同一事务内加额度并插入 `rebate_admin_recharges`（`0 < paid ≤ value`） |
+| `model/user.go` | 上游 | 所有注册路径（含 OAuth、微信）把 `inviter_id` 写进新用户行；邀请奖励只发给启用状态的邀请人，入账成功才记日志；`TransferAffQuotaToQuota` 要求划转额为正、受钱包上限约束、只更新 `quota`/`aff_quota` 两列，提交后刷新钱包缓存并写系统日志；`GetUserQuota`/`IncreaseUserQuota`/`DecreaseUserQuota` 同步读写数据库（040f8d4a4），`DecreaseUserQuota` 未命中行时报错；`IsOidcIdAlreadyTaken` 含软删用户；`HardDelete` 先回收邀请码 |
+| `model/option.go` | 上游 | `IkunRebateEnabled`/`IkunRebateRate` 写入前校验；`UpdateOption` 不再吞掉写库错误 |
+| `model/topup.go` | 上游 | `RechargeEpay` 在锁内比对通知金额，低于订单金额不到账（`ErrPaymentAmountTooLow`）；Stripe、Creem、Waffo Pancake 回调传入 `GatewayCharge`；`ManualCompleteTopUp` 的到账与回调一致，并按 `paid_money` 下调快照（§2.2） |
+| `model/subscription.go` | 上游 | 订阅订单写 `top_ups` 时，不覆盖已有的钱包充值行 |
+| `model/quota_reserve.go`、`model/user_cache.go`（及 `model/user.go`、`model/checkin.go`、`model/subscription.go`、`model/user_quota_adjustment.go` 的相应部分） | 上游 | 钱包余额以数据库为准（040f8d4a4）：预扣在数据库内原子校验并提交，Redis 与批量更新不能授权扣费；缓存只是快照，钱包变动后刷新，资料更新不覆盖它 |
+| `model/checkin.go` | 上游 | 签到奖励为 0 时跳过，入账受钱包上限约束 |
+| `controller/user.go`、`controller/user_quota.go` | 上游 | `ManageRequest` 加 `Recharge`、`PaidQuota`（缺省等于 `Value`），审计 params 带 `recharge`、`paid_quota`；划转接口只回固定文案；`GetAffCode` 改调 `EnsureAffCode` |
+| `controller/wechat.go` | 上游 | 微信登录读取 `aff`，新用户绑定邀请人 |
+| `controller/rebate_admin.go` | 新 | `GET/POST/DELETE /api/rebate/exclusions`，RootAuth；用户不存在、重复、未知 id 返回对应文案 |
+| `controller/audit.go` | 上游 | 排除名单的审计模板 `rebate.exclusion_add` / `rebate.exclusion_delete` |
+| `controller/misc.go` | 上游 | `/api/status` 返回 `topup_link`（钱包与侧栏的充值入口按配置读取） |
+| `router/api-router.go`、`middleware/access_token_routes.go` | 上游 | 挂排除名单路由；个人访问令牌按 `option:read`/`option:write` 授权 |
+| `controller/rebate_info.go` | fork 已有，重写 | 读 `IkunRebateEnabled`/`IkunRebateRate`/`LogConsumeEnabled`（直读 DB + 60 秒缓存）与 `rebate_meta`。`rebate_meta` 表不存在或活动窗口非法 → `{"enabled":false}`；否则返回 `activity_start`/`timezone`，`enabled` = 比例合法且开关为 `"true"` 且 `LogConsumeEnabled` 缺省或为 `"true"`，仅在 `enabled` 时返回 `rate` |
+| `controller/topup.go` | 上游 | `RequestEpay` 下单时把发给网关的舍入后金额写入 `Money`（实付快照由它换算）；易支付回调把通知金额传给 `RechargeEpay`；补单接口加 `paid_money`（≥ 0） |
+| `controller/topup_waffo.go` | 上游 | `RequestWaffoPay` 按币种舍入后的金额同时作为 `OrderAmount` 发给网关并写入 `Money`，舍入为 0 的订单不创建 |
+| `controller/topup_stripe.go`、`controller/subscription_payment_stripe.go` | 上游 | Checkout Session 写 `metadata.new_api_trade_no`；完成、过期、异步失败事件只接受为该订单创建的会话；按 `amount_subtotal`/`amount_total`/`livemode` 构造 `GatewayCharge` |
+| `controller/topup_creem.go`、`controller/topup_waffo_pancake.go` | 上游 | 按网关报告的折扣与测试标记构造 `GatewayCharge`；Waffo Pancake 下单时把舍入后的金额写入 `Money` |
+| `controller/channel-test.go` | 上游 | 渠道测试日志 `quota` 记 0（不扣任何人），估算费用放 `admin_info.channel_test_quota` |
+| `service/billing.go`、`service/billing_session.go`、`service/funding_source.go`、`service/text_quota.go`、`service/quota.go`、`service/log_info_generate.go`、`main.go` | 上游 | 消费日志 `quota` 只记实际提交的扣费（结算失败时记预扣额，差额放 `admin_info.unsettled_quota`）；图片追加预扣后，失败退款累计退还全部预扣额（`WalletFunding.PreConsume` 用 `+=`，不只退最后一次）；已退款的会话不再结算；关闭时等待未完成的退款；实时与音频按次计价模型带上 `ModelPrice`；实时会话按轮扣费与最终结算合计只扣一次，订阅会话不查钱包余额；分层表达式计价的实时会话每轮扣“会话累计用量的表达式费用 − 已扣额”，并照常检查余额；音频、图片与缓存 token 进入 `ai`/`ao`/`img`/`cr`，表达式引用 `cr` 时缓存音频不再重复计入 `ai` |
+| `relay/channel/openai/relay_realtime.go`、`relay/common/relay_info.go` | 上游 | 实时会话：最终结算前关闭上游并等待两个读协程退出（超时后仍由结算锁等待在途的按轮扣费完成），结算后读协程不再扣费也不再转发；按轮扣费时传入含本轮的会话累计用量；累计时保留图片与分模态缓存明细；`response.done` 缺 `total_tokens` 时按输入加输出计；按轮已扣额记在 `WssChargedQuota`，结算失败的差额记在 `UnsettledQuota` |
+| `common/log_text.zh-CN.json` | 上游 | 新增服务端日志行的中文 |
 
 `AfterCreate` 注意：钩子在 `model` 包，读取 `setting`/`operation_setting` 的单价（`model` 已依赖这些包，无循环）。只对 5 个已知 `PaymentProvider` 写行。
 
@@ -401,11 +422,18 @@ rebate/
 
 | 文件 | 类型 | 内容 |
 |---|---|---|
-| `web/src/features/users/components/user-quota-dialog.tsx` | 上游 | `add` 模式下"充值"勾选框；勾选后显示"实付金额"输入（单位同额度输入，默认跟随额度，可改小），提交 `recharge`、`paid_quota` |
-| `web/src/features/users/api.ts` / `types.ts` | 上游 | 请求类型加两个可选字段 |
-| `web/src/features/system-settings/.../rebate-settings-section.tsx` | 新 | 开关、百分比（界面百分比，存小数）、排除名单表格（增删，分邀请人/受邀用户，带备注）、只读显示活动起点与时区 |
-| 系统设置某 tab 的 `section-registry.tsx` | 上游 | 注册上面的设置块 |
+| `web/src/features/users/components/user-quota-dialog.tsx`、`web/src/features/users/lib/rebate-recharge.ts` | 上游 / 新 | `add` 模式下"充值"勾选框；勾选后显示"实付金额"输入（单位同额度输入，默认跟随额度，可改小），提交 `recharge`、`paid_quota`；提交中不重复发送 |
+| `web/src/features/users/types.ts` | 上游 | 额度调整请求类型加 `recharge`、`paid_quota` 两个可选字段 |
+| `web/src/features/system-settings/general/rebate-settings-section.tsx` | 新 | 开关、百分比（界面百分比，存小数）、排除名单（增删，分邀请人/受邀用户，带备注；加载失败显示错误与重试）、只读显示活动起点与时区 |
+| `web/src/features/system-settings/billing/section-registry.tsx`、`web/src/features/system-settings/billing/index.tsx`、`web/src/features/system-settings/types.ts` | 上游 | 注册上面的设置块；`IkunRebateEnabled`/`IkunRebateRate` 的类型与默认值 |
+| `web/src/features/system-settings/hooks/use-update-option.ts` | 上游 | 保存 `TopUpLink` 后刷新状态缓存 |
+| `web/src/features/usage-logs/lib/format.ts` | 上游 | 排除名单审计动作的显示文案 |
+| `web/src/features/auth/types.ts`、`web/src/stores/system-config-store.ts`、`web/src/lib/status-query.ts`、`web/src/hooks/use-sidebar-data.ts`、`web/src/features/shop/index.tsx`、`web/src/features/wallet/index.tsx`、`web/src/features/wallet/components/recharge-form-card.tsx` | 上游 | 充值入口与兑换码链接按 `topup_link` 动态读取 |
 | `web/src/features/wallet/components/affiliate-rewards-card.tsx` | fork 已有 | 适配新 `rebate_info` 结构 |
+| `web/src/features/wallet/components/dialogs/billing-history-dialog.tsx`、`web/src/features/wallet/hooks/use-billing-history.ts`、`web/src/features/wallet/types.ts` | 上游 | 补单确认框加"实收金额"（网关收款币种，不做汇率换算），提交 `paid_money` |
+| `web/src/features/usage-logs/components/dialogs/details-dialog.tsx`、`web/src/features/usage-logs/types.ts` | 上游 | 管理员可见：结算未提交的金额（未扣或未退）、渠道测试的估算费用 |
+| `web/src/features/auth/api.ts` | 上游 | 微信登录带上 `aff` |
+| `web/src/lib/format.ts` | 上游 | 新增 `parseDecimalInput`：解析补单实收与管理员实付输入（全角数字与句号按 ASCII 读取，逗号后至多两位数字视为小数点，`1,000` 类写法拒绝），上面两个弹窗依赖它 |
 | `web/src/i18n/locales/*.json`（7 个） | 上游 | 新增文案 |
 
 ## 9. 测试
@@ -435,6 +463,10 @@ rebate/
 - `rebate_info` 返回契约（开启/关闭/非法值/表不存在）。
 - `TopUp.AfterCreate` 各渠道 `paid_quota` 换算、单价为 0 不写行。
 - `add_quota`：`recharge` 时 `paid_quota` 越界返回错误且额度不变；成功时额度与充值记录同时存在；插入充值记录失败时额度回滚。
+- 补单：各渠道到账与回调一致；`paid_money` 按 `实收 ÷ 标价` 下调快照，标价不为正时拒绝且订单保持待支付；实收写入充值日志。
+- 网关：Stripe、Creem、Waffo Pancake 的折扣与测试标记只下调快照；Stripe 只接受带本单 metadata 的会话；易支付通知金额低于订单金额不到账。
+- 计费：文本、音频、实时的消费日志都只记实际提交的扣费；实时会话合计只扣一次（倍率计价、按次计价、分层表达式含音频、图片、缓存音频与跨轮长上下文、订阅、令牌扣减失败）；分层表达式会话余额不足时按轮扣费被拒；按轮扣费失败的轮次只计一次，缺 `total_tokens`、不带用量、未收到 `response.done` 的轮次照常计，带用量的轮次不再叠加本地估算；用户挂断时关闭上游；按次计价的音频按价格计费。
+- 邀请：所有注册路径写入邀请人；停用的邀请人不发奖励；硬删除用户的邀请码不再发放。
 
 ## 10. 已定取舍
 

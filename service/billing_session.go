@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -50,6 +52,11 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.settled {
 		return nil
 	}
+	if s.refunded {
+		// The pre-consume was already returned; charging only the difference
+		// now would bill actual - preConsumed for the whole request.
+		return errBillingSessionRefunded
+	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
 		s.settled = true
@@ -58,7 +65,7 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
 	if !s.fundingSettled {
 		if err := s.funding.Settle(delta); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrBillingFundingNotSettled, err)
 		}
 		s.fundingSettled = true
 	}
@@ -82,6 +89,25 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	s.settled = true
 	return tokenErr
+}
+
+// pendingRefunds counts asynchronous refunds so shutdown can wait for them; a
+// refund dropped by process exit would keep the user's pre-consumed quota. A
+// plain counter is used because hijacked WebSocket sessions may still start
+// refunds while shutdown waits, which a sync.WaitGroup does not allow.
+var pendingRefunds atomic.Int64
+
+// WaitPendingRefunds blocks until no refund is in flight or timeout passes,
+// and reports whether they all finished.
+func WaitPendingRefunds(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for pendingRefunds.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return true
 }
 
 // Refund 退还所有预扣费，幂等安全，异步执行。
@@ -109,7 +135,9 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
 
+	pendingRefunds.Add(1)
 	gopool.Go(func() {
+		defer pendingRefunds.Add(-1)
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
 			common.SysLog(common.LogText("error refunding billing source: %s", err.Error()))

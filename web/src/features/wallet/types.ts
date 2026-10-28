@@ -286,4 +286,6 @@ export interface BillingHistoryResponse {
  */
 export interface CompleteOrderRequest {
   trade_no: string
+  /** Amount the gateway actually collected, in the currency of the order's list price (invite-rebate paid snapshot) */
+  paid_money?: number
 }

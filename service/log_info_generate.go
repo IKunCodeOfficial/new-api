@@ -45,6 +45,16 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 		clamp.Op, clamp.Kind, clamp.Original, clamp.Clamped, relayInfo.UserId, relayInfo.GetBillingModelName()))
 }
 
+// attachSettlementShortfall records the part of the request's cost that the
+// funding source never committed (see settleForConsumeLog) under admin_info,
+// so the uncharged or unrefunded difference can be reconciled by hand.
+func attachSettlementShortfall(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
+	if relayInfo == nil || other == nil || relayInfo.UnsettledQuota == 0 {
+		return
+	}
+	other.SetAdmin("unsettled_quota", relayInfo.UnsettledQuota)
+}
+
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
 	if other == nil {
 		return

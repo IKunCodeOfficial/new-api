@@ -85,8 +85,10 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 	return common.QuotaFromDecimalChecked(quota)
 }
 
-func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
-	if relayInfo.UsePrice {
+func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage, session *dto.RealtimeUsage) error {
+	// A per-request priced model is billed once, by the session's final
+	// settlement; charging its turns by ratio would bill it a second way.
+	if relayInfo.UsePrice || relayInfo.PriceData.UsePrice {
 		return nil
 	}
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
@@ -99,46 +101,58 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return err
 	}
 
-	modelName := relayInfo.OriginModelName
-	textInputTokens := usage.InputTokenDetails.TextTokens
-	textOutTokens := usage.OutputTokenDetails.TextTokens
-	audioInputTokens := usage.InputTokenDetails.AudioTokens
-	audioOutTokens := usage.OutputTokenDetails.AudioTokens
-	groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
-	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
+	var quota int
+	if tieredOk, sessionQuota, _ := TryTieredSettle(relayInfo, realtimeTieredTokenParams(relayInfo, session)); tieredOk {
+		// The final settlement prices the whole session with its expression
+		// and subtracts what the turns charged. Charging each turn the growth
+		// of that price keeps the session within the balances checked below,
+		// instead of pricing it by legacy ratios the model may not have.
+		quota = max(sessionQuota-relayInfo.WssChargedQuota, 0)
+	} else {
+		modelName := relayInfo.OriginModelName
+		textInputTokens := usage.InputTokenDetails.TextTokens
+		textOutTokens := usage.OutputTokenDetails.TextTokens
+		audioInputTokens := usage.InputTokenDetails.AudioTokens
+		audioOutTokens := usage.OutputTokenDetails.AudioTokens
+		groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
+		modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 
-	autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
-	if exists {
-		groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
-		logger.LogDebug(ctx, "final group ratio: %f", groupRatio)
-		relayInfo.UsingGroup = autoGroup.(string)
+		autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
+		if exists {
+			groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
+			logger.LogDebug(ctx, "final group ratio: %f", groupRatio)
+			relayInfo.UsingGroup = autoGroup.(string)
+		}
+
+		actualGroupRatio := groupRatio
+		userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
+		if ok {
+			actualGroupRatio = userGroupRatio
+		}
+
+		quotaInfo := QuotaInfo{
+			InputDetails: TokenDetails{
+				TextTokens:  textInputTokens,
+				AudioTokens: audioInputTokens,
+			},
+			OutputDetails: TokenDetails{
+				TextTokens:  textOutTokens,
+				AudioTokens: audioOutTokens,
+			},
+			ModelName:  modelName,
+			UsePrice:   relayInfo.UsePrice,
+			ModelRatio: modelRatio,
+			GroupRatio: actualGroupRatio,
+		}
+
+		var clamp *common.QuotaClamp
+		quota, clamp = calculateAudioQuota(quotaInfo)
+		noteQuotaClamp(relayInfo, clamp)
 	}
 
-	actualGroupRatio := groupRatio
-	userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
-	if ok {
-		actualGroupRatio = userGroupRatio
-	}
-
-	quotaInfo := QuotaInfo{
-		InputDetails: TokenDetails{
-			TextTokens:  textInputTokens,
-			AudioTokens: audioInputTokens,
-		},
-		OutputDetails: TokenDetails{
-			TextTokens:  textOutTokens,
-			AudioTokens: audioOutTokens,
-		},
-		ModelName:  modelName,
-		UsePrice:   relayInfo.UsePrice,
-		ModelRatio: modelRatio,
-		GroupRatio: actualGroupRatio,
-	}
-
-	quota, clamp := calculateAudioQuota(quotaInfo)
-	noteQuotaClamp(relayInfo, clamp)
-
-	if userQuota < quota {
+	// A subscription-funded session is limited by its subscription, which the
+	// charge below enforces; the wallet balance does not apply.
+	if relayInfo.BillingSource != BillingSourceSubscription && userQuota < quota {
 		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
 	}
 
@@ -146,7 +160,13 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
+	result, err := postConsumeQuotaWithResult(relayInfo, quota, 0, false)
+	// The session settlement in PostWssConsumeQuota bills the whole session,
+	// so it must subtract what these per-turn charges already took, including
+	// a turn whose wallet charge committed before a later step failed.
+	if result.FundingApplied {
+		relayInfo.WssChargedQuota += quota
+	}
 	if err != nil {
 		return err
 	}
@@ -154,15 +174,35 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	return nil
 }
 
+// realtimeTieredTokenParams reads realtime usage into billing-expression
+// inputs the way the other relay paths do, so audio and cached tokens reach the
+// ai/ao/cr variables instead of being priced as text.
+func realtimeTieredTokenParams(relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) billingexpr.TokenParams {
+	var usedVars map[string]bool
+	if snap := relayInfo.TieredBillingSnapshot; snap != nil {
+		usedVars = billingexpr.UsedVarsByHash(snap.ExprString, snap.ExprHash)
+	}
+	input := usage.InputTokenDetails
+	// Realtime audio_tokens include the cached audio that cached_tokens also
+	// counts. When cr prices cached tokens, ai must price only uncached audio
+	// so a cached audio token is billed once.
+	if cached := input.CachedTokensDetails; usedVars["cr"] && cached != nil && cached.AudioTokens != nil {
+		input.AudioTokens = max(input.AudioTokens-*cached.AudioTokens, 0)
+	}
+	return BuildTieredTokenParams(&dto.Usage{
+		PromptTokens:           usage.InputTokens,
+		CompletionTokens:       usage.OutputTokens,
+		TotalTokens:            usage.TotalTokens,
+		PromptTokensDetails:    input,
+		CompletionTokenDetails: usage.OutputTokenDetails,
+	}, false, usedVars)
+}
+
 func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
 	usage *dto.RealtimeUsage, extraContent []*common.Message) {
 
 	var tieredResult *billingexpr.TieredResult
-	tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, billingexpr.TokenParams{
-		P:   float64(usage.InputTokens),
-		C:   float64(usage.OutputTokens),
-		Len: float64(usage.InputTokens),
-	})
+	tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, realtimeTieredTokenParams(relayInfo, usage))
 	if tieredOk {
 		tieredResult = tieredRes
 	}
@@ -195,6 +235,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		},
 		ModelName:  modelName,
 		UsePrice:   usePrice,
+		ModelPrice: modelPrice,
 		ModelRatio: modelRatio,
 		GroupRatio: groupRatio,
 	}
@@ -225,8 +266,9 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
-		// we cannot just return, because we may have to return the pre-consumed quota
-		quota = 0
+		// we cannot just return, because we may have to return the pre-consumed quota.
+		// Turns already charged as they happened stay charged.
+		quota = relayInfo.WssChargedQuota
 		logContent = append(logContent, common.NewMessage("Possibly an upstream timeout"))
 		logger.LogError(ctx, common.LogText("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d",
 			relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, modelName, relayInfo.FinalPreConsumedQuota))
@@ -235,9 +277,10 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
-		logger.LogError(ctx, common.LogText("error settling billing: %s", err.Error()))
-	}
+	// Per-turn charges (PreWssConsumeQuota) already moved part of the cost;
+	// settle only the remainder so the session is billed once in total.
+	charged := relayInfo.WssChargedQuota
+	quota = settleForConsumeLog(ctx, relayInfo, quota-charged) + charged
 
 	logModel := modelName
 	logContent = append(logContent, extraContent...)
@@ -247,6 +290,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
+	attachSettlementShortfall(relayInfo, other)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     usage.InputTokens,
@@ -334,6 +378,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		},
 		ModelName:  billingModelName,
 		UsePrice:   usePrice,
+		ModelPrice: modelPrice,
 		ModelRatio: modelRatio,
 		GroupRatio: groupRatio,
 	}
@@ -374,9 +419,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
-		logger.LogError(ctx, common.LogText("error settling billing: %s", err.Error()))
-	}
+	quota = settleForConsumeLog(ctx, relayInfo, quota)
 
 	logModel := billingModelName
 	logContent = append(logContent, extraContent...)
@@ -386,6 +429,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
+	attachSettlementShortfall(relayInfo, other)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     usage.PromptTokens,

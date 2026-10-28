@@ -503,13 +503,17 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
 	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
+	// A channel test charges nobody. Consume logs must match what wallets paid
+	// (the invite-rebate consumption base sums them), so the log records zero
+	// and the would-be cost stays visible to administrators only.
+	other.SetAdmin("channel_test_quota", quota)
 	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
 		ChannelId:        channel.Id,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
 		ModelName:        info.OriginModelName,
 		TokenName:        "Model test",
-		Quota:            quota,
+		Quota:            0,
 		Content:          []*common.Message{common.NewMessage("Model test")},
 		UseTimeSeconds:   int(consumedTime),
 		IsStream:         info.IsStream,

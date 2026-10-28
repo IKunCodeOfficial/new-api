@@ -659,7 +659,7 @@ func setupAuthFlowControllerTest(t *testing.T) *authFlowTestOAuthProvider {
 	previousType := common.MainDatabaseType()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}, &model.User{}, &model.UserSession{}, &model.AuditLog{}))
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}, &model.User{}, &model.RetiredAffCode{}, &model.UserSession{}, &model.AuditLog{}))
 	model.DB, model.LOG_DB = db, db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	provider := &authFlowTestOAuthProvider{}
@@ -1166,5 +1166,37 @@ func TestOAuthLoginTermsConsentPersistsThroughAuthFlow(t *testing.T) {
 		assert.Equal(t, payload.TermsAcceptedAt, stored.TermsAcceptedAt)
 		_, err = model.ConsumeAuthFlow(response.Data.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth})
 		require.ErrorIs(t, err, model.ErrAuthFlowConsumed)
+	}
+}
+
+// WeChat login creates the account on first use, so it must bind the inviter
+// from the invite link like the other registration paths; an unknown code
+// registers without an inviter.
+func TestWeChatSignUpBindsInviter(t *testing.T) {
+	inviter, _ := setupSecurityEnrollmentTest(t)
+	require.NoError(t, model.DB.Model(inviter).Update("aff_code", "wx-inviter").Error)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true,"data":"wx-` + r.URL.Query().Get("code") + `"}`))
+	}))
+	t.Cleanup(upstream.Close)
+	previousEnabled, previousAddress, previousRegister := common.WeChatAuthEnabled, common.WeChatServerAddress, common.RegisterEnabled
+	common.WeChatAuthEnabled, common.WeChatServerAddress, common.RegisterEnabled = true, upstream.URL, true
+	t.Cleanup(func() {
+		common.WeChatAuthEnabled, common.WeChatServerAddress, common.RegisterEnabled = previousEnabled, previousAddress, previousRegister
+	})
+
+	for _, tc := range []struct {
+		code, aff   string
+		wantInviter int
+	}{
+		{code: "invited", aff: "wx-inviter", wantInviter: inviter.Id},
+		{code: "unknown-aff", aff: "no-such-code"},
+		{code: "no-aff"},
+	} {
+		response := securityEnrollmentRequest("GET", "/api/oauth/wechat?code="+tc.code+"&aff="+tc.aff, "", "", service.AuthIdentity{}, WeChatAuth)
+		require.Contains(t, response.Body.String(), `"success":true`, tc.code)
+		var created model.User
+		require.NoError(t, model.DB.Where("wechat_id = ?", "wx-"+tc.code).First(&created).Error)
+		assert.Equal(t, tc.wantInviter, created.InviterId, tc.code)
 	}
 }

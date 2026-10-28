@@ -244,6 +244,10 @@ func sessionAsyncPaymentFailed(ctx context.Context, event stripe.Event, callerIp
 		logger.LogWarn(ctx, common.LogText("Stripe async payment failed event missing order number client_ip=%s", callerIp))
 		return
 	}
+	if !stripeSessionMatchesOrder(event, referenceId) {
+		logger.LogWarn(ctx, common.LogText("Stripe failed session was not created for this order, ignored trade_no=%s event_id=%s client_ip=%s", referenceId, event.ID, callerIp))
+		return
+	}
 
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
@@ -272,10 +276,30 @@ func sessionAsyncPaymentFailed(ctx context.Context, event stripe.Event, callerIp
 	logger.LogInfo(ctx, common.LogText("Stripe top-up order marked as failed trade_no=%s client_ip=%s", referenceId, callerIp))
 }
 
+// stripeOrderMetadataKey binds a Checkout Session to the order it was created
+// for. client_reference_id alone is not enough: a buyer can set it on any
+// Payment Link of the same Stripe account and pay a different amount there.
+const stripeOrderMetadataKey = "new_api_trade_no"
+
+// stripeSessionMatchesOrder reports whether the event's session was created by
+// this server for referenceId. Metadata cannot be set through a Payment Link
+// URL, so a session paid elsewhere with a copied client_reference_id fails.
+func stripeSessionMatchesOrder(event stripe.Event, referenceId string) bool {
+	var session stripe.CheckoutSession
+	if event.Data == nil || common.Unmarshal(event.Data.Raw, &session) != nil {
+		return false
+	}
+	return referenceId != "" && session.Metadata[stripeOrderMetadataKey] == referenceId
+}
+
 // fulfillOrder is the shared logic for crediting quota after payment is confirmed.
 func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, customerId string, callerIp string) {
 	if len(referenceId) == 0 {
 		logger.LogWarn(ctx, common.LogText("Stripe order completion missing order number client_ip=%s", callerIp))
+		return
+	}
+	if !stripeSessionMatchesOrder(event, referenceId) {
+		logger.LogError(ctx, common.LogText("Stripe session was not created for this order, ignored trade_no=%s event_id=%s client_ip=%s", referenceId, event.ID, callerIp))
 		return
 	}
 
@@ -295,7 +319,7 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 		return
 	}
 
-	err := model.Recharge(referenceId, customerId, callerIp)
+	err := model.Recharge(referenceId, customerId, callerIp, stripeGatewayCharge(ctx, event))
 	if err != nil {
 		logger.LogError(ctx, common.LogText("Stripe top-up processing failed trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, err.Error()))
 		return
@@ -304,6 +328,24 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 	total, _ := strconv.ParseFloat(event.GetObjectValue("amount_total"), 64)
 	currency := strings.ToUpper(event.GetObjectValue("currency"))
 	logger.LogInfo(ctx, common.LogText("Stripe top-up succeeded trade_no=%s amount_total=%.2f currency=%s event_type=%s client_ip=%s", referenceId, total/100, currency, string(event.Type), callerIp))
+}
+
+// stripeGatewayCharge reads what a completed Checkout Session collected.
+// Promotion codes lower amount_total below amount_subtotal, and test-mode
+// events move no real money; both lower the rebate paid snapshot. The amounts
+// come from the typed session: GetObjectValue formats JSON numbers with %v and
+// turns 1,000,000 minor units into "1e+06". A session that cannot be read never
+// counts toward rebates.
+func stripeGatewayCharge(ctx context.Context, event stripe.Event) model.GatewayCharge {
+	if !event.Livemode {
+		return model.GatewayCharge{Test: true}
+	}
+	var session stripe.CheckoutSession
+	if event.Data == nil || common.Unmarshal(event.Data.Raw, &session) != nil {
+		logger.LogError(ctx, common.LogText("Stripe checkout session amounts unreadable, rebate paid snapshot set to zero event_id=%s", event.ID))
+		return model.GatewayCharge{Listed: 1, Charged: 0}
+	}
+	return model.GatewayCharge{Listed: session.AmountSubtotal, Charged: session.AmountTotal}
 }
 
 func sessionExpired(ctx context.Context, event stripe.Event) {
@@ -316,6 +358,10 @@ func sessionExpired(ctx context.Context, event stripe.Event) {
 
 	if len(referenceId) == 0 {
 		logger.LogWarn(ctx, common.LogText("Stripe checkout.expired missing order number"))
+		return
+	}
+	if !stripeSessionMatchesOrder(event, referenceId) {
+		logger.LogWarn(ctx, common.LogText("Stripe expired session was not created for this order, ignored trade_no=%s event_id=%s", referenceId, event.ID))
 		return
 	}
 
@@ -382,6 +428,7 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 		},
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
 		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
+		Metadata:            map[string]string{stripeOrderMetadataKey: referenceId},
 	}
 
 	if "" == customerId {

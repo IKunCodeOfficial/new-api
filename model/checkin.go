@@ -99,9 +99,14 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 			return common.NewMessage("Check-in failed, please try again later")
 		}
 
-		// 步骤2: 在事务中增加用户额度
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
+		// 步骤2: 在事务中增加用户额度，与 IncreaseUserQuota 一样受钱包上限约束
+		// （MySQL 对 +0 返回 0 行变化，零奖励不写库）
+		if quotaAwarded == 0 {
+			return nil
+		}
+		result := tx.Model(&User{}).Where("id = ? AND quota <= ?", userId, common.MaxWalletQuota-quotaAwarded).
+			Update("quota", gorm.Expr("quota + ?", quotaAwarded))
+		if result.Error != nil || result.RowsAffected != 1 {
 			return common.NewMessage("Check-in failed: quota update error")
 		}
 

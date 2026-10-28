@@ -97,7 +97,13 @@ func WeChatAuth(c *gin.Context) {
 				user.TermsAcceptedAt = common.GetTimestamp()
 			}
 
-			if err := user.Insert(0); err != nil {
+			// fork (ikun): WeChat sign-ups honour the invite link like the other
+			// registration paths, so the invitee is linked for rebates.
+			inviterId := 0
+			if aff := strings.TrimSpace(c.Query("aff")); aff != "" && len(aff) <= 32 {
+				inviterId, _ = model.GetUserIdByAffCode(aff)
+			}
+			if err := user.Insert(inviterId); err != nil {
 				common.ApiError(c, err)
 				return
 			}

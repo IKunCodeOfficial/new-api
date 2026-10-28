@@ -827,6 +827,39 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
+        {/* Settlement shortfall and channel-test estimate (admin only) */}
+        {props.isAdmin && adminInfo?.unsettled_quota ? (
+          <DetailSection
+            icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+            label={t('Settlement not committed')}
+            variant='danger'
+          >
+            {/* Negative: the actual cost was below the pre-consumed amount
+                and refunding the difference failed, so the user overpaid. */}
+            <DetailRow
+              label={
+                adminInfo.unsettled_quota < 0
+                  ? t('Unrefunded amount')
+                  : t('Uncharged amount')
+              }
+              value={formatLogQuota(Math.abs(adminInfo.unsettled_quota))}
+              mono
+            />
+          </DetailSection>
+        ) : null}
+        {props.isAdmin && adminInfo?.channel_test_quota ? (
+          <DetailSection
+            icon={<Route className='size-4' />}
+            label={t('Channel test')}
+          >
+            <DetailRow
+              label={t('Estimated cost (not charged)')}
+              value={formatLogQuota(adminInfo.channel_test_quota)}
+              mono
+            />
+          </DetailSection>
+        ) : null}
+
         {/* Reject reason (admin only) */}
         {props.isAdmin && adminInfo?.reject_reason && (
           <DetailSection

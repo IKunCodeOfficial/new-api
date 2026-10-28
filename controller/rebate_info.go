@@ -6,9 +6,7 @@ package controller
 // enabled=true for a configuration that job would refuse.
 
 import (
-	"math"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -18,24 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	ikunRebateEnabledKey = "IkunRebateEnabled"
-	ikunRebateRateKey    = "IkunRebateRate"
-	ikunRebateCacheTTL   = 60 * time.Second
-)
-
-// rebateRateIfUsable validates the rate the admin settings block wrote (spec
-// §3.3). The switch is not part of the answer: the rate is still reported to
-// the admin page while the activity is off, so that re-enabling it does not
-// silently start from a different rate. An absent key and an unparseable rate
-// are equally unusable.
-func rebateRateIfUsable(values map[string]string) (float64, bool) {
-	rate, err := strconv.ParseFloat(values[ikunRebateRateKey], 64)
-	if err != nil || math.IsNaN(rate) || rate <= 0 || rate >= 1 {
-		return 0, false
-	}
-	return rate, true
-}
+const ikunRebateCacheTTL = 60 * time.Second
 
 // rebateMetaIfUsable validates the activity window the settler wrote at init.
 // "Local" is rejected because Go resolves it while Python's ZoneInfo does not.
@@ -81,9 +62,10 @@ func GetRebateInfo(c *gin.Context) {
 		// Read the option rows back from the database rather than the in-memory
 		// OptionMap: the option sync loop never drops deleted rows, so a deleted
 		// row would keep advertising a stopped activity until restart.
-		options := make(map[string]string, 2)
+		options := make(map[string]string, 3)
 		var optionRows []model.Option
-		if err := model.DB.Where(map[string]any{"key": []string{ikunRebateEnabledKey, ikunRebateRateKey}}).Find(&optionRows).Error; err != nil {
+		optionKeys := []string{model.IkunRebateEnabledOptionKey, model.IkunRebateRateOptionKey, "LogConsumeEnabled"}
+		if err := model.DB.Where(map[string]any{"key": optionKeys}).Find(&optionRows).Error; err != nil {
 			// Fails closed: the map stays empty, so a transient read error can
 			// neither advertise a rate nor turn the switch on.
 			common.SysError("rebate_info: read rebate options: " + err.Error())
@@ -111,17 +93,27 @@ func GetRebateInfo(c *gin.Context) {
 			}
 		}
 
-		rate, rateUsable := rebateRateIfUsable(options)
+		// The rate uses the same strict form the save path enforces (spec §3.3);
+		// an absent key and an unparseable rate are equally unusable.
+		rate, rateUsable := model.ParseIkunRebateRate(options[model.IkunRebateRateOptionKey])
 		start, timezone, windowUsable := rebateMetaIfUsable(meta)
+
+		// The settler refuses to run unless consume logging is on: the row is
+		// absent (default on) or exactly "true".
+		logConsume, logConsumeSet := options["LogConsumeEnabled"]
+		consumeLogged := !logConsumeSet || logConsume == "true"
 
 		answer := gin.H{"enabled": false}
 		if windowUsable {
+			enabled := rateUsable && consumeLogged && options[model.IkunRebateEnabledOptionKey] == "true"
 			answer = gin.H{
-				"enabled":        rateUsable && options[ikunRebateEnabledKey] == "true",
+				"enabled":        enabled,
 				"activity_start": start,
 				"timezone":       timezone,
 			}
-			if rateUsable {
+			// The endpoint is public. The admin page reads the stored rate from
+			// /api/option/, so a planned or stopped rate is not advertised.
+			if enabled {
 				answer["rate"] = rate
 			}
 		}

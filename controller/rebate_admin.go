@@ -5,12 +5,14 @@ package controller
 // docs/superpowers/specs/2026-10-01-invite-rebate-design.md §2.3.
 
 import (
+	"errors"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // rebateExclusionNoteLimit matches note varchar(255): MySQL utf8mb4 and
@@ -42,6 +44,17 @@ func AddRebateExclusion(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
+	// A mistyped ID would otherwise succeed silently while the intended user
+	// keeps being paid. Soft-deleted users may still be excluded.
+	var users int64
+	if err := model.DB.Model(&model.User{}).Unscoped().Where("id = ?", req.UserId).Count(&users).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if users == 0 {
+		common.ApiErrorT(c, "User does not exist")
+		return
+	}
 	var existing int64
 	if err := model.DB.Model(&model.RebateExclusion{}).
 		Where("user_id = ? AND role = ?", req.UserId, req.Role).Count(&existing).Error; err != nil {
@@ -59,12 +72,17 @@ func AddRebateExclusion(c *gin.Context) {
 		CreatedAt: common.GetTimestamp(),
 	}
 	// The unique index on (user_id, role) stays the final guard; a concurrent
-	// duplicate fails here as a plain DB error rather than a silent second row.
+	// duplicate that lost the race is reported like the checked duplicate.
 	if err := model.DB.Create(row).Error; err != nil {
+		if model.DB.Model(&model.RebateExclusion{}).
+			Where("user_id = ? AND role = ?", req.UserId, req.Role).Count(&existing).Error == nil && existing > 0 {
+			common.ApiErrorT(c, "Already exists")
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
-	recordManageAuditFor(c, req.UserId, "rebate.exclusion_add", map[string]interface{}{
+	recordManageAuditFor(c, req.UserId, "rebate.exclusion_add", map[string]any{
 		"target_user_id": req.UserId,
 		"role":           req.Role,
 	})
@@ -79,6 +97,10 @@ func DeleteRebateExclusion(c *gin.Context) {
 	}
 	var row model.RebateExclusion
 	if err := model.DB.First(&row, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -86,7 +108,7 @@ func DeleteRebateExclusion(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordManageAuditFor(c, row.UserId, "rebate.exclusion_delete", map[string]interface{}{
+	recordManageAuditFor(c, row.UserId, "rebate.exclusion_delete", map[string]any{
 		"target_user_id": row.UserId,
 		"role":           row.Role,
 	})

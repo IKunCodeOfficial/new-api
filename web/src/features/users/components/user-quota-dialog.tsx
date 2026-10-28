@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -49,6 +50,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [loading, setLoading] = useState(false)
   const [recharge, setRecharge] = useState(false)
   const [paidAmount, setPaidAmount] = useState('')
+  // State updates are async, so a second Enter in the same tick would still
+  // see loading=false and submit the same adjustment (and recharge) twice.
+  const submittingRef = useRef(false)
+  const paidHintId = useId()
+  const paidErrorId = useId()
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
@@ -57,9 +63,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const amountValue = Number.parseFloat(amount) || 0
   const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
 
+  const asRecharge = mode === 'add' && recharge
+  // null: the paid amount is not a number such as 40 or 40.5.
   const paidQuotaValue = parsePaidQuota(paidAmount, quotaValue)
+  const paidMalformed = asRecharge && paidQuotaValue === null
   const paidInvalid =
-    mode === 'add' && recharge && isPaidQuotaInvalid(quotaValue, paidQuotaValue)
+    asRecharge &&
+    (paidQuotaValue === null || isPaidQuotaInvalid(quotaValue, paidQuotaValue))
 
   const resetForm = () => {
     setAmount('')
@@ -86,18 +96,27 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleConfirm = async () => {
+    if (submittingRef.current) return
     if (!amount && mode !== 'override') return
     if (quotaValue <= 0 && mode !== 'override') return
 
-    if (paidInvalid) {
-      toast.error(
-        t(
-          'Paid amount must be greater than 0 and not exceed the credited amount'
+    let rechargeFields: { recharge: true; paid_quota: number } | undefined
+    if (asRecharge) {
+      // A malformed amount is explained under its field. It must never fall
+      // back to the full price, which an empty field stands for.
+      if (paidQuotaValue === null) return
+      if (isPaidQuotaInvalid(quotaValue, paidQuotaValue)) {
+        toast.error(
+          t(
+            'Paid amount must be greater than 0 and not exceed the credited amount'
+          )
         )
-      )
-      return
+        return
+      }
+      rechargeFields = { recharge: true, paid_quota: paidQuotaValue }
     }
 
+    submittingRef.current = true
     setLoading(true)
     try {
       const value =
@@ -107,9 +126,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         action: 'add_quota',
         mode,
         value: mode === 'override' ? value : Math.abs(value),
-        ...(mode === 'add' && recharge
-          ? { recharge: true, paid_quota: paidQuotaValue }
-          : {}),
+        ...rechargeFields,
       })
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
@@ -122,6 +139,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     } catch (e: unknown) {
       handleServerError(e, t('Failed to adjust quota'))
     } finally {
+      submittingRef.current = false
       setLoading(false)
     }
   }
@@ -226,17 +244,27 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 <Label htmlFor='paid-amount'>
                   {t('Paid amount')} ({currencyLabel})
                 </Label>
+                {/* A text input keeps unparsable text visible; a number input
+                    would report it as '', which stands for the full price. */}
                 <Input
                   id='paid-amount'
-                  type='number'
-                  step={tokensOnly ? 1 : 0.000001}
-                  min={0}
+                  type='text'
+                  inputMode='decimal'
+                  autoComplete='off'
                   placeholder={amount || placeholder}
                   value={paidAmount}
                   onChange={(e) => setPaidAmount(e.target.value)}
                   aria-invalid={paidInvalid}
+                  aria-describedby={
+                    paidMalformed ? `${paidHintId} ${paidErrorId}` : paidHintId
+                  }
                 />
-                <p className='text-muted-foreground text-xs'>
+                {paidMalformed && (
+                  <FieldError id={paidErrorId} className='text-xs'>
+                    {t('Enter an amount such as 40 or 40.5')}
+                  </FieldError>
+                )}
+                <p id={paidHintId} className='text-muted-foreground text-xs'>
                   {t(
                     'Defaults to the credited amount. Enter less if a discount was given.'
                   )}

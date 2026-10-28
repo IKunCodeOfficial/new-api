@@ -79,6 +79,34 @@ export function formatQuota(quota: number): string {
 }
 
 /**
+ * Parse a non-negative decimal amount typed into a text field, such as `40`,
+ * `40.5`, or `40.` and `40,` while it is still being typed. Surrounding spaces
+ * are ignored, and full-width digits and the full-width or ideographic full
+ * stop (`．` `。`) typed with a Chinese input method read as their ASCII forms.
+ * A single comma followed by at most two digits is a decimal comma (`40,5`),
+ * the only separator some decimal keypads offer; three digits after a comma
+ * (`1,000`) may be digit grouping, and a money amount must not be misread, so
+ * that is rejected.
+ *
+ * Returns null when the text is empty or not such an amount; callers that
+ * treat empty input as a default must check for it before calling.
+ */
+export function parseDecimalInput(text: string): number | null {
+  const normalized = text
+    .trim()
+    .replaceAll(/[０-９]/g, (digit) =>
+      String.fromCharCode(digit.charCodeAt(0) - 0xfee0)
+    )
+    .replaceAll(/[。．]/g, '.')
+  const decimal = /^\d+[,，]\d{0,2}$/.test(normalized)
+    ? normalized.replace(/[,，]/, '.')
+    : normalized
+  if (!/^\d+(\.\d*)?$/.test(decimal)) return null
+  const amount = Number(decimal)
+  return Number.isFinite(amount) ? amount : null
+}
+
+/**
  * Parse quota from the current display input back to quota units.
  */
 export function parseQuotaFromDollars(amount: number): number {

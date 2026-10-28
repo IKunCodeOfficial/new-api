@@ -228,8 +228,9 @@ export async function createOAuthFlow(
 export async function wechatLoginByCode(code: string): Promise<ApiResponse> {
   // The WeChat dialog is only reachable after the legal-consent gate; the
   // server requires this confirmation before it will auto-create an account.
+  const aff = getAffiliateCode()
   const res = await api.get('/api/oauth/wechat', {
-    params: { code, terms_accepted: 'true' },
+    params: { code, terms_accepted: 'true', aff: aff || undefined },
   })
   return res.data
 }

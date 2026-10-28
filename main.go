@@ -238,6 +238,11 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(common.LogText("server forced to shutdown: %v", err))
 	}
+	// Failed requests refund their pre-consumed quota asynchronously; let those
+	// database writes finish before the process exits.
+	if !service.WaitPendingRefunds(30 * time.Second) {
+		common.SysError(common.LogText("shutdown timed out waiting for pending quota refunds"))
+	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
 		model.SaveQuotaDataCache()

@@ -434,7 +434,7 @@ func TransferAffQuota(c *gin.Context) {
 	}
 	tran := TransferAffQuotaRequest{}
 	if err := c.ShouldBindJSON(&tran); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	err = user.TransferAffQuotaToQuota(tran.Quota)
@@ -444,37 +444,25 @@ func TransferAffQuota(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		common.ApiErrorT(c, "Transfer failed {{error}}", map[string]any{"error": err.Error()})
+		// Database errors stay in the server log; the client gets a fixed message.
+		logger.LogError(c, common.LogText("aff transfer failed for user %d: %s", id, err.Error()))
+		common.ApiErrorT(c, "Transfer failed")
 		return
 	}
 	common.ApiSuccessT(c, "Transfer successful", nil)
 }
 
 func GetAffCode(c *gin.Context) {
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, true)
+	affCode, err := model.EnsureAffCode(c.GetInt("id")) // fork (ikun): collision-free, aff_code-only write
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if user.AffCode == "" {
-		affCode, err := model.NewAffCode(model.DB) // fork (ikun): collision-free allocation
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		user.AffCode = affCode
-		if err := user.Update(false); err != nil {
-			common.ApiError(c, err)
-			return
-		}
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user.AffCode,
+		"data":    affCode,
 	})
-	return
 }
 
 func GetSelf(c *gin.Context) {

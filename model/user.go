@@ -572,8 +572,28 @@ func HardDeleteUserById(id int) (int64, error) {
 	return user.HardDelete()
 }
 
+// rewardInvitation pays the invitation bonuses of both registration paths.
+// A bonus is logged only once it was actually credited, and a disabled
+// inviter's account does not keep accruing referral rewards.
+func rewardInvitation(inviteeId, inviterId int) {
+	if common.QuotaForInvitee > 0 {
+		if err := IncreaseUserQuota(inviteeId, common.QuotaForInvitee, true); err != nil {
+			common.SysLog(common.LogText("failed to credit invitee bonus for user %d: %s", inviteeId, err.Error()))
+		} else {
+			RecordLog(inviteeId, LogTypeSystem, common.NewMessage("Invitation code bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInvitee)}))
+		}
+	}
+	if common.QuotaForInviter > 0 {
+		if err := inviteUser(inviterId); err != nil {
+			common.SysLog(common.LogText("failed to credit inviter bonus for user %d: %s", inviterId, err.Error()))
+		} else {
+			RecordLog(inviterId, LogTypeSystem, common.NewMessage("Bonus for inviting a user {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInviter)}))
+		}
+	}
+}
+
 func inviteUser(inviterId int) error {
-	result := DB.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]any{
+	result := DB.Model(&User{}).Where("id = ? AND status = ?", inviterId, common.UserStatusEnabled).Updates(map[string]any{
 		"aff_count":   gorm.Expr("aff_count + ?", 1),
 		"aff_quota":   gorm.Expr("aff_quota + ?", common.QuotaForInviter),
 		"aff_history": gorm.Expr("aff_history + ?", common.QuotaForInviter),
@@ -636,6 +656,11 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 		return err
 	}
 	syncCreditUserQuotaCache(user.Id, quota, "aff transfer")
+	// fork (ikun): rebates land in aff_quota, so every withdrawal must leave a
+	// record that reconciles paid rebates against the remaining referral balance.
+	RecordLog(user.Id, LogTypeSystem, common.NewMessage("Transferred {{quota}} of referral rewards to the balance, {{remaining}} left", map[string]any{
+		"quota": logger.FormatQuota(quota), "remaining": logger.FormatQuota(user.AffQuota),
+	}))
 	return nil
 }
 
@@ -702,6 +727,9 @@ func (user *User) Insert(inviterId int) error {
 				return err
 			}
 			user.AffCode = affCode
+			if inviterId != 0 {
+				user.InviterId = inviterId // fork (ikun): the rebate settler pays the stored inviter
+			}
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
@@ -740,15 +768,7 @@ func (user *User) finishInsert(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, common.NewMessage("New user sign-up bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForNewUser)}))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, common.NewMessage("Invitation code bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInvitee)}))
-		}
-		if common.QuotaForInviter > 0 {
-			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, common.NewMessage("Bonus for inviting a user {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInviter)}))
-			_ = inviteUser(inviterId)
-		}
+		rewardInvitation(user.Id, inviterId)
 	}
 }
 
@@ -770,6 +790,11 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 		user.AffCode = affCode
+		if inviterId != 0 {
+			// fork (ikun): OAuth registrations reach here; without this the invite
+			// bonus was paid but the invitee was never linked for rebates.
+			user.InviterId = inviterId
+		}
 
 		// 初始化用户设置
 		if user.Setting == "" {
@@ -801,14 +826,7 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		RecordLog(user.Id, LogTypeSystem, common.NewMessage("New user sign-up bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForNewUser)}))
 	}
 	if inviterId != 0 && operation_setting.IsPaymentComplianceConfirmed() {
-		if common.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, common.QuotaForInvitee, true)
-			RecordLog(user.Id, LogTypeSystem, common.NewMessage("Invitation code bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInvitee)}))
-		}
-		if common.QuotaForInviter > 0 {
-			RecordLog(inviterId, LogTypeSystem, common.NewMessage("Bonus for inviting a user {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaForInviter)}))
-			_ = inviteUser(inviterId)
-		}
+		rewardInvitation(user.Id, inviterId)
 	}
 }
 
@@ -1044,6 +1062,9 @@ func (user *User) HardDelete() (int64, error) {
 		if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
 			return err
 		}
+		if err := retireAffCodeWithTx(tx, user.Id); err != nil { // fork (ikun): circulating invite links
+			return err
+		}
 		return tx.Unscoped().Delete(user).Error
 	})
 	if err != nil {
@@ -1203,8 +1224,11 @@ func IsDiscordIdAlreadyTaken(discordId string) bool {
 	return DB.Unscoped().Where("discord_id = ?", discordId).Find(&User{}).RowsAffected == 1
 }
 
+// IsOidcIdAlreadyTaken counts soft-deleted accounts like the other providers
+// do, so a deleted account's identity cannot sign up again (with a new inviter
+// and a second set of sign-up bonuses).
 func IsOidcIdAlreadyTaken(oidcId string) bool {
-	return DB.Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
+	return DB.Unscoped().Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
 }
 
 func IsTelegramIdAlreadyTaken(telegramId string) bool {
@@ -1408,6 +1432,9 @@ func DecreaseUserQuota(id int, quota int, _ bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota cannot be negative")
 	}
+	if quota == 0 {
+		return nil
+	}
 	if err := decreaseUserQuota(id, quota); err != nil {
 		return err
 	}
@@ -1417,12 +1444,17 @@ func DecreaseUserQuota(id int, quota int, _ bool) (err error) {
 	return nil
 }
 
+// decreaseUserQuota reports a missing or soft-deleted wallet instead of
+// treating zero updated rows as a committed charge.
 func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
+	result := DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
 	}
-	return err
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

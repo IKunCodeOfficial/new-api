@@ -49,6 +49,7 @@ const originalPost = apiClient.post
 
 const PAID_REJECTED =
   'Paid amount must be greater than 0 and not exceed the credited amount'
+const PAID_MALFORMED = 'Enter an amount such as 40 or 40.5'
 
 let rendered: RenderResult | null = null
 const adjusted: QuotaAdjustPayload[] = []
@@ -80,9 +81,13 @@ async function enterCreditedAmount(amount: string): Promise<void> {
   await user.type(creditedAmountInput(), amount)
 }
 
+function paidAmountInput(): HTMLInputElement {
+  return screen.getByLabelText('Paid amount (USD)')
+}
+
 async function enterPaidAmount(amount: string): Promise<void> {
   const user = userEvent.setup()
-  await user.type(screen.getByLabelText('Paid amount (USD)'), amount)
+  await user.type(paidAmountInput(), amount)
 }
 
 async function markAsRecharge(): Promise<void> {
@@ -195,15 +200,64 @@ describe('user quota dialog recharge option', () => {
     expect(adjusted).toHaveLength(0)
   })
 
-  test('rejects a negative paid amount without sending a request', async () => {
-    renderDialog()
-    await enterCreditedAmount('10')
-    await markAsRecharge()
-    await enterPaidAmount('-8')
-    await confirm()
+  test.each(['-8', 'abc', '50,555', '1,000'])(
+    'rejects a malformed paid amount of %s instead of sending the full price',
+    async (entered) => {
+      renderDialog()
+      await enterCreditedAmount('100')
+      await markAsRecharge()
+      await enterPaidAmount(entered)
+      await confirm()
 
-    await waitForRejection()
-    expect(adjusted).toHaveLength(0)
+      expect(adjusted).toHaveLength(0)
+      expect(screen.getByText(PAID_MALFORMED)).not.toBeNull()
+    }
+  )
+
+  test('a malformed paid amount is marked invalid and described by its error', async () => {
+    renderDialog()
+    await enterCreditedAmount('100')
+    await markAsRecharge()
+    await enterPaidAmount('abc')
+
+    expect(paidAmountInput().getAttribute('aria-invalid')).toBe('true')
+    expect(paidAmountInput()).toHaveAccessibleDescription(
+      /Enter an amount such as 40 or 40\.5/
+    )
+  })
+
+  test('typing a decimal shows no error at the trailing point', async () => {
+    renderDialog()
+    await enterCreditedAmount('100')
+    await markAsRecharge()
+    await enterPaidAmount('50.')
+
+    expect(paidAmountInput().getAttribute('aria-invalid')).not.toBe('true')
+    expect(screen.queryByText(PAID_MALFORMED)).toBeNull()
+  })
+
+  test('reads a decimal comma, the only separator some keypads offer', async () => {
+    renderDialog()
+    await enterCreditedAmount('100')
+    await markAsRecharge()
+    await enterPaidAmount('50,5')
+    await confirm()
+    await waitForAdjustment()
+
+    // $50.5 at 500000 quota per USD
+    expect(adjusted[0]?.paid_quota).toBe(25_250_000)
+  })
+
+  test('reads a full-width amount typed with a Chinese input method', async () => {
+    renderDialog()
+    await enterCreditedAmount('100')
+    await markAsRecharge()
+    await enterPaidAmount('５０。5')
+    await confirm()
+    await waitForAdjustment()
+
+    // $50.5 at 500000 quota per USD
+    expect(adjusted[0]?.paid_quota).toBe(25_250_000)
   })
 
   test('sends no request for a zero credited amount', async () => {
@@ -225,6 +279,28 @@ describe('user quota dialog recharge option', () => {
     expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe(
       'false'
     )
+  })
+
+  test('a second Enter while the request is in flight does not submit twice', async () => {
+    let release: (() => void) | undefined
+    apiClient.post = async (_url, data) => {
+      adjusted.push(data as QuotaAdjustPayload)
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { data: { success: true } }
+    }
+    renderDialog()
+    await enterCreditedAmount('10')
+    await markAsRecharge()
+    const user = userEvent.setup()
+    await user.click(creditedAmountInput())
+    await user.keyboard('{Enter}{Enter}')
+
+    await waitFor(() => expect(release).toBeDefined())
+    release?.()
+    await waitFor(() => expect(onSuccessCalls).toHaveLength(1))
+    expect(adjusted).toHaveLength(1)
   })
 
   test('clears the recharge choice after a successful adjustment', async () => {

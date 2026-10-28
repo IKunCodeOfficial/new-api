@@ -87,12 +87,28 @@ describe('parsePaidQuota', () => {
     expect(parsePaidQuota('4000000', CREDITED)).toBe(4_000_000)
   })
 
-  test('does not turn a negative input into a positive amount', () => {
-    expect(parsePaidQuota('-8', CREDITED)).toBeLessThanOrEqual(0)
-  })
+  test.each(['8。5', '８．５', ' 8.5 ', '8,5', '8，5', '8,50'])(
+    'reads %s as the decimal amount 8.5',
+    (entered) => {
+      expect(parsePaidQuota(entered, CREDITED)).toBe(4_250_000)
+    }
+  )
 
-  test('treats unparseable input as no paid amount', () => {
-    expect(parsePaidQuota('abc', CREDITED)).toBe(0)
+  test.each(['abc', '1,000', '8,500', '1,000.5', '8,5,1', '$8', '-8', '.5'])(
+    'reports %s as malformed instead of falling back to the full price',
+    (entered) => {
+      expect(parsePaidQuota(entered, CREDITED)).toBeNull()
+    }
+  )
+
+  test.each(['8.', '8,', '8，'])(
+    'reads %s, an amount still being typed, as the whole number',
+    (entered) => {
+      expect(parsePaidQuota(entered, CREDITED)).toBe(4_000_000)
+    }
+  )
+
+  test('keeps a zero input as zero so the range check rejects it', () => {
     expect(parsePaidQuota('0', CREDITED)).toBe(0)
   })
 })
@@ -110,11 +126,5 @@ describe('isPaidQuotaInvalid', () => {
   test('accepts a paid amount between zero and the credited amount', () => {
     expect(isPaidQuotaInvalid(CREDITED, 1)).toBe(false)
     expect(isPaidQuotaInvalid(CREDITED, CREDITED)).toBe(false)
-  })
-
-  test('rejects the pair produced by an out-of-range negative input', () => {
-    const paidQuota = parsePaidQuota('-8', CREDITED)
-
-    expect(isPaidQuotaInvalid(CREDITED, paidQuota)).toBe(true)
   })
 })

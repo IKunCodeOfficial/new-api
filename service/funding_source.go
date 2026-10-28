@@ -50,7 +50,9 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if !reserved {
 		return ErrInsufficientWalletQuota
 	}
-	w.consumed = amount
+	// Image re-reservations call PreConsume again for the delta, so the refund
+	// total must accumulate rather than keep only the latest reservation.
+	w.consumed += amount
 	return nil
 }
 

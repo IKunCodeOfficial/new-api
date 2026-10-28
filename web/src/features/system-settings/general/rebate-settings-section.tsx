@@ -17,12 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { ErrorState } from '@/components/error-state'
+import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -34,8 +37,21 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import {
+  getServerErrorMessage,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 import {
   SettingsForm,
@@ -53,8 +69,8 @@ const schema = z.object({
   enabled: z.boolean(),
   ratePercent: z.coerce
     .number()
-    .min(0.01)
-    .lt(100)
+    .min(0.01, { message: 'Rate must be at least 0.01 and less than 100' })
+    .lt(100, { message: 'Rate must be at least 0.01 and less than 100' })
     .multipleOf(0.01, { message: 'Rate must have at most 2 decimal places' }),
 })
 
@@ -66,12 +82,16 @@ interface RebateInfo {
   timezone?: string
 }
 
+type ExclusionRole = 'inviter' | 'invitee'
+
 interface Exclusion {
   id: number
   user_id: number
-  role: 'inviter' | 'invitee'
+  role: ExclusionRole
   note: string
 }
+
+const exclusionsQueryKey = ['rebate-exclusions']
 
 export function RebateSettingsSection({
   defaultValues,
@@ -196,19 +216,28 @@ export function RebateSettingsSection({
 
 function RebateExclusionList() {
   const { t } = useTranslation()
-  const [rows, setRows] = useState<Exclusion[]>([])
+  const queryClient = useQueryClient()
+  const exclusions = useQuery({
+    queryKey: exclusionsQueryKey,
+    queryFn: async () => {
+      const res = await api.get<{ success: boolean; data?: Exclusion[] }>(
+        '/api/rebate/exclusions'
+      )
+      return requireServerSuccess(res.data).data ?? []
+    },
+    // The list shows its own error state with a retry button.
+    meta: { errorToast: false },
+  })
   const [userId, setUserId] = useState('')
-  const [role, setRole] = useState<'inviter' | 'invitee'>('inviter')
+  const [role, setRole] = useState<ExclusionRole>('inviter')
   const [note, setNote] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [removingId, setRemovingId] = useState<number | null>(null)
 
-  const load = () =>
-    api
-      .get('/api/rebate/exclusions')
-      .then((res) => setRows((res.data?.data as Exclusion[]) ?? []))
-
-  useEffect(() => {
-    void load()
-  }, [])
+  const roleItems = [
+    { value: 'inviter', label: t('As inviter') },
+    { value: 'invitee', label: t('As invitee') },
+  ]
 
   const add = async () => {
     const id = Number(userId)
@@ -216,25 +245,98 @@ function RebateExclusionList() {
       toast.error(t('Enter a valid user ID'))
       return
     }
-    const res = await api.post('/api/rebate/exclusions', {
-      user_id: id,
-      role,
-      note,
-    })
-    if (!res.data?.success) {
-      return
+    if (adding) return
+    setAdding(true)
+    try {
+      const res = await api.post('/api/rebate/exclusions', {
+        user_id: id,
+        role,
+        note,
+      })
+      if (!res.data?.success) {
+        handleServerError(res.data, t('Operation failed'))
+        return
+      }
+      setUserId('')
+      setNote('')
+      void queryClient.invalidateQueries({ queryKey: exclusionsQueryKey })
+    } catch (e: unknown) {
+      handleServerError(e, t('Operation failed'))
+    } finally {
+      setAdding(false)
     }
-    setUserId('')
-    setNote('')
-    void load()
   }
 
   const remove = async (id: number) => {
-    const res = await api.delete(`/api/rebate/exclusions/${id}`)
-    if (!res.data?.success) {
-      return
+    if (removingId !== null) return
+    setRemovingId(id)
+    try {
+      const res = await api.delete(`/api/rebate/exclusions/${id}`)
+      if (!res.data?.success) {
+        handleServerError(res.data, t('Delete failed'))
+        return
+      }
+      void queryClient.invalidateQueries({ queryKey: exclusionsQueryKey })
+    } catch (e: unknown) {
+      handleServerError(e, t('Delete failed'))
+    } finally {
+      setRemovingId(null)
     }
-    void load()
+  }
+
+  let list: ReactNode
+  if (exclusions.isPending) {
+    list = <LoadingState size='sm' className='min-h-16' />
+  } else if (exclusions.isError) {
+    list = (
+      <div role='alert'>
+        <ErrorState
+          className='min-h-32'
+          title={t('Failed to load excluded users')}
+          description={getServerErrorMessage(exclusions.error)}
+          onRetry={() => void exclusions.refetch()}
+        />
+      </div>
+    )
+  } else if (exclusions.data.length === 0) {
+    list = (
+      <p className='text-muted-foreground text-sm'>{t('No excluded users')}</p>
+    )
+  } else {
+    list = (
+      <table className='w-full text-sm'>
+        <thead className='text-muted-foreground text-left'>
+          <tr>
+            <th className='py-1'>{t('User ID')}</th>
+            <th className='py-1'>{t('Role')}</th>
+            <th className='py-1'>{t('Note')}</th>
+            <th className='py-1' />
+          </tr>
+        </thead>
+        <tbody>
+          {exclusions.data.map((row) => (
+            <tr key={row.id} className='border-t'>
+              <td className='py-1 tabular-nums'>{row.user_id}</td>
+              <td className='py-1'>
+                {row.role === 'inviter' ? t('As inviter') : t('As invitee')}
+              </td>
+              <td className='py-1'>{row.note}</td>
+              <td className='py-1 text-right'>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => remove(row.id)}
+                  disabled={removingId !== null}
+                >
+                  {t('Remove')}
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
   }
 
   return (
@@ -251,65 +353,43 @@ function RebateExclusionList() {
           type='number'
           min={1}
           placeholder={t('User ID')}
+          aria-label={t('User ID')}
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
         />
-        <select
-          className='border-input h-9 rounded-md border bg-transparent px-2 text-sm'
+        <Select
+          items={roleItems}
           value={role}
-          onChange={(e) => setRole(e.target.value as 'inviter' | 'invitee')}
+          onValueChange={(value) => {
+            if (value === 'inviter' || value === 'invitee') setRole(value)
+          }}
         >
-          <option value='inviter'>{t('As inviter')}</option>
-          <option value='invitee'>{t('As invitee')}</option>
-        </select>
+          <SelectTrigger className='h-9 w-36' aria-label={t('Role')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {roleItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <Input
           className='w-48'
           placeholder={t('Note')}
+          aria-label={t('Note')}
           maxLength={255}
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
-        <Button type='button' size='sm' onClick={add}>
+        <Button type='button' size='sm' onClick={add} disabled={adding}>
           {t('Add exclusion')}
         </Button>
       </div>
-      {rows.length === 0 ? (
-        <p className='text-muted-foreground text-sm'>
-          {t('No excluded users')}
-        </p>
-      ) : (
-        <table className='w-full text-sm'>
-          <thead className='text-muted-foreground text-left'>
-            <tr>
-              <th className='py-1'>{t('User ID')}</th>
-              <th className='py-1'>{t('Role')}</th>
-              <th className='py-1'>{t('Note')}</th>
-              <th className='py-1' />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className='border-t'>
-                <td className='py-1 tabular-nums'>{row.user_id}</td>
-                <td className='py-1'>
-                  {row.role === 'inviter' ? t('As inviter') : t('As invitee')}
-                </td>
-                <td className='py-1'>{row.note}</td>
-                <td className='py-1 text-right'>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='sm'
-                    onClick={() => remove(row.id)}
-                  >
-                    {t('Remove')}
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {list}
     </div>
   )
 }

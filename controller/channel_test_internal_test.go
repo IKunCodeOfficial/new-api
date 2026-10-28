@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -492,4 +493,44 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
 	require.Contains(t, recorder.Body.String(), "A channel test task is already running or queued")
+}
+
+// A channel test charges nobody. Consume logs feed the invite-rebate
+// consumption base, so the test's log records zero quota and keeps the
+// would-be cost for administrators only; the tester's wallet is untouched.
+func TestChannelTestLogsZeroQuotaAndKeepsTheEstimate(t *testing.T) {
+	db := setupRebateControllerTest(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Token{}))
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"channel-test-model":1}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios)) })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","created":1,"model":"channel-test-model",` +
+			`"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],` +
+			`"usage":{"prompt_tokens":1000,"completion_tokens":1000,"total_tokens":2000}}`))
+	}))
+	t.Cleanup(upstream.Close)
+	const startQuota = 10_000_000
+	userID := createRebateTestUser(t, startQuota, common.RoleRootUser)
+	baseURL := upstream.URL
+	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "channel-test-log", Key: "sk-test", BaseURL: &baseURL,
+		Status: common.ChannelStatusEnabled, Models: "channel-test-model", Group: "default"}
+	require.NoError(t, db.Create(channel).Error)
+
+	result := testChannel(t.Context(), channel, userID, "channel-test-model", "", false)
+	require.NoError(t, result.localErr)
+	require.Nil(t, result.newAPIError)
+
+	var log model.Log
+	require.NoError(t, model.LOG_DB.Where("user_id = ? AND type = ?", userID, model.LogTypeConsume).Last(&log).Error)
+	assert.Zero(t, log.Quota, "a channel test charges nobody")
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok, log.Other)
+	assert.Positive(t, adminInfo["channel_test_quota"], "the would-be cost stays visible to administrators")
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, startQuota, quota)
 }

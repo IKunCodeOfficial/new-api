@@ -671,6 +671,13 @@ func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
 		}
 		return err
 	}
+	// fork (ikun): only a subscription mirror row (amount 0) may be completed
+	// here. A wallet top-up sharing the trade_no would otherwise turn success
+	// without its quota ever being credited, and the rebate settler would then
+	// count it as a recharge.
+	if topup.Amount != 0 {
+		return ErrTopUpStatusInvalid
+	}
 	topup.Money = order.Money
 	if topup.PaymentMethod == "" {
 		topup.PaymentMethod = order.PaymentMethod

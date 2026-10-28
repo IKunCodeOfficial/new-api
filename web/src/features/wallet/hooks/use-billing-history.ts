@@ -94,7 +94,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
    * Complete a pending order (admin only)
    */
   const handleCompleteOrder = useCallback(
-    async (tradeNo: string) => {
+    async (tradeNo: string, paidMoney?: number) => {
       if (!isAdmin) {
         toast.error(i18next.t('Admin access required'))
         return false
@@ -102,7 +102,10 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
 
       setCompleting(true)
       try {
-        const response = await completeOrder({ trade_no: tradeNo })
+        const response = await completeOrder({
+          trade_no: tradeNo,
+          ...(paidMoney === undefined ? {} : { paid_money: paidMoney }),
+        })
         if (isApiSuccess(response)) {
           toast.success(i18next.t('Order completed successfully'))
           // Refresh the list

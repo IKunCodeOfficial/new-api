@@ -123,10 +123,11 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/user/2fa/stats":                          accessTokenScopeRule("user:read"),
 	"DELETE /api/user/:id/2fa":                         accessTokenScopeRule("user:write"),
 
-	// router/api-router.go: /api/rebate (root only)
-	"GET /api/rebate/exclusions":        accessTokenScopeRule("billing:read"),
-	"POST /api/rebate/exclusions":       accessTokenScopeRule("billing:write"),
-	"DELETE /api/rebate/exclusions/:id": accessTokenScopeRule("billing:write"),
+	// router/api-router.go: /api/rebate (root only). The exclusion list belongs
+	// with the IkunRebate* options it qualifies, not with top-up billing tools.
+	"GET /api/rebate/exclusions":        accessTokenScopeRule("option:read"),
+	"POST /api/rebate/exclusions":       accessTokenScopeRule("option:write"),
+	"DELETE /api/rebate/exclusions/:id": accessTokenScopeRule("option:write"),
 
 	// router/api-router.go: /api/subscription
 	"GET /api/subscription/plans":                                    accessTokenScopeRule("wallet:read"),

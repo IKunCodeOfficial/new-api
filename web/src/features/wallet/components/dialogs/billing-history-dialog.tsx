@@ -17,22 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -46,7 +38,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, parseDecimalInput } from '@/lib/format'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import {
@@ -81,16 +73,36 @@ export function BillingHistoryDialog({
   } = useBillingHistory()
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
+  // Fork-only (ikun): what the gateway actually collected, in the currency of
+  // the order's list price, for the invite rebate paid snapshot. The server
+  // scales the snapshot by collected ÷ list price, so the amount is sent as
+  // entered. Left empty, Stripe/Creem/Waffo Pancake orders do not count toward
+  // invite rebates (their real charge is only known to the gateway).
+  const [paidAmount, setPaidAmount] = useState('')
+  const paidInputId = useId()
+  const paidHintId = useId()
+  const paidErrorId = useId()
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
+  // A text input keeps unparsable text visible here; a number input would
+  // report it as '' and the order would be completed without an amount.
+  const paidMoney = parseDecimalInput(paidAmount)
+  const paidInvalid = paidAmount.trim() !== '' && paidMoney === null
+
+  const closeConfirm = () => {
+    setConfirmTradeNo(null)
+    setPaidAmount('')
+  }
 
   const handleConfirmComplete = async () => {
-    if (confirmTradeNo) {
-      const success = await handleCompleteOrder(confirmTradeNo)
-      if (success) {
-        setConfirmTradeNo(null)
-      }
+    if (!confirmTradeNo || paidInvalid) return
+    const success = await handleCompleteOrder(
+      confirmTradeNo,
+      paidMoney ?? undefined
+    )
+    if (success) {
+      closeConfirm()
     }
   }
 
@@ -323,32 +335,47 @@ export function BillingHistoryDialog({
       </Dialog>
 
       {/* Confirm Complete Order Dialog */}
-      <AlertDialog
+      <ConfirmDialog
         open={!!confirmTradeNo}
-        onOpenChange={(open) => !open && setConfirmTradeNo(null)}
+        onOpenChange={(open) => {
+          if (!open) closeConfirm()
+        }}
+        title={t('Complete Order')}
+        desc={t(
+          'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
+        )}
+        confirmText={completing ? t('Processing...') : t('Confirm')}
+        handleConfirm={() => void handleConfirmComplete()}
+        isLoading={completing}
+        disabled={paidInvalid}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Complete Order')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={completing}>
-              {t('Cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmComplete}
-              disabled={completing}
-            >
-              {completing ? t('Processing...') : t('Confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <div className='space-y-1.5'>
+          <Label htmlFor={paidInputId}>{t('Amount collected')}</Label>
+          <Input
+            id={paidInputId}
+            type='text'
+            inputMode='decimal'
+            autoComplete='off'
+            placeholder={t('Optional')}
+            value={paidAmount}
+            onChange={(e) => setPaidAmount(e.target.value)}
+            aria-invalid={paidInvalid}
+            aria-describedby={
+              paidInvalid ? `${paidHintId} ${paidErrorId}` : paidHintId
+            }
+          />
+          {paidInvalid && (
+            <FieldError id={paidErrorId} className='text-xs'>
+              {t('Enter an amount such as 40 or 40.5')}
+            </FieldError>
+          )}
+          <p id={paidHintId} className='text-muted-foreground text-xs'>
+            {t(
+              'What the payment gateway actually collected for this order, in the currency of its list price (for Stripe, the Checkout total in the Stripe price currency; for Creem, excluding tax). Only this counts toward invite rebates; left empty, Stripe, Creem and Waffo Pancake orders do not count.'
+            )}
+          </p>
+        </div>
+      </ConfirmDialog>
     </>
   )
 }

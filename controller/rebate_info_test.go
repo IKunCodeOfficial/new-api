@@ -13,29 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRebateRateIfUsable(t *testing.T) {
-	rate, ok := rebateRateIfUsable(map[string]string{"IkunRebateRate": "0.05"})
-	require.True(t, ok)
-	assert.Equal(t, 0.05, rate)
-
-	refused := map[string]map[string]string{
-		"missing":      {},
-		"empty":        {"IkunRebateRate": ""},
-		"zero":         {"IkunRebateRate": "0"},
-		"one":          {"IkunRebateRate": "1"},
-		"negative":     {"IkunRebateRate": "-0.1"},
-		"not a number": {"IkunRebateRate": "abc"},
-		"NaN":          {"IkunRebateRate": "NaN"},
-		"percent":      {"IkunRebateRate": "5"},
-	}
-	for name, values := range refused {
-		t.Run(name, func(t *testing.T) {
-			_, ok := rebateRateIfUsable(values)
-			assert.False(t, ok)
-		})
-	}
-}
-
 func TestRebateMetaIfUsable(t *testing.T) {
 	start, timezone, ok := rebateMetaIfUsable(map[string]string{"activity_start": "2026-09-01", "timezone": "Asia/Shanghai"})
 	require.True(t, ok)
@@ -122,7 +99,7 @@ func TestGetRebateInfo(t *testing.T) {
 			options: map[string]string{"IkunRebateEnabled": "false", "IkunRebateRate": "0.05"},
 			meta:    window,
 			want: map[string]any{
-				"enabled": false, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
 			},
 		},
 		{
@@ -130,12 +107,36 @@ func TestGetRebateInfo(t *testing.T) {
 			options: map[string]string{"IkunRebateRate": "0.05"},
 			meta:    window,
 			want: map[string]any{
-				"enabled": false, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
 			},
 		},
 		{
 			name:    "unusable rate still reports the window",
 			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "consume logging off",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05", "LogConsumeEnabled": "false"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "consume logging explicitly on",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0.05", "LogConsumeEnabled": "true"},
+			meta:    window,
+			want: map[string]any{
+				"enabled": true, "rate": 0.05, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",
+			},
+		},
+		{
+			name:    "rate in a form only Go parses",
+			options: map[string]string{"IkunRebateEnabled": "true", "IkunRebateRate": "0x1p-4"},
 			meta:    window,
 			want: map[string]any{
 				"enabled": false, "activity_start": "2026-09-01", "timezone": "Asia/Shanghai",

@@ -170,6 +170,12 @@ type RelayInfo struct {
 	// supported single-request bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.
 	QuotaClamp *common.QuotaClamp
+	// UnsettledQuota is the part of the final cost the funding source did not
+	// commit because settlement failed; it is recorded under admin_info.
+	UnsettledQuota int
+	// WssChargedQuota is what a realtime session already charged per turn
+	// before its final settlement.
+	WssChargedQuota int
 
 	// TieredBillingSnapshot captures tiered billing rules at pre-consume time.
 	// Auto-group retries refresh its group-dependent fields before each attempt

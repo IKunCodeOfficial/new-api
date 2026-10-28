@@ -467,3 +467,128 @@ python verify_final_readonly.py
 上述脚本均位于 `/private/tmp/rebate-blacklist-1247-20261011/`。最终证据为 `clone-a-report.json`、`clone-b-report.json`、`a/cli-report.json`、`b/cli-report.json`、`independent-final-comparison.json`。最终独立报告 SHA256：**5fcd12938e96aeef712130b75bf55e63f2b3ec43e34ca7e1a9dc42a0766f919c**。
 
 **结论：ID 1247 配置为 `role=inviter` 黑名单后不获得新增邀请返利，水位正常推进，移出后不补发，既得收益保留，正常对照不受影响。** 本轮未发现新业务 bug，未新增业务代码修改。结论限于上述 MySQL 8.0.46 与备份历史范围；10 月 7 日仍只覆盖备份中的部分日。黑名单仅在测试库配置，线上及原始恢复库配置保持原样。
+
+## 2026-10-21 ClickHouse 全量同步 MySQL 后的实网复验
+
+本轮在 ClickHouse 所在本机执行。Python 结算器 `ikun_rebate_v2` 不在本机，本轮未运行结算器；"结算"由两套与其无关的独立推演按规范计算：Python 逐日回放（输入取自 MySQL）与 ClickHouse 闭式 SQL。数据库仅 **MySQL 8.2.0**（与生产 dump 头的 Server version 一致），未验证 PostgreSQL/SQLite 兼容性矩阵。
+
+### 环境与数据同步
+
+- 业务表来自 `ik_______2026-10-17_00-21-00.sql.gz`，恢复到独立容器（仅绑定 127.0.0.1）的 `newapi_src`：用户 57,706、在线订单 112,172、兑换码 38,786、配置 129 项，与 ClickHouse 同批快照行数一致。
+- 日志从 ClickHouse 25.8.33.6 `archive.logs` 逐日同步：全部 14,343 名受邀用户的 type=2 共 66,230,935 条、type=6 共 2,494 条（2025-09-19 01:22:03 至 2026-10-17 00:21:02），另含全站 type=1/3/4/7 共 294,493 条。字符串以 HEX 传输；每天核对条数、`sum(quota)`、`sum(length(other))`、`sum(length(content))` 后才继续，全部一致。二级索引按生产 DDL 重建后逐项比对一致。
+- 网关跑在容器中，只发布到 127.0.0.1；真实渠道全部禁用，SMTP、OAuth、Turnstile、Worker 凭据清空，上游与 OAuth 身份源均为本机模拟。生产库表结构上首次启动迁移与二次启动的列/索引快照完全相同。除修复版新增的 `retired_aff_codes` 表外，修复版与基线版已有表的列/索引快照相同；该新表在两次启动下的快照也一致。
+
+### 历史充值与邀请核查
+
+- 99,433 笔成功在线订单与 99,433 条充值日志逐笔对上，到账额度与支付金额 100% 一致。其中 3,188 笔有折扣（合计 70,857 单位）；历史订单没有实付快照，结算侧会按到账额度计。另有 43 笔按 `create_time` 落日会比实际支付早一天。
+- 34,847 个已用兑换码与 34,847 条兑换日志在用户、额度、时间（≤5 秒）、日期上全部一致，含 4,160 个已软删除的已用码。
+- 56 期用户快照中，没有任何用户的 `inviter_id` 发生过变化，也没有硬删除用户。
+- **发现：OAuth 注册不写 `inviter_id`。** 邀请奖励照发、`aff_count` 照加，但受邀人不入返利。2026-05-27 起可按"邀请用户赠送"日志与同秒创建、唯一未绑定的 LinuxDO 账号精确匹配出 163 人；按 10% 计，至 10-17 共少发 289,196,223 quota。按 `aff_count` 与实际绑定数的差额估算，全史至少 594 人、涉及 185 名邀请人。修复后的数据修补 SQL 只生成、未执行（`/private/tmp/rebate-e2e/reports/`），已在副本上验证会更新 163 行。
+
+### 逐日推演（2025-09-19 至 2026-10-17，共 394 天，10%，QuotaPerUnit=500000）
+
+- MySQL 与 ClickHouse 两侧的逐日输入完全一致：充值 26,966 组、R 769,390,400,000；消费 154,351 组、C 1,200,505,148,508；订阅计费日志 0 条。
+- Python 回放与 ClickHouse 闭式结果逐行一致，共 64,494 条入账记录：返利合计 70,315,562,230 quota，其中正额 58,244 条、取整为 0 的 15 条、无新增基数的 6,108 条；3 名软删除邀请人作废 127 条（基数 402,555,071）。水位 6,411 条，获付邀请人 1,607 名。若历史订单按实付金额计，合计为 69,563,557,819。
+- 把回放金额加到隔离副本 `aff_quota`/`aff_history` 后，2,481 名邀请人全部通过 HTTP 登录，每人对全额发起 3 个并发划转并重试一次：
+  - 1,256 人恰好成功一次，1,049 人低于最低额被拒，172 人无余额，4 名软删除邀请人无法登录。
+  - 57,707 行用户的钱包、推广余额、累计收益增量全部符合预期，其它列零差异。
+  - 总额守恒：划转 70,249,296,124，剩余 66,278,654。
+
+### 实网 HTTP 用例与修复
+
+用例覆盖：
+- 密码注册与 OAuth 注册带邀请码；
+- 兑换码兑换（含并发）；
+- 易支付下单、实付快照、伪造签名、重复与并发回调、折扣档位；
+- 管理员充值标记及其非法值；
+- 排除名单权限与校验；
+- 返利开关与比例写入；
+- 模拟上游的真实消费与失败退款；
+- 按规范结算后划转（最低额、余额不足、钱包上限、并发、历史 NULL 字段、用户 1247）；
+- Creem 补单。
+
+结果：基线版 66 通过、16 失败。最终版扩展到 118 项，全部通过；在最终构建、全新的生产副本上重跑过。扩展项包括：
+- 低于订单金额的易支付回调；
+- 划转日志与错误信息；
+- 硬删除后邀请码退役；
+- 签到钱包上限；
+- 禁用邀请人；
+- 渠道测试日志记 0；
+- 管理员补单的实收金额（按 实收 ÷ 标价 下调快照、写入充值日志、已完成订单重复补单不再写日志）；
+- 实时语音（本机 WebSocket 模拟上游，两轮其中一轮缺 `total_tokens`）：倍率计价、按次计价、分层表达式计价的会话各写一条消费日志，钱包与令牌按日志金额只扣一次，用户挂断后上游连接被关闭；分层表达式计价的会话在钱包付不起某一轮时，在该轮 `response.done` 处中止会话，该轮已转发的内容由最终结算计一次（钱包可能透支一轮，属于“交付后扣费”）；本用例的模拟上游只发 `response.done`、不发 delta。
+
+之后用 10 轮多智能体对抗审查（每轮最多 3 次查找，每条发现三票核实）复核修复，确认问题一并修复。第 9 轮仍找出并修复了实时会话结算后读协程继续转发缓冲轮次的问题；第 10 轮在实时计费、资金路径、邀请、前端、测试与文档五个维度上连续两次查找均无任何发现，审查收敛。本轮修复：
+1. 注册：
+   - `InsertWithTx`/`Insert` 写入 `InviterId`，OAuth/OIDC/自定义 OAuth 注册的受邀人进入返利；微信注册也会带上邀请码。
+   - OIDC 身份在账号软删除后仍算已占用（与其它登录方式一致），不能重新注册换邀请人。
+2. 实付快照：
+   - Stripe 改为 `Amount × QuotaPerUnit`。
+   - Stripe 按 `amount_total/amount_subtotal` 扣除优惠码折扣，金额从类型化的 Checkout Session 读取（≥100 万最小单位也正确）。
+   - Creem 按 `(amount_paid − tax_amount)/sub_total` 扣除折扣码折扣。
+   - 沙箱/测试环境支付快照写 0。
+   - 管理员补单可带 `paid_money`（网关实收金额，币种与订单标价一致；Stripe 的标价是 数量 × Stripe 单价，Creem 填不含税金额），服务端按 实收 ÷ 标价 只下调快照，实收写入充值日志；Stripe/Creem/Pancake 不填时快照写 0。前端不再按显示汇率换算。
+3. 支付回调：
+   - 管理员补单按渠道入账（Creem 不再乘以 QuotaPerUnit）。
+   - 易支付回调在行锁事务内校验金额，低于下单时发给网关的金额即拒绝。
+   - Stripe 回调要求会话带本站写入的订单元数据，同账户其它 Payment Link 不能冒充订单完成、过期或异步支付失败。
+4. 返利设置：`IkunRebateRate` 只接受 `0.xxxx`，`IkunRebateEnabled` 只接受 `true`/`false`，写库失败不再报成功；`rebate_info` 使用同一解析，`LogConsumeEnabled` 关闭时报 `enabled=false`，未开启时不公开比例。
+5. 排除名单：拒绝不存在的用户 ID；并发重复与删除未知 ID 返回已翻译的错误；令牌作用域改为 `option:read/write`。
+6. 推广余额：
+   - 划转写系统日志，错误信息不再暴露内部细节。
+   - `GetAffCode` 只写 `aff_code`。
+   - 硬删除用户的邀请码记入 `retired_aff_codes`，`aff_code` 为 NULL 的老账号同样能硬删除。
+   - 禁用邀请人不再累计邀请奖励。
+7. 钱包与结算：
+   - 图片重新预留后，退款退回全部预扣。
+   - 结算写库失败时，消费日志只记录实际扣到的额度，差额进 `admin_info.unsettled_quota`；没有计费会话的旧路径同样处理。
+   - 已退款的会话不再结算；用户不存在时扣款不再静默成功。
+   - 关机时等待异步退款完成（原子计数）。
+   - 签到受钱包上限约束。
+   - 订阅完成不会把同号的钱包订单改成成功。
+8. 实时音频（WSS）与音频：
+   - 按轮扣费后结束时不再整段重复结算（原先多扣一倍）。
+   - 某轮扣费失败时，该轮不再被重复计入。
+   - 结算前先关闭上游、等待两个读取协程退出；结算后仍在运行的读协程（例如卡在向不读取的客户端转发）读到缓冲中的后续轮次时，既不扣费也不转发，直接退出；用户挂断时上游连接随之关闭。
+   - 钱包已扣、后续步骤失败的那一轮也计入已扣额度。
+   - 低余额提醒按整段会话计算。
+   - 按次计价的模型不按轮扣费，由最终结算计一次（原先按次计价的实时与音频请求结算为 0）。
+   - 分层表达式计价的模型每轮扣“会话累计用量的表达式费用 − 已扣额”并照常检查余额（原先按兜底倍率 37.5 逐轮先扣）；音频、图片、缓存 token 进入表达式的 `ai`/`ao`/`img`/`cr`，不再按文本价计；表达式同时引用 `cr` 与 `ai` 时，已缓存的音频只按 `cr` 计一次（实时上游的 `audio_tokens` 包含缓存音频）；会话累计时保留图片与分模态缓存明细。
+   - 订阅资金的会话不再因钱包余额不足被中断。
+   - `response.done` 缺 `total_tokens` 时按输入加输出计；缺 `response` 对象时不再触发空指针。
+9. 渠道测试：消费日志 quota 记 0（不扣任何人），估算写入 `admin_info.channel_test_quota`，管理员日志详情中显示估算与未扣金额。
+10. 前端：
+    - 额度弹窗防回车重复提交（会重复记充值）。
+    - 排除名单增删失败时提示，添加与移除都防重复点击；列表加载失败显示服务端原因与重试，不再显示为空；改用项目的 Select，输入控件有可访问名称。
+    - 比例范围校验提示已翻译。
+    - 额度弹窗的实付金额与补单弹窗的实收金额改为文本输入：浏览器无法解析的内容（如 `$50`）不再被当作空值按全额提交，而是显示错误并拒绝；全角数字与中文句号按半角读取；逗号后至多两位数字时视为小数点（部分小数键盘只有逗号），`1,000` 这类可能是千分位的写法拒绝；正在输入的 `40.`、`40,` 不报错。
+    - 补单确认改用共享的 ConfirmDialog；日志详情中结算差额为负时显示为“未退还金额”。
+    - 补齐 7 种语言文案（含俄语“未扣金额”的更正），新增服务端日志行的中文。
+
+### 命令与结果
+
+- `go test ./model ./controller ./service ./middleware ./router ./relay/... ./common ./i18n -count=1`（SQLite 默认夹具）：全部通过。`relay/channel/openai` 的 `TestImageExpressionUsesCompletedCountAndProtectsAbortedStreams` 耗时 30 秒，在未修改的 HEAD 上同样如此。
+- `go test -race ./relay/channel/openai -run TestRealtime -count=3` 与 `go test -race ./service -run 'TestRealtime|TestRefunded|TestWalletRefund|TestConsumeLog|TestPerRequestPricedAudio' -count=2`：通过。
+- MySQL 8.2.0（测试容器）：`REBATE_MYSQL_TEST_DSN=…/rebate_gotest TEST_MYSQL_DSN=…/mysql TEST_MANAGE_USER_DIALECT=mysql TEST_SECURITY_DIALECT=mysql TEST_FIXED_MYSQL_DSN=…/rebate_fixed REBATE_TEST_REDIS_URL=redis://…/13 REBATE_REDIS_TEST_URL=redis://…/14 go test -p 1 ./model ./controller ./service -count=1`：三个包通过。`rebate_gotest` 由最终版网关在全新生产副本上迁移生成；首次运行时 `TestRebateMySQLControllerContracts` 失败，原因是新副本没有结算器初始化写入的 `IkunRebateEnabled`/`IkunRebateRate` 两行，按结算器初始化补上后通过。最终代码在同一环境重跑三个包仍全部通过（`TestWeChatSignUpBindsInviter`、`TestChannelTestLogsZeroQuotaAndKeepsTheEstimate` 也在 MySQL 夹具上运行）。两次运行夹具产生的 `newapi_audit_*` 临时库（1,176 与 591 个）已删除。
+- 新增回归在修复前失败、修复后通过（实时、补单、音频、微信等用例均用回退修复的变异版本复核过）：
+  - 注册与邀请码：`TestInsertStoresInviterForEveryRegistrationPath`、`TestWeChatSignUpBindsInviter`、`TestInvitationBonusSkipsDisabledInviters`、`TestEnsureAffCodeWritesOnlyTheCode`（封禁落在读写之间、并发请求已先写入邀请码）、`TestHardDeletedAffCodeIsNeverReissued`（含 NULL 邀请码）、`TestDeletedAccountKeepsItsOidcIdentity`
+  - 充值与快照：`TestManualCompleteTopUpCreditsLikeGatewayCallback`（各渠道到账、按实收比例下调、无标价拒绝、充值日志）、`TestGatewayChargeAdjustsPaidSnapshot`、`TestSubscriptionCompletionLeavesWalletTopUpAlone`、`TestIkunRebateOptionsRejectValuesTheSettlerRefuses`、`TestTopUpPaidSnapshotMatchesGatewayAmount` 的沙箱行
+  - 支付回调：`TestEpayNotifyRejectsUnderpayment`、`TestStripeGatewayChargeReadsLargeAmounts`、`TestStripeFulfillmentRequiresTheSessionCreatedForTheOrder`（含异步支付失败；优惠码与测试模式经完成事件进入实付快照）、`TestAdminCompleteTopUpValidatesPaidMoney`
+  - 钱包与结算：`TestWalletRefundReturnsEveryImageReservation`、`TestConsumeLogRecordsOnlyTheCommittedCharge`（文本、音频、实时三条路径；钱包已扣、仅令牌更新失败时记全额，计费会话与无会话的旧路径各一行）、`TestRefundedSessionIsNotSettledAndShutdownWaitsForRefund`、`TestPerRequestPricedAudioIsBilledItsPrice`、`TestCheckinRespectsTheWalletCap` 与 `TestRebateMySQLCheckinRespectsTheWalletCap`（MySQL 上零奖励不报错）、`TestTransferAffQuotaUpdatesCachedWalletQuota` 中的划转日志断言
+  - 实时音频：`TestRealtimeSessionIsBilledOnce`（倍率、按次、分层表达式、含音频输入、跨轮长上下文、缓存音频与音频输出、不含 `cr` 时缓存音频按音频计、图片输入、余额不足、用量只在明细中（会话总量为 0 仍保留按轮已扣）、订阅、令牌扣减失败十二行）、`TestRealtimeSessionUsageCountsEveryTurnOnce`（按轮扣费失败、缺 `total_tokens`、先 delta 后带用量的 `response.done`、跨轮保留图片与缓存明细、未收到 `response.done` 的已交付输出、不带用量的 `response.done`）、`TestRealtimeUserHangUpClosesUpstream`、`TestRealtimeHandlerWaitsForAnInFlightTurnCharge`（读协程等待期内与超出等待上限两种情况）、`TestRealtimeSettledSessionNeitherChargesNorDeliversLaterTurns`
+  - 其它：`TestChannelTestLogsZeroQuotaAndKeepsTheEstimate`、`TestUpdateOptionReportsAFailedWrite`、`TestRebateExclusion*` 与 `TestGetRebateInfo` 的新增行
+  - 前端：`user-quota-dialog` 重复提交与无法解析的实付金额、`rebate-recharge.test.ts`、`rebate-exclusions.test.tsx`（含加载失败与重试）、`rebate-rate.test.tsx`、`billing-history-complete.test.tsx`、`settlement-shortfall.test.tsx`、`wechat-login.test.ts`
+- 通过的检查：
+  - `go vet`
+  - `gofmt -l`（仅本次未改动的 `service/privacy/privacy.go` 有输出）
+  - `bun run typecheck`、修改文件的 `oxlint` 与 `oxfmt --check`、`bun run build`
+  - `bunx vitest run src/features/wallet src/features/system-settings src/features/usage-logs src/features/users src/features/auth src/lib`（84 个文件、922 项通过）
+- 实网 HTTP 用例 118 项在最终构建、全新的生产副本上全部通过；该副本上首次与二次启动的列/索引快照一致，与上一版构建的快照也一致。
+- 全体邀请人 HTTP 划转在此前的修复版上复跑通过，并核对每次成功划转恰好一条划转日志。
+
+未覆盖与遗留：
+- Python 结算器 `ikun_rebate_v2` 不在本机，其实现本身未运行。本机 `/Users/hzy/PycharmProjects/ikun_rebate` 是已被取代的 v3.2 设计（直接加 `users.quota`、本地 SQLite 台账、不读实付快照与管理员充值），与本规范口径不同，没有拿来代替。`newapi_src` 已具备全量日志与生产索引，可直接接入复验。
+- 未调用真实支付、Stripe 或上游供应商；实时语音只用本机模拟上游验证。
+- 实时音频与 Midjourney 仍是"已交付后扣费"，并发会话最多透支一次请求的费用；重复结算问题已修复。
+- 部署前已创建、部署后才支付的 Stripe 会话不带订单元数据，不会自动入账，需要管理员补单。
+- 补单的 Stripe 标价使用补单时的 Stripe 单价；单价在下单与补单之间被修改时，按实收比例算出的快照会有偏差。
+- 本轮修改未提交、未部署。新增表 `retired_aff_codes` 的迁移只在 MySQL 8.2.0 上验证（新库、生产库升级、二次启动幂等），未覆盖 SQLite/PostgreSQL 矩阵。

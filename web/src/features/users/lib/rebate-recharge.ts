@@ -16,22 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { parseQuotaFromDollars } from '@/lib/format'
+import { parseDecimalInput, parseQuotaFromDollars } from '@/lib/format'
 
 /**
  * fork (ikun): paid amount of an admin recharge, in quota units.
  *
  * An empty input means the full price was paid, so the paid amount follows the
  * credited amount. Anything else is entered in the same display unit as the
- * credited amount and must stay a real payment: negatives are rejected by
- * {@link isPaidQuotaInvalid} instead of being silently made positive.
+ * credited amount and read by {@link parseDecimalInput}. Text that is not such
+ * an amount (a sign, a currency symbol, digit grouping, letters) returns null:
+ * the caller must reject it, never fall back to the full price.
  */
 export function parsePaidQuota(
   paidAmount: string,
   creditedQuota: number
-): number {
+): number | null {
   if (paidAmount.trim() === '') return creditedQuota
-  return parseQuotaFromDollars(Number.parseFloat(paidAmount) || 0)
+  const amount = parseDecimalInput(paidAmount)
+  return amount === null ? null : parseQuotaFromDollars(amount)
 }
 
 /**

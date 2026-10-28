@@ -62,6 +62,7 @@ func TestMain(m *testing.M) {
 		&RebateAdminRecharge{},
 		&RebateTopupPaid{},
 		&RebateExclusion{},
+		&RetiredAffCode{},
 		&UserAccessToken{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())

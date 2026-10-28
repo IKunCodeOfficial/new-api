@@ -469,13 +469,17 @@ func EpayNotify(c *gin.Context) {
 		// 数据库行锁 + 事务内状态校验保证（多实例部署下同样安全）。
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
-		alreadyDone, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP())
+		// fork (ikun): the order amount is also what the rebate paid snapshot
+		// recorded, so a notification for less than it is never credited.
+		alreadyDone, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP(), verifyInfo.Money)
 		if err != nil {
 			switch {
 			case errors.Is(err, model.ErrTopUpNotFound):
 				logger.LogWarn(c.Request.Context(), common.LogText("Epay callback order not found trade_no=%s callback_type=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP(), common.GetJsonString(verifyInfo)))
 			case errors.Is(err, model.ErrPaymentMethodMismatch):
 				logger.LogWarn(c.Request.Context(), common.LogText("Epay order payment gateway mismatch trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
+			case errors.Is(err, model.ErrPaymentAmountTooLow):
+				logger.LogError(c.Request.Context(), common.LogText("Epay callback amount below the order trade_no=%s notified=%q client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Money, c.ClientIP()))
 			case errors.Is(err, model.ErrTopUpStatusInvalid):
 				logger.LogWarn(c.Request.Context(), common.LogText("Epay order status invalid trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 			default:
@@ -580,12 +584,15 @@ func GetAllTopUps(c *gin.Context) {
 
 type AdminCompleteTopupRequest struct {
 	TradeNo string `json:"trade_no"`
+	// PaidMoney is what the gateway actually collected, in the currency it
+	// charged (fork, ikun: invite-rebate paid snapshot). Optional.
+	PaidMoney *float64 `json:"paid_money"`
 }
 
 // AdminCompleteTopUp 管理员补单接口
 func AdminCompleteTopUp(c *gin.Context) {
 	var req AdminCompleteTopupRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.TradeNo == "" {
+	if err := c.ShouldBindJSON(&req); err != nil || req.TradeNo == "" || req.PaidMoney != nil && *req.PaidMoney < 0 {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
@@ -594,7 +601,7 @@ func AdminCompleteTopUp(c *gin.Context) {
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
+	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP(), req.PaidMoney); err != nil {
 		common.ApiError(c, err)
 		return
 	}
