@@ -826,7 +826,9 @@ it.each(['all', 'self'] as const)(
       </QueryClientProvider>
     )
     await waitFor(() => expect(get).toHaveBeenCalled())
-    const config = get.mock.calls[0]?.[1]
-    expect(config?.params.target_user_id).toBe(scope === 'all' ? 42 : undefined)
+    const config = get.mock.calls[0]?.[1] as
+      | { params?: Record<string, unknown> }
+      | undefined
+    expect(config?.params?.target_user_id).toBe(scope === 'all' ? 42 : undefined)
   }
 )
