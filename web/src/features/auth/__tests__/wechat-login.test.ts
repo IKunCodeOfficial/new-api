@@ -56,8 +56,10 @@ test('wechat login without a stored invite code leaves aff unset', async () => {
   await wechatLoginByCode('wx-code')
 
   expect(get).toHaveBeenCalledTimes(1)
-  const params = get.mock.calls[0][1]?.params
+  const params = get.mock.calls[0][1]?.params as
+    | Record<string, unknown>
+    | undefined
   expect(params).toMatchObject({ code: 'wx-code', terms_accepted: 'true' })
   // axios leaves undefined params out of the query string.
-  expect(params.aff).toBeUndefined()
+  expect(params?.aff).toBeUndefined()
 })

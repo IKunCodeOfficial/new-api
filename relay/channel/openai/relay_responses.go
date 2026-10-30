@@ -96,12 +96,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				data = rewritten
 			}
 		}
+		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
 		delivering := !helper.ClientGoneButDraining(c)
-		sendResponsesStreamData(c, streamResponse, data)
+		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			sr.Stop(err)
+			return
+		}
 		if delivering && (streamResponse.Item != nil || streamResponse.Delta != "") {
 			hasDeliveredOutput = true
 		}
-		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
+		if (streamResponse.Type == "response.completed" || streamResponse.Type == "response.done") &&
+			streamResponse.Response != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
+			sr.Done()
+		}
 	})
 
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
