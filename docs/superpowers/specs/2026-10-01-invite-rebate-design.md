@@ -6,7 +6,7 @@
 
 ## 1. 目标与约束
 
-受邀用户用**真实充值**得到的额度被消费后，按比例把返利加到邀请人的**推广奖励余额**（`users.aff_quota`，钱包页 "Referral Program" 卡片显示为 Pending），由邀请人自行用已有的 "Transfer to Balance" 提取到钱包余额；同时给邀请人写一条管理类型日志。
+受邀用户用**真实充值**得到的额度被消费后，按比例把返利加到邀请人的**推广奖励余额**（`users.aff_quota`，钱包页 "Referral Program" 卡片显示为 Pending），由邀请人自行用已有的 "Transfer to Balance" 提取到钱包余额；同时给邀请人写一条系统类型日志（`type=4`）。
 
 用户给定的约束：
 
@@ -17,7 +17,7 @@
 5. 结算基数是受邀用户实际消费；漏结或异常时可手动按日期范围补结。
 6. 只能新增表，不能改已有表结构；MySQL 与 PostgreSQL 都要支持。不使用 SQLite。
 7. 合理利用 Redis。
-8. 入账后给邀请人写管理日志："返利结算：共 x 个受邀用户消费，返利 xx"，金额单位与钱包余额展示一致，文案覆盖前端全部 7 种界面语言。
+8. 入账后给邀请人写日志（2026-10-31 定为系统类型 `type=4`，原为管理日志）："返利结算：共 x 个受邀用户消费，返利 xx"，金额单位与钱包余额展示一致，文案覆盖前端全部 7 种界面语言。
 
 部署全部为 docker。活动从首次部署当天开始，无历史数据迁移。
 
@@ -216,7 +216,7 @@ settled_base += delta
 
 ## 5. 入账日志
 
-插入 `logs`：`user_id=I`、`username`=邀请人用户名、`type=3`、`quota=rebate`、`created_at=now`、`request_id=rebate-YYYYMMDD-{I}`（仅用于追溯）、`content` 如下，其余列取表默认值。
+插入 `logs`：`user_id=I`、`username`=邀请人用户名、`type=4`（new-api 的 `LogTypeSystem`，与邀请奖励、签到、推广奖励划转同类，用户在自己的日志里可见；管理类型 3 在上游已改写审计日志，日志页只当历史数据展示）、`quota=rebate`、`created_at=now`、`request_id=rebate-YYYYMMDD-{I}`（仅用于追溯）、`content` 如下，其余列取表默认值。
 
 文案按邀请人 `users.setting` JSON 的 `language`。写入该字段的接口不做校验（`controller/user.go:825-839` 直接存字符串），且历史上存过 `zh-CN` 一类旧值，所以**必须复刻前端 `normalizeInterfaceLanguage`（`web/src/i18n/languages.ts`）而不是逐字匹配**：`trim` → `_`→`-` → 转小写；`zh-TW`/`zh-HK`/`zh-MO`/`zhTW` → `zhTW`；`zh-CN`/`zh-Hans`/`zhCN` → `zhCN`；其余不在 `zhCN`/`en`/`fr`/`ru`/`ja`/`vi`/`zhTW` 内的（含缺失）→ `en`：
 
