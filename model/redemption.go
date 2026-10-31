@@ -253,9 +253,25 @@ func (redemption *Redemption) Update() error {
 	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
 		return err
 	}
-	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption).Error
-	return err
+	// fork (ikun): the status condition keeps a redeem that commits after the
+	// caller read the code from being overwritten by the caller's stale copy.
+	result := DB.Model(redemption).Where("status <> ?", common.RedemptionCodeStatusUsed).
+		Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	// MySQL also reports zero affected rows for an update that changes nothing.
+	var status int
+	if err := DB.Model(&Redemption{}).Where("id = ?", redemption.Id).Select("status").Scan(&status).Error; err != nil {
+		return err
+	}
+	if status == common.RedemptionCodeStatusUsed {
+		return ErrRedeemCodeUsed
+	}
+	return nil
 }
 
 func (redemption *Redemption) Delete() error {

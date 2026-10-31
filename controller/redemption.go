@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -156,6 +157,12 @@ func UpdateRedemption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// fork (ikun): a redeemed code is the rebate settler's record of a recharge,
+	// so it can no longer be edited, disabled or re-enabled.
+	if cleanRedemption.Status == common.RedemptionCodeStatusUsed {
+		common.ApiErrorT(c, "This redemption code has already been used")
+		return
+	}
 	if statusOnly == "" {
 		if redemption.Quota <= 0 {
 			common.ApiErrorT(c, "Redemption quota must be positive")
@@ -175,9 +182,18 @@ func UpdateRedemption(c *gin.Context) {
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
 	}
 	if statusOnly != "" {
+		// Only redeeming a code marks it used.
+		if redemption.Status != common.RedemptionCodeStatusEnabled && redemption.Status != common.RedemptionCodeStatusDisabled {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
 		cleanRedemption.Status = redemption.Status
 	}
 	err = cleanRedemption.Update()
+	if errors.Is(err, model.ErrRedeemCodeUsed) {
+		common.ApiErrorT(c, "This redemption code has already been used")
+		return
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
