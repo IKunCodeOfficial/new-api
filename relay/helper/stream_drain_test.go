@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -197,4 +199,81 @@ func TestClientGoneButDraining_FrozenEligibility(t *testing.T) {
 	markStreamDrainEligible(c2)
 	cancel2()
 	assert.False(t, clientGoneButDraining(c2))
+}
+
+// brokenClientWriter fails the first downstream write or flush and cancels the
+// request context in the same call, as net/http's connection writer does when
+// the client connection breaks or a write deadline expires.
+type brokenClientWriter struct {
+	gin.ResponseWriter
+	cancel   context.CancelFunc
+	failOn   string
+	flushErr error
+}
+
+var errBrokenPipe = errors.New("write tcp: broken pipe")
+
+func (w *brokenClientWriter) Write(p []byte) (int, error) {
+	if w.failOn == "write" {
+		w.cancel()
+		return 0, errBrokenPipe
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *brokenClientWriter) WriteString(s string) (int, error) {
+	return w.Write([]byte(s))
+}
+
+func (w *brokenClientWriter) Flush() {
+	w.ResponseWriter.Flush()
+	if w.failOn == "flush" {
+		w.cancel()
+		w.flushErr = errBrokenPipe
+	}
+}
+
+func (w *brokenClientWriter) FlushError() error {
+	return w.flushErr
+}
+
+// TestStreamWritesFailingWhileDrainingAreNotErrors pins the write helpers'
+// drain contract: a write or flush that fails because the client left reports
+// no error in drain mode, so every stream handler keeps reading upstream for
+// the real usage; with drain off the failure still stops the stream.
+func TestStreamWritesFailingWhileDrainingAreNotErrors(t *testing.T) {
+	writes := map[string]func(c *gin.Context) error{
+		"ResponseChunkData": func(c *gin.Context) error {
+			return ResponseChunkData(c, dto.ResponsesStreamResponse{Type: "response.output_text.delta"}, `{"delta":"hello"}`)
+		},
+		"StringData": func(c *gin.Context) error { return StringData(c, `{"choices":[]}`) },
+		"PingData":   PingData,
+	}
+	for name, write := range writes {
+		for _, failOn := range []string{"write", "flush"} {
+			for _, drain := range []bool{true, false} {
+				t.Run(fmt.Sprintf("%s/%s failure/drain=%v", name, failOn, drain), func(t *testing.T) {
+					setting := operation_setting.GetStreamDrainSetting()
+					old := setting.DrainOnClientDisconnect
+					setting.DrainOnClientDisconnect = drain
+					t.Cleanup(func() { setting.DrainOnClientDisconnect = old })
+					ctx, cancel := context.WithCancel(context.Background())
+					t.Cleanup(cancel)
+					c, _ := gin.CreateTestContext(httptest.NewRecorder())
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+					c.Writer = &brokenClientWriter{ResponseWriter: c.Writer, cancel: cancel, failOn: failOn}
+					markStreamDrainEligible(c)
+
+					err := write(c)
+
+					require.Error(t, ctx.Err(), "the failed write cancelled the request")
+					if drain {
+						assert.NoError(t, err)
+					} else {
+						assert.Error(t, err)
+					}
+				})
+			}
+		}
+	}
 }

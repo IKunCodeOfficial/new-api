@@ -165,7 +165,7 @@ func FlushWriter(c *gin.Context) (err error) {
 	var writer http.ResponseWriter = c.Writer
 	for {
 		if flusher, ok := writer.(interface{ FlushError() error }); ok {
-			return flusher.FlushError()
+			return streamWriteError(c, flusher.FlushError())
 		}
 		unwrapper, ok := writer.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {
@@ -174,6 +174,17 @@ func FlushWriter(c *gin.Context) (err error) {
 		writer = unwrapper.Unwrap()
 	}
 	return nil
+}
+
+// streamWriteError (fork, ikun) reports a failed downstream write or flush. net/http cancels
+// the request when a connection write fails, so in drain mode the failure means
+// the client left: the handler keeps reading upstream and bills the real usage
+// instead of stopping on the error.
+func streamWriteError(c *gin.Context, err error) error {
+	if err != nil && clientGoneButDraining(c) {
+		return nil
+	}
+	return err
 }
 
 func requestContextDone(c *gin.Context) bool {
@@ -235,11 +246,11 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 
 	event := common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)}
 	if err := event.Render(c.Writer); err != nil {
-		return err
+		return streamWriteError(c, err)
 	}
 	event.Data = fmt.Sprintf("data: %s", data)
 	if err := event.Render(c.Writer); err != nil {
-		return err
+		return streamWriteError(c, err)
 	}
 	return FlushWriter(c)
 }
@@ -276,7 +287,7 @@ func PingData(c *gin.Context) error {
 	}
 
 	if _, err := c.Writer.Write([]byte(": PING\n\n")); err != nil {
-		return fmt.Errorf("write ping data failed: %w", err)
+		return streamWriteError(c, fmt.Errorf("write ping data failed: %w", err))
 	}
 	return FlushWriter(c)
 }

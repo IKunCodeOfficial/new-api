@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -216,4 +218,146 @@ func TestOaiStreamHandlerDrainSkipsGeminiWritesAfterDisconnect(t *testing.T) {
 	body := recorder.Body.String()
 	assert.Contains(t, body, "hello")
 	assert.NotContains(t, body, "world", "gemini direct-Render path must skip writes while draining")
+}
+
+// brokenClientWriter breaks the client connection on the first write or flush
+// of the chunk containing needle, cancelling the request context in the same
+// call the way net/http's connection writer does when a write fails.
+type brokenClientWriter struct {
+	*httptest.ResponseRecorder
+	needle   string
+	failOn   string
+	cancel   context.CancelFunc
+	broken   bool
+	flushErr error
+}
+
+var errClientBrokenPipe = errors.New("write tcp: broken pipe")
+
+func (w *brokenClientWriter) Write(p []byte) (int, error) {
+	if w.failOn == "write" && !w.broken && strings.Contains(string(p), w.needle) {
+		w.broken = true
+		w.cancel()
+		return 0, errClientBrokenPipe
+	}
+	return w.ResponseRecorder.Write(p)
+}
+
+func (w *brokenClientWriter) WriteString(s string) (int, error) {
+	return w.Write([]byte(s))
+}
+
+func (w *brokenClientWriter) Flush() {
+	w.ResponseRecorder.Flush()
+	if w.failOn == "flush" && !w.broken && strings.Contains(w.Body.String(), w.needle) {
+		w.broken = true
+		w.cancel()
+		w.flushErr = errClientBrokenPipe
+	}
+}
+
+func (w *brokenClientWriter) FlushError() error {
+	return w.flushErr
+}
+
+// TestStreamHandlersDrainAfterClientWriteFailure pins drain billing for the
+// OpenAI-package SSE handlers that stop on a write error (responses, chat,
+// the two chat/responses conversions and the image stream): when a write or
+// flush to the client fails, the upstream stream is still read to its end and
+// its real usage is billed, instead of stopping on the write error and billing
+// an estimate (or the requested image count).
+func TestStreamHandlersDrainAfterClientWriteFailure(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	drainSetting := operation_setting.GetStreamDrainSetting()
+	oldDrain := drainSetting.DrainOnClientDisconnect
+	drainSetting.DrainOnClientDisconnect = true
+	t.Cleanup(func() { drainSetting.DrainOnClientDisconnect = oldDrain })
+
+	responsesHello := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
+	responsesEnd := "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":7,\"output_tokens\":5,\"total_tokens\":12}}}\n\n"
+	chatHello := "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n"
+	// The chat handler holds each chunk until the next one arrives.
+	chatHelloSent := chatHello + "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"}}]}\n\n"
+	chatEnd := "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}\n\ndata: [DONE]\n\n"
+	imageHello := "data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"hello\"}\n\n"
+	imageEnd := "data: {\"type\":\"image_generation.completed\",\"b64_json\":\"image\",\"usage\":{\"input_tokens\":7,\"output_tokens\":5,\"total_tokens\":12}}\n\ndata: [DONE]\n\n"
+	handlers := []struct {
+		name       string
+		path       string
+		format     types.RelayFormat
+		handler    func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
+		first      string
+		rest       string
+		wantImages int
+	}{
+		{"responses", "/v1/responses", types.RelayFormatOpenAIResponses, OaiResponsesStreamHandler, responsesHello, responsesEnd, 0},
+		{"chat", "/v1/chat/completions", types.RelayFormatOpenAI, OaiStreamHandler, chatHelloSent, chatEnd, 0},
+		{"chat via responses upstream", "/v1/chat/completions", types.RelayFormatOpenAI, OaiResponsesToChatStreamHandler, responsesHello, responsesEnd, 0},
+		{"responses via chat upstream", "/v1/responses", types.RelayFormatOpenAIResponses, OaiChatToResponsesStreamHandler, chatHello, chatEnd, 0},
+		{"image", "/v1/images/generations", types.RelayFormatOpenAIImage, OpenaiImageStreamHandler, imageHello, imageEnd, 1},
+	}
+	for _, h := range handlers {
+		for _, failOn := range []string{"write", "flush"} {
+			t.Run(h.name+"/"+failOn+" failure", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				pr, pw := io.Pipe()
+				t.Cleanup(func() {
+					_ = pr.Close()
+					_ = pw.Close()
+				})
+				writer := &brokenClientWriter{ResponseRecorder: httptest.NewRecorder(), needle: "hello", failOn: failOn, cancel: cancel}
+				c, _ := gin.CreateTestContext(writer)
+				c.Request = httptest.NewRequest(http.MethodPost, h.path, nil).WithContext(ctx)
+				resp := &http.Response{StatusCode: http.StatusOK, Body: pr, Header: http.Header{"Content-Type": {"text/event-stream"}}}
+				info := &relaycommon.RelayInfo{
+					OriginModelName: "gpt-4o", IsStream: true, DisablePing: true, StartTime: time.Now(),
+					RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: h.format, ShouldIncludeUsage: true,
+					ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"},
+				}
+				// An estimate far from the real usage, as with images or files in the prompt.
+				info.SetEstimatePromptTokens(90000)
+				if h.wantImages > 0 {
+					// Three images requested; upstream completes only one.
+					requested := 3
+					info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{EstimatedImageCount: &requested}
+				}
+
+				done := make(chan struct{})
+				var usage *dto.Usage
+				var apiErr *types.NewAPIError
+				go func() {
+					usage, apiErr = h.handler(c, info, resp)
+					close(done)
+				}()
+				_, err := io.WriteString(pw, h.first)
+				require.NoError(t, err)
+				waitDrainStarted(t, c, info)
+				_, err = io.WriteString(pw, h.rest)
+				require.NoError(t, err, "the upstream body must stay open after the failed client write")
+				require.NoError(t, pw.Close())
+				waitHandlerDone(t, done)
+
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+				assert.Equal(t, 7, usage.PromptTokens, "must bill the real upstream input tokens")
+				assert.Equal(t, 5, usage.CompletionTokens, "must bill the real upstream output tokens")
+				assert.Equal(t, 12, usage.TotalTokens)
+				require.NotNil(t, info.StreamStatus)
+				assert.True(t, info.StreamStatus.WasClientDisconnected())
+				assert.False(t, info.StreamStatus.HasErrors(), "a client that left is not a stream error: %s", info.StreamStatus.Summary())
+				assert.NotContains(t, writer.Body.String(), "\"total_tokens\":12", "nothing after the failure reaches the dead client")
+				if h.wantImages > 0 {
+					require.NotNil(t, info.BillingImageCount, "the drained stream bills the completed image count, not the requested n")
+					assert.Equal(t, h.wantImages, *info.BillingImageCount)
+				}
+			})
+		}
+	}
 }
