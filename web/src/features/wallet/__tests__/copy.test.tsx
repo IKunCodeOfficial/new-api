@@ -26,6 +26,7 @@ import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 
+import { AffiliateRewardsCard } from '../components/affiliate-rewards-card'
 import { RechargeFormCard } from '../components/recharge-form-card'
 
 const i18n = createInstance()
@@ -123,5 +124,48 @@ it.each([
       `Pay ${full}`
     )
     expect(screen.getByPlaceholderText('Minimum 1')).toBeVisible()
+  }
+)
+
+it.each([
+  {
+    name: 'enabled',
+    rebateInfo: {
+      enabled: true,
+      rate: 0.05,
+      activity_start: '2026-11-01',
+      timezone: 'Asia/Shanghai',
+    },
+  },
+  { name: 'disabled', rebateInfo: { enabled: false } },
+])(
+  'describes the referral rebate only when it is $name',
+  async ({ rebateInfo }) => {
+    vi.spyOn(api, 'get').mockResolvedValue({ data: rebateInfo })
+    render(
+      <I18nextProvider i18n={i18n}>
+        <AffiliateRewardsCard
+          user={null}
+          affiliateLink='https://example.com/register?aff=abcd'
+          onTransfer={vi.fn()}
+        />
+      </I18nextProvider>
+    )
+    const noRewards = '感谢您的大力支持，本站暂无邀请奖励，该功能在开发中。'
+    if (rebateInfo.enabled) {
+      expect(
+        await screen.findByText(
+          '自 2026-11-01 起，你可获得每位受邀好友消费额的 5% 作为推广奖励；计入的消费累计不超过该好友自 2026-11-01 起的累计充值额。在线充值按实际支付金额计，兑换码按面值计，注册赠送、签到等赠送额度不算充值。每天的奖励在次日结算，可随时转入余额。'
+        )
+      ).toBeVisible()
+      expect(
+        screen.getByText('邀请好友注册，按好友的消费获得推广奖励。')
+      ).toBeVisible()
+      expect(screen.queryByText(noRewards)).not.toBeInTheDocument()
+    } else {
+      expect(await screen.findByText(noRewards)).toBeVisible()
+      await act(() => Promise.resolve())
+      expect(screen.queryByText(/推广奖励；/)).not.toBeInTheDocument()
+    }
   }
 )

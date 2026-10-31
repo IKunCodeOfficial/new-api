@@ -526,6 +526,10 @@ export function buildAuditDetails(
   ) {
     params.role = AUDIT_ROLE_NAMES[params.role]
   }
+  if (action.startsWith('rebate.exclusion_')) {
+    if (params.role === 'inviter') params.role = t('As inviter')
+    else if (params.role === 'invitee') params.role = t('As invitee')
+  }
   if (typeof params.method === 'string') {
     params.method = loginMethodLabel(params.method, t)
   }

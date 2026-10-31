@@ -600,6 +600,26 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   generic: '{{method}} {{route}}',
 }
 
+// The exclusion role is a stored enum, so each role has its own sentence
+// instead of putting the raw value into the generic template above.
+const REBATE_EXCLUSION_ROLE_TEMPLATES: Record<
+  string,
+  Record<string, string>
+> = {
+  'rebate.exclusion_add': {
+    inviter:
+      'Added user {{target_user_id}} to the rebate exclusion list as an inviter',
+    invitee:
+      'Added user {{target_user_id}} to the rebate exclusion list as an invitee',
+  },
+  'rebate.exclusion_delete': {
+    inviter:
+      'Removed user {{target_user_id}} from the rebate exclusion list as an inviter',
+    invitee:
+      'Removed user {{target_user_id}} from the rebate exclusion list as an invitee',
+  },
+}
+
 /**
  * Render a log's `other.content_parts`, which the backend stores as English
  * source keys plus params so the text follows the viewer's language. Returns
@@ -669,5 +689,7 @@ export function renderAuditContent(
     return `${quotaOperation.summary} · ${quotaOperation.description}`
   }
   const params = { ...op.params }
-  return t(template, params)
+  const roleTemplate =
+    REBATE_EXCLUSION_ROLE_TEMPLATES[op.action]?.[String(params.role)]
+  return t(roleTemplate ?? template, params)
 }

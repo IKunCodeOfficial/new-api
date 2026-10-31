@@ -959,3 +959,68 @@ it('does not load scope labels for other records', async () => {
   await openDetails()
   expect(get).not.toHaveBeenCalled()
 })
+
+it.each([
+  [
+    'rebate.exclusion_add',
+    'inviter',
+    '将用户 123 作为邀请人加入返利排除名单',
+    '作为邀请人',
+  ],
+  [
+    'rebate.exclusion_add',
+    'invitee',
+    '将用户 123 作为受邀用户加入返利排除名单',
+    '作为受邀用户',
+  ],
+  [
+    'rebate.exclusion_delete',
+    'inviter',
+    '将用户 123 作为邀请人从返利排除名单移除',
+    '作为邀请人',
+  ],
+  [
+    'rebate.exclusion_delete',
+    'invitee',
+    '将用户 123 作为受邀用户从返利排除名单移除',
+    '作为受邀用户',
+  ],
+])(
+  'translates the rebate exclusion role of %s as %s in the summary and the fields',
+  async (action, role, summary, roleLabel) => {
+    const i18n = createInstance()
+    await i18n.init({ lng: 'zh', resources: { zh } })
+    const detail = buildAuditDetails(
+      {
+        ...entry,
+        action,
+        content: '',
+        other: { op: { action, params: { target_user_id: 123, role } } },
+      },
+      i18n.t
+    )
+    expect(detail.summary).toBe(summary)
+    expect(detail.fields).toContainEqual({ label: '角色', value: roleLabel })
+  }
+)
+
+it('keeps the generic rebate exclusion sentence for a role it does not know', async () => {
+  const i18n = createInstance()
+  await i18n.init({ lng: 'en', resources: {} })
+  const detail = buildAuditDetails(
+    {
+      ...entry,
+      action: 'rebate.exclusion_delete',
+      content: '',
+      other: {
+        op: {
+          action: 'rebate.exclusion_delete',
+          params: { target_user_id: 123, role: 'other' },
+        },
+      },
+    },
+    i18n.t
+  )
+  expect(detail.summary).toBe('Removed rebate exclusion for user 123 as other')
+  expect(detail.fields).toContainEqual({ label: 'Role', value: 'other' })
+})

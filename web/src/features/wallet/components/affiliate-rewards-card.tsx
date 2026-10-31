@@ -36,22 +36,34 @@ import type { UserWalletData } from '../types'
 // network/parse error) hides the promise so the UI never advertises a rebate
 // the settlement side would refuse to pay.
 function useRebateInfo() {
-  const [ratePercent, setRatePercent] = useState<number | null>(null)
+  const [rebate, setRebate] = useState<{
+    percent: number
+    activityStart: string
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     api
       .get('/api/rebate_info', { skipErrorHandler: true })
       .then((res) => {
-        const data = res.data as { enabled?: boolean; rate?: number }
+        const data = res.data as {
+          enabled?: boolean
+          rate?: number
+          activity_start?: string
+        }
         if (
           !cancelled &&
           data?.enabled === true &&
           typeof data.rate === 'number' &&
           data.rate > 0 &&
-          data.rate < 1
+          data.rate < 1 &&
+          typeof data.activity_start === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(data.activity_start)
         ) {
-          setRatePercent(Number((data.rate * 100).toFixed(2)))
+          setRebate({
+            percent: Number((data.rate * 100).toFixed(2)),
+            activityStart: data.activity_start,
+          })
         }
       })
       .catch(() => {})
@@ -60,7 +72,7 @@ function useRebateInfo() {
     }
   }, [])
 
-  return ratePercent
+  return rebate
 }
 
 interface AffiliateRewardsCardProps {
@@ -79,7 +91,7 @@ export function AffiliateRewardsCard({
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
-  const rebatePercent = useRebateInfo()
+  const rebate = useRebateInfo()
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -109,9 +121,13 @@ export function AffiliateRewardsCard({
               {t('Referral Program')}
             </h3>
             <p className='text-muted-foreground line-clamp-1 text-xs'>
-              {t(
-                'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
-              )}
+              {rebate
+                ? t(
+                    'Invite friends to sign up and earn referral rewards from their spending.'
+                  )
+                : t(
+                    'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
+                  )}
             </p>
           </div>
         </div>
@@ -158,11 +174,11 @@ export function AffiliateRewardsCard({
             </Button>
           )}
         </div>
-        {rebatePercent !== null ? (
+        {rebate ? (
           <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(
-              'Invite friends to register. After a friend tops up and spends, {{percent}}% of what they actually consume is added to your referral rewards after daily settlement. Transfer it to your balance anytime.',
-              { percent: rebatePercent }
+              "From {{start}}, you earn {{percent}}% of what each friend you invite spends as referral rewards; only spending up to the total they have topped up since {{start}} counts. Online payments count at the amount actually paid and redemption codes at face value; gifted quota such as sign-up or check-in bonuses is not a top-up. Each day's rewards are settled the next day and can be transferred to your balance anytime.",
+              { percent: rebate.percent, start: rebate.activityStart }
             )}
           </p>
         ) : null}
