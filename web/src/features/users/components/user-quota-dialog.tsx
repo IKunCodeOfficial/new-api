@@ -48,7 +48,9 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
-  const [recharge, setRecharge] = useState(false)
+  // Manual grants are usually paid top-ups, so they count toward the invite
+  // rebate base unless the admin unticks it.
+  const [recharge, setRecharge] = useState(true)
   const [paidAmount, setPaidAmount] = useState('')
   // State updates are async, so a second Enter in the same tick would still
   // see loading=false and submit the same adjustment (and recharge) twice.
@@ -67,14 +69,17 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   // null: the paid amount is not a number such as 40 or 40.5.
   const paidQuotaValue = parsePaidQuota(paidAmount, quotaValue)
   const paidMalformed = asRecharge && paidQuotaValue === null
+  // An empty field means "same as credited" and is never flagged; a zero
+  // credited amount is refused on submit before the paid amount is read.
   const paidInvalid =
     asRecharge &&
+    paidAmount.trim() !== '' &&
     (paidQuotaValue === null || isPaidQuotaInvalid(quotaValue, paidQuotaValue))
 
   const resetForm = () => {
     setAmount('')
     setMode('add')
-    setRecharge(false)
+    setRecharge(true)
     setPaidAmount('')
   }
 
@@ -191,7 +196,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 onClick={() => {
                   setMode(m)
                   setAmount('')
-                  setRecharge(false)
+                  setRecharge(true)
                   setPaidAmount('')
                 }}
               >

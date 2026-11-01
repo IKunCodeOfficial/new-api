@@ -71,8 +71,10 @@ function renderDialog(): void {
   )
 }
 
+// The paid amount input reuses the credited placeholder, so find the credited
+// amount by its number input role instead.
 function creditedAmountInput(): HTMLInputElement {
-  return screen.getByPlaceholderText('Enter amount in USD')
+  return screen.getByRole('spinbutton')
 }
 
 async function enterCreditedAmount(amount: string): Promise<void> {
@@ -90,7 +92,7 @@ async function enterPaidAmount(amount: string): Promise<void> {
   await user.type(paidAmountInput(), amount)
 }
 
-async function markAsRecharge(): Promise<void> {
+async function unmarkRecharge(): Promise<void> {
   await userEvent.setup().click(screen.getByRole('checkbox'))
 }
 
@@ -146,19 +148,27 @@ describe('user quota dialog recharge option', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
-  test('shows the paid amount input only after marking the grant as recharge', async () => {
+  test('marks an added grant as recharge by default', async () => {
     renderDialog()
 
-    expect(screen.queryByLabelText('Paid amount (USD)')).toBeNull()
-
-    await markAsRecharge()
-
-    expect(screen.getByLabelText('Paid amount (USD)')).not.toBeNull()
+    expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe(
+      'true'
+    )
+    expect(paidAmountInput().getAttribute('aria-invalid')).not.toBe('true')
   })
 
-  test('sends no recharge fields when the grant stays a plain top-up', async () => {
+  test('hides the paid amount input after unmarking the grant as recharge', async () => {
+    renderDialog()
+
+    await unmarkRecharge()
+
+    expect(screen.queryByLabelText('Paid amount (USD)')).toBeNull()
+  })
+
+  test('sends no recharge fields when the grant is unmarked as a plain top-up', async () => {
     renderDialog()
     await enterCreditedAmount('10')
+    await unmarkRecharge()
     await confirm()
     await waitForAdjustment()
 
@@ -170,7 +180,6 @@ describe('user quota dialog recharge option', () => {
   test('defaults the paid amount to the credited amount', async () => {
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
     await confirm()
     await waitForAdjustment()
 
@@ -181,7 +190,6 @@ describe('user quota dialog recharge option', () => {
   test('sends the discounted paid amount', async () => {
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
     await enterPaidAmount('8')
     await confirm()
     await waitForAdjustment()
@@ -192,7 +200,6 @@ describe('user quota dialog recharge option', () => {
   test('rejects a paid amount above the credited amount without sending a request', async () => {
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
     await enterPaidAmount('11')
     await confirm()
 
@@ -205,7 +212,6 @@ describe('user quota dialog recharge option', () => {
     async (entered) => {
       renderDialog()
       await enterCreditedAmount('100')
-      await markAsRecharge()
       await enterPaidAmount(entered)
       await confirm()
 
@@ -217,7 +223,6 @@ describe('user quota dialog recharge option', () => {
   test('a malformed paid amount is marked invalid and described by its error', async () => {
     renderDialog()
     await enterCreditedAmount('100')
-    await markAsRecharge()
     await enterPaidAmount('abc')
 
     expect(paidAmountInput().getAttribute('aria-invalid')).toBe('true')
@@ -229,7 +234,6 @@ describe('user quota dialog recharge option', () => {
   test('typing a decimal shows no error at the trailing point', async () => {
     renderDialog()
     await enterCreditedAmount('100')
-    await markAsRecharge()
     await enterPaidAmount('50.')
 
     expect(paidAmountInput().getAttribute('aria-invalid')).not.toBe('true')
@@ -239,7 +243,6 @@ describe('user quota dialog recharge option', () => {
   test('reads a decimal comma, the only separator some keypads offer', async () => {
     renderDialog()
     await enterCreditedAmount('100')
-    await markAsRecharge()
     await enterPaidAmount('50,5')
     await confirm()
     await waitForAdjustment()
@@ -251,7 +254,6 @@ describe('user quota dialog recharge option', () => {
   test('reads a full-width amount typed with a Chinese input method', async () => {
     renderDialog()
     await enterCreditedAmount('100')
-    await markAsRecharge()
     await enterPaidAmount('５０。5')
     await confirm()
     await waitForAdjustment()
@@ -262,22 +264,21 @@ describe('user quota dialog recharge option', () => {
 
   test('sends no request for a zero credited amount', async () => {
     renderDialog()
-    await markAsRecharge()
     await confirm()
 
     expect(adjusted).toHaveLength(0)
   })
 
-  test('clears the recharge choice when the mode changes', async () => {
+  test('restores the default recharge choice when the mode changes', async () => {
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
+    await unmarkRecharge()
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Subtract' }))
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe(
-      'false'
+      'true'
     )
   })
 
@@ -292,7 +293,6 @@ describe('user quota dialog recharge option', () => {
     }
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
     const user = userEvent.setup()
     await user.click(creditedAmountInput())
     await user.keyboard('{Enter}{Enter}')
@@ -303,17 +303,17 @@ describe('user quota dialog recharge option', () => {
     expect(adjusted).toHaveLength(1)
   })
 
-  test('clears the recharge choice after a successful adjustment', async () => {
+  test('restores the default recharge choice after a successful adjustment', async () => {
     renderDialog()
     await enterCreditedAmount('10')
-    await markAsRecharge()
+    await unmarkRecharge()
     await confirm()
 
     await waitFor(() => expect(onSuccessCalls).toHaveLength(1))
     expect(adjusted).toHaveLength(1)
     expect(onOpenChangeCalls).toContain(false)
     expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe(
-      'false'
+      'true'
     )
     expect(creditedAmountInput().value).toBe('')
   })
