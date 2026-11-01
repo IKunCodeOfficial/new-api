@@ -32,6 +32,13 @@ import {
 } from '../lib/status'
 import type { ModelStatusGroup, ModelStatusModel } from '../types'
 
+// Group columns never shrink below GROUP_COLUMN_PX: with many groups the
+// matrix scrolls sideways while the model column and the header stay pinned.
+const MODEL_COLUMN_PX = 220
+const GROUP_COLUMN_PX = 112
+const COLUMN_GAP_PX = 8
+const ROW_PADDING_PX = 20
+
 type StatusMatrixProps = {
   groups: ModelStatusGroup[]
   query: string
@@ -41,7 +48,11 @@ export function StatusMatrix(props: StatusMatrixProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const query = props.query.trim().toLowerCase()
-  const columns = `236px repeat(${props.groups.length}, minmax(0, 1fr))`
+  const columns = `${MODEL_COLUMN_PX}px repeat(${props.groups.length}, minmax(${GROUP_COLUMN_PX}px, 1fr))`
+  const minWidth =
+    MODEL_COLUMN_PX +
+    props.groups.length * (GROUP_COLUMN_PX + COLUMN_GAP_PX) +
+    ROW_PADDING_PX
 
   // Rows follow first appearance across groups, which keeps the backend's
   // volume order; each group is indexed by model name for the cell lookup.
@@ -58,22 +69,41 @@ export function StatusMatrix(props: StatusMatrixProps) {
   })
 
   return (
-    <section className='bg-card/60 overflow-hidden rounded-xl border'>
-      <div className='overflow-x-auto overflow-y-hidden'>
-        <div className='min-w-[860px]'>
+    <section className='bg-card overflow-hidden rounded-xl border'>
+      <div
+        role='table'
+        aria-label={t('Model / Group')}
+        className='max-h-[75vh] overflow-auto overscroll-x-contain'
+      >
+        <div style={{ minWidth }}>
           <div
-            className='bg-muted/30 border-border/60 grid items-end gap-2 border-b px-5 py-3'
+            role='row'
+            className='bg-muted border-border/60 sticky top-0 z-20 grid gap-2 border-b pr-5'
             style={{ gridTemplateColumns: columns }}
           >
-            <span className='text-muted-foreground/70 text-[11px] font-medium'>
+            <span
+              role='columnheader'
+              className='bg-muted text-muted-foreground/70 sticky left-0 z-10 flex items-end py-3 pl-5 text-[11px] font-medium'
+            >
               {t('Model / Group')}
             </span>
             {props.groups.map((g) => (
-              <div key={g.key} className='flex flex-col gap-0.5'>
-                <span className='font-mono text-[13px] font-bold'>{g.key}</span>
-                <span className='text-muted-foreground text-[11px]'>
-                  {g.desc ? `${g.desc} · ` : ''}
-                  {formatNumber(g.ratio, locale)}x
+              <div
+                key={g.key}
+                role='columnheader'
+                title={g.desc ? `${g.key}\n${g.desc}` : g.key}
+                className='flex min-w-0 flex-col gap-0.5 py-3'
+              >
+                <span className='flex min-w-0 items-baseline gap-1.5'>
+                  <span className='truncate font-mono text-[13px] font-bold'>
+                    {g.key}
+                  </span>
+                  <span className='text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums'>
+                    {formatNumber(g.ratio, locale)}x
+                  </span>
+                </span>
+                <span className='text-muted-foreground line-clamp-2 min-h-[2lh] text-[11px] leading-snug break-words'>
+                  {g.desc}
                 </span>
               </div>
             ))}
@@ -81,10 +111,15 @@ export function StatusMatrix(props: StatusMatrixProps) {
           {[...rows.values()].map((row) => (
             <div
               key={row.name}
-              className='border-border/40 grid items-center gap-2 border-b px-5 py-2'
+              role='row'
+              className='border-border/40 grid gap-2 border-b pr-5'
               style={{ gridTemplateColumns: columns }}
             >
-              <div className='flex min-w-0 items-center gap-2.5'>
+              <div
+                role='rowheader'
+                title={row.name}
+                className='bg-card sticky left-0 z-10 flex min-w-0 items-center gap-2.5 py-2 pl-5'
+              >
                 <div className='bg-muted/70 flex size-7 shrink-0 items-center justify-center rounded-lg'>
                   {getLobeIcon(row.vendor_icon || row.name, 16)}
                 </div>
@@ -98,17 +133,16 @@ export function StatusMatrix(props: StatusMatrixProps) {
                   return (
                     <div
                       key={g.key}
+                      role='cell'
                       title={t('{{group}} does not offer this model', {
                         group: g.key,
                       })}
-                      className='border-border/50 text-muted-foreground/50 flex h-12 items-center justify-between gap-2 rounded-lg border px-3'
+                      className='border-border/50 text-muted-foreground/40 my-2 flex h-12 items-center justify-center rounded-lg border border-dashed'
                     >
-                      <span className='font-mono text-sm font-semibold'>
+                      <span aria-hidden='true' className='font-mono text-sm'>
                         {EMPTY_VALUE}
                       </span>
-                      <span className='text-[11px] whitespace-nowrap'>
-                        {t('Not offered')}
-                      </span>
+                      <span className='sr-only'>{t('Not offered')}</span>
                     </div>
                   )
                 }
@@ -117,9 +151,10 @@ export function StatusMatrix(props: StatusMatrixProps) {
                 return (
                   <div
                     key={g.key}
+                    role='cell'
                     title={`${row.name} @ ${g.key} · ${t(CURRENT_STATUS_LABEL_KEYS[current])}`}
                     className={cn(
-                      'flex h-12 items-center justify-between gap-2 rounded-lg border px-3',
+                      'my-2 flex h-12 min-w-0 flex-col justify-center gap-0.5 rounded-lg border px-2.5',
                       STATUS_STYLES[current].cell
                     )}
                   >
@@ -133,7 +168,7 @@ export function StatusMatrix(props: StatusMatrixProps) {
                       />
                       <span
                         className={cn(
-                          'font-mono text-sm font-semibold tabular-nums',
+                          'font-mono text-[13px] leading-5 font-semibold tabular-nums',
                           range === 'success'
                             ? 'text-foreground'
                             : STATUS_STYLES[range].text
@@ -142,7 +177,7 @@ export function StatusMatrix(props: StatusMatrixProps) {
                         {formatRate(cell.availability, locale)}
                       </span>
                     </span>
-                    <span className='text-muted-foreground font-mono text-[11px] whitespace-nowrap tabular-nums'>
+                    <span className='text-muted-foreground pl-3 font-mono text-[11px] leading-4 whitespace-nowrap tabular-nums'>
                       {formatDuration(
                         cell.availability == null ? null : cell.ttft_avg_ms,
                         locale
@@ -153,13 +188,13 @@ export function StatusMatrix(props: StatusMatrixProps) {
               })}
             </div>
           ))}
-          {rows.size === 0 && (
-            <div className='text-muted-foreground px-5 py-7 text-center text-[13px]'>
-              {t('No matching models')}
-            </div>
-          )}
         </div>
       </div>
+      {rows.size === 0 && (
+        <div className='text-muted-foreground px-5 py-7 text-center text-[13px]'>
+          {t('No matching models')}
+        </div>
+      )}
     </section>
   )
 }
