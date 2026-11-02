@@ -39,7 +39,8 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   return (
     <LayoutProvider>
       <SearchProvider>
-        <SidebarProvider defaultOpen={defaultOpen} className='flex-col'>
+        <SidebarProvider defaultOpen={defaultOpen} className='flex-col pt-[var(--system-banner-height,0px)]'
+        >
           <SkipToMain />
           <EmailBindReminder />
           <AppHeader />
@@ -48,9 +49,9 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
             <SidebarInset
               className={cn(
                 '@container/content',
-                'h-[calc(100svh-var(--app-header-height,0px))]',
+                'h-[calc(100svh-var(--app-header-height,0px)-var(--system-banner-height,0px))]',
                 'min-h-0 overflow-hidden',
-                'peer-data-[variant=inset]:h-[calc(100svh-var(--app-header-height,0px)-(var(--spacing)*4))]'
+                'peer-data-[variant=inset]:h-[calc(100svh-var(--app-header-height,0px)-var(--system-banner-height,0px)-(var(--spacing)*4))]'
               )}
             >
               {props.children ?? <AnimatedOutlet />}

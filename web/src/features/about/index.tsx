@@ -154,7 +154,7 @@ export function About() {
         {/* eslint-disable-next-line react/iframe-missing-sandbox */}
         <iframe
           src={rawContent}
-          className='h-[calc(100vh-3.5rem)] w-full border-0'
+          className='h-[calc(100vh-3.5rem-var(--system-banner-height,0px))] w-full border-0'
           title={t('About')}
         />
       </PublicLayout>

@@ -221,7 +221,7 @@ export function Pricing() {
               models={models || []}
               hasActiveFilters={hasActiveFilters}
               onClearFilters={clearFilters}
-              className='hover-scrollbar sticky top-20 hidden max-h-[calc(100dvh-6rem)] self-start overflow-y-auto xl:block'
+              className='hover-scrollbar sticky top-[calc(5rem+var(--system-banner-height,0px))] hidden max-h-[calc(100dvh-6rem-var(--system-banner-height,0px))] self-start overflow-y-auto xl:block'
             />
 
             <main className='min-w-0 space-y-4'>

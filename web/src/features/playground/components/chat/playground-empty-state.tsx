@@ -44,7 +44,7 @@ export function PlaygroundEmptyState({
   const { t } = useTranslation()
 
   return (
-    <div className='flex min-h-[min(520px,calc(100svh-18rem))] items-center justify-center px-1 py-8 md:py-12'>
+    <div className='flex min-h-[min(520px,calc(100svh-18rem-var(--system-banner-height,0px)))] items-center justify-center px-1 py-8 md:py-12'>
       <div className='grid w-full max-w-2xl gap-5 text-center'>
         <div className='bg-muted/50 text-muted-foreground mx-auto flex size-11 items-center justify-center rounded-xl border'>
           <MessageSquarePlusIcon className='size-5' aria-hidden='true' />

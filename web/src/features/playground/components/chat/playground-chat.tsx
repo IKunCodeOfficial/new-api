@@ -202,7 +202,7 @@ export function PlaygroundChat({
   if (isLoadingMessages) {
     chatContent = [
       <div
-        className='text-muted-foreground flex min-h-[min(520px,calc(100svh-18rem))] items-center justify-center gap-2 text-sm'
+        className='text-muted-foreground flex min-h-[min(520px,calc(100svh-18rem-var(--system-banner-height,0px)))] items-center justify-center gap-2 text-sm'
         key='loading'
       >
         <Loader />
