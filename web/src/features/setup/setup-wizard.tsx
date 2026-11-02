@@ -283,8 +283,8 @@ export function SetupWizard() {
   }
 
   return (
-    <div className='bg-muted/40 relative mt-[var(--system-banner-height,0px)] min-h-[calc(100svh-var(--system-banner-height,0px))] py-10'>
-      <div className='absolute top-4 right-4 sm:top-6 sm:right-6'>
+    <div className='bg-muted/40 relative min-h-svh pt-[calc(2.5rem+var(--system-banner-height,0px))] pb-10'>
+      <div className='absolute top-[calc(1rem+var(--system-banner-height,0px))] right-4 sm:top-[calc(1.5rem+var(--system-banner-height,0px))] sm:right-6'>
         <LanguageSwitcher />
       </div>
       <div className='container mx-auto flex max-w-5xl flex-col gap-8 px-4 sm:px-6'>

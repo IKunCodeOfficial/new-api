@@ -49,7 +49,7 @@ export function StatusToolbar(props: StatusToolbarProps) {
   const { t } = useTranslation()
 
   return (
-    <div className='bg-background/85 sticky top-[72px] z-20 mb-4 rounded-xl border p-3 backdrop-blur-lg'>
+    <div className='bg-background/85 sticky top-[calc(72px+var(--system-banner-height,0px))] z-20 mb-4 rounded-xl border p-3 backdrop-blur-lg'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex min-w-0 flex-wrap items-center gap-2'>
           <SegmentedControl

@@ -31,10 +31,10 @@ export function AuthLayout({ children }: AuthLayoutProps) {
   const { systemName, logo, loading } = useSystemConfig()
 
   return (
-    <div className='relative mt-[var(--system-banner-height,0px)] grid h-[calc(100svh-var(--system-banner-height,0px))] max-w-none'>
+    <div className='relative grid h-svh max-w-none pt-[var(--system-banner-height,0px)]'>
       <Link
         to='/'
-        className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
+        className='absolute top-[calc(1rem+var(--system-banner-height,0px))] left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-[calc(2rem+var(--system-banner-height,0px))] sm:left-8'
       >
         <div className='relative h-8 w-8'>
           {loading ? (
