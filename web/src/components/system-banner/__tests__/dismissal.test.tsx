@@ -51,6 +51,16 @@ const originals = {
     'clientWidth'
   ),
 }
+function stubReducedMotion(matches: boolean) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+  )
+}
 let textWidth = 100
 let trackWidth = 400
 
@@ -60,6 +70,7 @@ beforeEach(() => {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  stubReducedMotion(false)
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -218,5 +229,17 @@ describe('SystemBanner', () => {
     textWidth = 900
     const long = renderBanner(BANNER)
     expect(long.container.querySelector('.animate-marquee')).not.toBeNull()
+  })
+
+  test('reduced motion never scrolls long text and lets it wrap', () => {
+    stubReducedMotion(true)
+    textWidth = 900
+    trackWidth = 400
+    const view = renderBanner(BANNER)
+    expect(view.container.querySelector('.animate-marquee')).toBeNull()
+    expect(
+      view.container.querySelector('[data-slot="system-banner-track"]')
+    ).not.toHaveClass('whitespace-nowrap')
+    expect(bannerHeight()).toBe('36px')
   })
 })

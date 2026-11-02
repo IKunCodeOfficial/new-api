@@ -38,6 +38,8 @@ function setBannerHeight(height: number) {
   document.documentElement.style.setProperty(BANNER_HEIGHT_VAR, `${height}px`)
 }
 
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
 function readDismissedAt(): number {
   try {
     return Number(window.localStorage.getItem(SYSTEM_BANNER_DISMISSED_KEY))
@@ -56,6 +58,7 @@ export function SystemBanner() {
   const banner = parseSystemBanner(status?.data?.system_banner)
   const [dismissedAt, setDismissedAt] = useState(readDismissedAt)
   const [marqueeDuration, setMarqueeDuration] = useState<number | null>(null)
+  const [reducedMotion, setReducedMotion] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLSpanElement>(null)
@@ -64,6 +67,15 @@ export function SystemBanner() {
   const text = banner
     ? pickSystemBannerText(banner, i18n.resolvedLanguage || i18n.language)
     : ''
+
+  useEffect(() => {
+    const query = window.matchMedia?.(REDUCED_MOTION_QUERY)
+    if (!query) return
+    const sync = () => setReducedMotion(query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
 
   useEffect(() => {
     const root = rootRef.current
@@ -85,6 +97,12 @@ export function SystemBanner() {
     const track = trackRef.current
     const textEl = textRef.current
     if (!visible || !track || !textEl) return
+    // Reduced motion wraps the text instead of scrolling it. Wrapping changes
+    // the measured width, so the decision must not depend on layout here.
+    if (reducedMotion) {
+      setMarqueeDuration(null)
+      return
+    }
     const measure = () => {
       const textWidth = textEl.scrollWidth
       const trackWidth = track.clientWidth
@@ -98,7 +116,7 @@ export function SystemBanner() {
     const observer = new ResizeObserver(measure)
     observer.observe(track)
     return () => observer.disconnect()
-  }, [visible, text])
+  }, [visible, text, reducedMotion])
 
   if (!banner || !visible) return null
 
@@ -129,7 +147,11 @@ export function SystemBanner() {
     >
       <div
         ref={trackRef}
-        className='marquee-track min-w-0 flex-1 overflow-hidden text-center whitespace-nowrap'
+        data-slot='system-banner-track'
+        className={cn(
+          'marquee-track min-w-0 flex-1 overflow-hidden text-center',
+          reducedMotion ? 'whitespace-normal' : 'whitespace-nowrap'
+        )}
       >
         <span
           className={cn(marqueeDuration !== null && 'animate-marquee')}
