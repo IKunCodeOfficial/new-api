@@ -102,6 +102,12 @@ func InitOptionMap() {
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["WooshpaySecretKey"] = setting.WooshpaySecretKey
+	common.OptionMap["WooshpayWebhookSecret"] = setting.WooshpayWebhookSecret
+	common.OptionMap["WooshpayApiBase"] = setting.WooshpayApiBase
+	common.OptionMap["WooshpayCurrency"] = setting.WooshpayCurrency
+	common.OptionMap["WooshpayUnitPrice"] = strconv.FormatFloat(setting.WooshpayUnitPrice, 'f', -1, 64)
+	common.OptionMap["WooshpayMinTopUp"] = strconv.Itoa(setting.WooshpayMinTopUp)
 	common.OptionMap["CreemApiKey"] = setting.CreemApiKey
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
@@ -279,6 +285,9 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if err := setting.ValidateWooshpayOption(key, value); err != nil {
+		return err
 	}
 	return validateIkunRebateOption(key, value) // fork (ikun): invite-rebate settings
 }
@@ -573,6 +582,18 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "WooshpaySecretKey":
+		setting.WooshpaySecretKey = value
+	case "WooshpayWebhookSecret":
+		setting.WooshpayWebhookSecret = value
+	case "WooshpayApiBase":
+		setting.WooshpayApiBase = setting.NormalizeWooshpayApiBase(value)
+	case "WooshpayCurrency":
+		setting.WooshpayCurrency = value
+	case "WooshpayUnitPrice":
+		setting.WooshpayUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "WooshpayMinTopUp":
+		setting.WooshpayMinTopUp, _ = strconv.Atoi(value)
 	case "CreemApiKey":
 		setting.CreemApiKey = value
 	case "CreemProducts":

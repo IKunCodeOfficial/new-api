@@ -64,6 +64,28 @@ export function formatCurrency(amount: number | string): string {
 }
 
 /**
+ * Format money a payment gateway charges in its own ISO 4217 currency (such
+ * as WooshPay), with that currency's minor-unit digits: 0 for JPY, 2 for USD,
+ * 3 for KWD. A code Intl rejects falls back to the plain amount and the code.
+ */
+export function formatGatewayAmount(
+  amount: number,
+  currency: string,
+  locale?: string
+): string {
+  if (!Number.isFinite(amount)) return '-'
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'code',
+    }).format(amount)
+  } catch {
+    return `${formatCurrency(amount)} ${currency}`
+  }
+}
+
+/**
  * Get discount label for display (e.g., "20% OFF")
  */
 export function getDiscountLabel(discount: number, t: TFunction): string {

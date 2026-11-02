@@ -18,12 +18,15 @@ import (
 func withRebatePrices(t *testing.T) {
 	t.Helper()
 	prevPrice, prevWaffo, prevPancake, prevQPU := operation_setting.Price, setting.WaffoUnitPrice, setting.WaffoPancakeUnitPrice, common.QuotaPerUnit
+	prevWooshpay := setting.WooshpayUnitPrice
 	operation_setting.Price = 7.3
 	setting.WaffoUnitPrice = 7.3
 	setting.WaffoPancakeUnitPrice = 7.3
+	setting.WooshpayUnitPrice = 7.3
 	common.QuotaPerUnit = 500000
 	t.Cleanup(func() {
 		operation_setting.Price, setting.WaffoUnitPrice, setting.WaffoPancakeUnitPrice, common.QuotaPerUnit = prevPrice, prevWaffo, prevPancake, prevQPU
+		setting.WooshpayUnitPrice = prevWooshpay
 	})
 }
 
@@ -59,6 +62,11 @@ func TestPaidQuotaFromCharge(t *testing.T) {
 		// 大额订单不得被 int32 边界截断（$4.3k 以上就会超过 2147483647）。
 		{"epay 大额超过 int32", PaymentProviderEpay, 100_000, 100_000, 6_849_315_068, true},
 		{"stripe 大额超过 int32", PaymentProviderStripe, 100_000, 100_000, 50_000_000_000, true},
+		// WooshPay 与 Waffo Pancake 一样由本站定价：Money 是实付金额，分组倍率只放大实付，
+		// 实付快照 = Money ÷ 单价 × QPU。
+		{"wooshpay 原价", PaymentProviderWooshpay, 100, 730, 50_000_000, true},
+		{"wooshpay 分组倍率只放大实付", PaymentProviderWooshpay, 100, 1460, 100_000_000, true},
+		{"wooshpay 预设折扣", PaymentProviderWooshpay, 100, 365, 25_000_000, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,6 +104,7 @@ func TestResolveTopUpProvider(t *testing.T) {
 	assert.Equal(t, PaymentProviderCreem, resolveTopUpProvider(&TopUp{PaymentMethod: PaymentMethodCreem}))
 	assert.Equal(t, PaymentProviderWaffo, resolveTopUpProvider(&TopUp{PaymentMethod: PaymentMethodWaffo}))
 	assert.Equal(t, PaymentProviderWaffoPancake, resolveTopUpProvider(&TopUp{PaymentMethod: PaymentMethodWaffoPancake}))
+	assert.Equal(t, PaymentProviderWooshpay, resolveTopUpProvider(&TopUp{PaymentMethod: PaymentMethodWooshpay}))
 	// payment_provider 为空的旧 epay 订单，payment_method 是 alipay/wxpay 一类
 	assert.Equal(t, PaymentProviderEpay, resolveTopUpProvider(&TopUp{PaymentMethod: "wxpay"}))
 	// 未知的 payment_provider 原样返回，由 paidQuotaFromCharge 判定不写行
@@ -312,6 +321,8 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 		{"pancake live webhook", PaymentProviderWaffoPancake, GatewayCharge{}, 5_000_000},
 		{"creem discount code 30% off", PaymentProviderCreem, GatewayCharge{Listed: 1000, Charged: 700}, 3_500_000},
 		{"creem test mode", PaymentProviderCreem, GatewayCharge{Listed: 1000, Charged: 1000, Test: true}, 0},
+		{"wooshpay received the server price", PaymentProviderWooshpay, GatewayCharge{Listed: 7300, Charged: 7300}, 5_000_000},
+		{"wooshpay test mode", PaymentProviderWooshpay, GatewayCharge{Listed: 7300, Charged: 7300, Test: true}, 0},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,6 +344,8 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 				require.NoError(t, Recharge(tradeNo, "", "127.0.0.1", tc.charge))
 			case PaymentProviderCreem:
 				require.NoError(t, RechargeCreem(tradeNo, "", "", "127.0.0.1", tc.charge))
+			case PaymentProviderWooshpay:
+				require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "73.00 USD", tc.charge))
 			default:
 				require.NoError(t, RechargeWaffoPancake(tradeNo, tc.charge))
 			}
@@ -353,6 +366,19 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 	var row RebateTopupPaid
 	require.NoError(t, DB.Where("trade_no = ?", "creem-test").First(&row).Error)
 	assert.Zero(t, row.PaidQuota, "orders created in Creem test mode are not a recharge")
+
+	prevWooshpayKey := setting.WooshpaySecretKey
+	t.Cleanup(func() { setting.WooshpaySecretKey = prevWooshpayKey })
+	for key, want := range map[string]int64{"sk_test_abc": 0, "sk_live_abc": 5_000_000} {
+		tradeNo := "wooshpay-" + key
+		setting.WooshpaySecretKey = key
+		order := &TopUp{UserId: 7, Amount: 10, Money: 73, TradeNo: tradeNo, PaymentMethod: PaymentMethodWooshpay,
+			PaymentProvider: PaymentProviderWooshpay, Status: common.TopUpStatusPending}
+		require.NoError(t, order.Insert())
+		var wooshpayRow RebateTopupPaid
+		require.NoError(t, DB.Where("trade_no = ?", tradeNo).First(&wooshpayRow).Error)
+		assert.Equal(t, want, wooshpayRow.PaidQuota, "orders created with a WooshPay test key are not a recharge")
+	}
 }
 
 // An administrator completing a stuck order must credit exactly what the
@@ -388,6 +414,11 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		{tradeNo: "manual-stripe-promo", provider: PaymentProviderStripe, method: PaymentMethodStripe, amount: 10, money: 20, paid: paid(40), credited: 10_000_000, snapshot: 2_500_000},
 		{tradeNo: "manual-stripe-full", provider: PaymentProviderStripe, method: PaymentMethodStripe, amount: 10, money: 20, paid: paid(80), credited: 10_000_000, snapshot: 5_000_000},
 		{tradeNo: "manual-legacy-stripe", method: PaymentMethodStripe, amount: 10, money: 20, credited: 10_000_000, snapshot: 0},
+		// Like Waffo Pancake: 10 units credit Amount × QPU, and the list price is
+		// Money (10 × 7.3 × group ratio 2), the amount WooshPay charged.
+		{tradeNo: "manual-wooshpay", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, credited: 5_000_000, snapshot: 0},
+		{tradeNo: "manual-wooshpay-half", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(73), credited: 5_000_000, snapshot: 5_000_000},
+		{tradeNo: "manual-wooshpay-full", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(146), credited: 5_000_000, snapshot: 10_000_000},
 		{tradeNo: "manual-epay", provider: PaymentProviderEpay, method: "alipay", amount: 10, money: 73, credited: 5_000_000, snapshot: 5_000_000},
 		{tradeNo: "manual-epay-half", provider: PaymentProviderEpay, method: "alipay", amount: 10, money: 73, paid: paid(36.5), credited: 5_000_000, snapshot: 2_500_000},
 		{tradeNo: "manual-epay-above-price", provider: PaymentProviderEpay, method: "alipay", amount: 10, money: 73, paid: paid(100), credited: 5_000_000, snapshot: 5_000_000},

@@ -149,6 +149,8 @@ func paidQuotaFromCharge(provider string, amount int64, money float64) (int, boo
 		unitPrice = setting.WaffoUnitPrice
 	case PaymentProviderWaffoPancake:
 		unitPrice = setting.WaffoPancakeUnitPrice
+	case PaymentProviderWooshpay:
+		unitPrice = setting.WooshpayUnitPrice
 	default:
 		// Unknown or not-yet-supported channels (including balance, which only
 		// shows up when a database was edited by hand) store nothing rather than
@@ -177,6 +179,8 @@ func resolveTopUpProvider(topUp *TopUp) string {
 		return PaymentProviderWaffo
 	case PaymentMethodWaffoPancake:
 		return PaymentProviderWaffoPancake
+	case PaymentMethodWooshpay:
+		return PaymentProviderWooshpay
 	default:
 		return PaymentProviderEpay
 	}
@@ -195,7 +199,8 @@ func (topUp *TopUp) AfterCreate(tx *gorm.DB) error {
 	if !ok {
 		return nil
 	}
-	if provider == PaymentProviderWaffo && setting.WaffoSandbox || provider == PaymentProviderCreem && setting.CreemTestMode {
+	if provider == PaymentProviderWaffo && setting.WaffoSandbox || provider == PaymentProviderCreem && setting.CreemTestMode ||
+		provider == PaymentProviderWooshpay && setting.IsWooshpayTestKey() {
 		paid = 0
 	}
 	return tx.Create(&RebateTopupPaid{

@@ -53,6 +53,54 @@ func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	require.False(t, isStripeWebhookEnabled())
 }
 
+func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
+	originalSecretKey := setting.WooshpaySecretKey
+	originalWebhookSecret := setting.WooshpayWebhookSecret
+	originalUnitPrice := setting.WooshpayUnitPrice
+	originalApiBase := setting.WooshpayApiBase
+	t.Cleanup(func() {
+		setting.WooshpaySecretKey = originalSecretKey
+		setting.WooshpayWebhookSecret = originalWebhookSecret
+		setting.WooshpayUnitPrice = originalUnitPrice
+		setting.WooshpayApiBase = originalApiBase
+	})
+
+	cases := []struct {
+		name          string
+		secretKey     string
+		webhookSecret string
+		unitPrice     float64
+		apiBase       string
+		uncompliant   bool
+		enabled       bool
+	}{
+		{"test key on test host", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", false, true},
+		{"live key on live host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com", false, true},
+		{"trailing slash on the host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com/", false, true},
+		{"missing webhook secret", "sk_test_123", "", 8, "https://apitest.wooshpay.com", false, false},
+		{"zero unit price", "sk_test_123", "whsec_test", 0, "https://apitest.wooshpay.com", false, false},
+		{"blank secret key", " ", "whsec_test", 8, "https://apitest.wooshpay.com", false, false},
+		{"test key on live host", "sk_test_123", "whsec_test", 8, "https://api.wooshpay.com", false, false},
+		{"live key on test host", "sk_live_123", "whsec_test", 8, "https://apitest.wooshpay.com", false, false},
+		{"unknown key prefix", "pk_live_123", "whsec_test", 8, "https://api.wooshpay.com", false, false},
+		{"other host", "sk_live_123", "whsec_test", 8, "https://api.example.com", false, false},
+		{"compliance not confirmed", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			confirmPaymentComplianceForTest(t)
+			if tc.uncompliant {
+				operation_setting.GetPaymentSetting().ComplianceConfirmed = false
+			}
+			setting.WooshpaySecretKey = tc.secretKey
+			setting.WooshpayWebhookSecret = tc.webhookSecret
+			setting.WooshpayUnitPrice = tc.unitPrice
+			setting.WooshpayApiBase = tc.apiBase
+			assert.Equal(t, tc.enabled, isWooshpayWebhookEnabled())
+		})
+	}
+}
+
 func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
 	originalAPIKey := setting.CreemApiKey

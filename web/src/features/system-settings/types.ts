@@ -332,6 +332,12 @@ export type BillingSettings = {
   StripeUnitPrice: number
   StripeMinTopUp: number
   StripePromotionCodesEnabled: boolean
+  WooshpaySecretKey: string
+  WooshpayWebhookSecret: string
+  WooshpayApiBase: string
+  WooshpayCurrency: string
+  WooshpayUnitPrice: number
+  WooshpayMinTopUp: number
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean

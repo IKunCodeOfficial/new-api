@@ -27,14 +27,17 @@ import {
   calculateStripeAmount,
   calculateWaffoAmount,
   calculateWaffoPancakeAmount,
+  calculateWooshpayAmount,
   requestPayment,
   requestStripePayment,
+  requestWooshpayPayment,
   isApiSuccess,
 } from '../api'
 import {
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
+  isWooshpayPayment,
   submitPaymentForm,
 } from '../lib'
 import type { AmountRequest, AmountResponse } from '../types'
@@ -48,6 +51,7 @@ type AmountCalculator = (request: AmountRequest) => Promise<AmountResponse>
 export interface PaymentAmountCalculators {
   regular: AmountCalculator
   stripe: AmountCalculator
+  wooshpay: AmountCalculator
   waffo: AmountCalculator
   waffoPancake: AmountCalculator
 }
@@ -55,6 +59,7 @@ export interface PaymentAmountCalculators {
 const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   regular: calculateAmount,
   stripe: calculateStripeAmount,
+  wooshpay: calculateWooshpayAmount,
   waffo: calculateWaffoAmount,
   waffoPancake: calculateWaffoPancakeAmount,
 }
@@ -67,6 +72,8 @@ export async function requestPaymentAmount(
   let calculator = calculators.regular
   if (isStripePayment(paymentType)) {
     calculator = calculators.stripe
+  } else if (isWooshpayPayment(paymentType)) {
+    calculator = calculators.wooshpay
   } else if (isWaffoPayment(paymentType)) {
     calculator = calculators.waffo
   } else if (isWaffoPancakePayment(paymentType)) {
@@ -114,32 +121,42 @@ export function usePayment() {
         setProcessing(true)
 
         const isStripe = isStripePayment(paymentType)
+        const isWooshpay = isWooshpayPayment(paymentType)
+        const isPayLinkGateway = isStripe || isWooshpay
         const amount = Math.floor(topupAmount)
 
-        const response = isStripe
-          ? await requestStripePayment({
-              amount,
-              payment_method: 'stripe',
-            })
-          : await requestPayment({
-              amount,
-              payment_method: paymentType,
-            })
+        let response
+        if (isStripe) {
+          response = await requestStripePayment({
+            amount,
+            payment_method: 'stripe',
+          })
+        } else if (isWooshpay) {
+          response = await requestWooshpayPayment({
+            amount,
+            payment_method: 'wooshpay',
+          })
+        } else {
+          response = await requestPayment({
+            amount,
+            payment_method: paymentType,
+          })
+        }
 
         if (!isApiSuccess(response)) {
           handleServerError(response, i18next.t('Payment request failed'))
           return false
         }
 
-        // Handle Stripe payment
-        if (isStripe && response.data?.pay_link) {
+        // Stripe and WooshPay return a hosted checkout link
+        if (isPayLinkGateway && response.data?.pay_link) {
           window.open(response.data.pay_link as string, '_blank')
           toast.success(i18next.t('Redirecting to payment page...'))
           return true
         }
 
-        // Handle non-Stripe payment
-        if (!isStripe && response.data) {
+        // Handle epay form payment
+        if (!isPayLinkGateway && response.data) {
           const url = (response as unknown as { url?: string }).url
           if (url) {
             submitPaymentForm(url, response.data)

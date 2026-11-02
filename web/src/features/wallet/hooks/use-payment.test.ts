@@ -33,6 +33,10 @@ describe('payment amount routing', () => {
         calls.push('stripe')
         return { success: true, data: '2' }
       },
+      wooshpay: async () => {
+        calls.push('wooshpay')
+        return { success: true, data: '3' }
+      },
       waffo: async (request) => {
         calls.push(`waffo:${request.amount}`)
         return { success: true, data: '18.75' }
@@ -45,5 +49,34 @@ describe('payment amount routing', () => {
 
     expect(amount).toBe(18.75)
     expect(calls).toEqual(['waffo:120'])
+  })
+
+  test('uses the dedicated WooshPay amount calculator', async () => {
+    const calls: string[] = []
+    const amount = await requestPaymentAmount(10, PAYMENT_TYPES.WOOSHPAY, {
+      regular: async () => {
+        calls.push('regular')
+        return { success: true, data: '1' }
+      },
+      stripe: async () => {
+        calls.push('stripe')
+        return { success: true, data: '2' }
+      },
+      wooshpay: async (request) => {
+        calls.push(`wooshpay:${request.amount}`)
+        return { success: true, data: '80.00' }
+      },
+      waffo: async () => {
+        calls.push('waffo')
+        return { success: true, data: '4' }
+      },
+      waffoPancake: async () => {
+        calls.push('pancake')
+        return { success: true, data: '5' }
+      },
+    })
+
+    expect(amount).toBe(80)
+    expect(calls).toEqual(['wooshpay:10'])
   })
 })

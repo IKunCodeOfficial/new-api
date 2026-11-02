@@ -924,4 +924,8 @@ export const STATIC_I18N_KEYS = [
   'Channel priorities changed. Refresh and try again.',
   'Invalid channel priority move',
   'Channel priority is outside the sortable range',
+  // WooshPay payment settings validation messages (zod schema).
+  'Enter a 3-letter ISO 4217 currency code',
+  'Unit price must be greater than 0',
+  'Minimum top-up must be a whole number of at least 1',
 ] as const

@@ -46,6 +46,7 @@ import {
   getDefaultPaymentType,
   getMinTopupAmount,
   dispatchSelectedPayment,
+  isWooshpayPayment,
 } from './lib'
 import type {
   UserWalletData,
@@ -363,6 +364,12 @@ export function Wallet(props: WalletProps) {
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
+        paymentCurrency={
+          isWooshpayPayment(selectedPaymentMethod?.type ?? '') &&
+          typeof status?.wooshpay_currency === 'string'
+            ? status.wooshpay_currency
+            : undefined
+        }
       />
 
       <TransferDialog

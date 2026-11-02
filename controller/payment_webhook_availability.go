@@ -108,3 +108,17 @@ func isEpayWebhookConfigured() bool {
 func isEpayWebhookEnabled() bool {
 	return isEpayTopUpEnabled()
 }
+
+func isWooshpayTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
+		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
+		setting.WooshpayUnitPrice > 0 &&
+		setting.WooshpayApiBaseMatchesKey()
+}
+
+func isWooshpayWebhookEnabled() bool {
+	return isWooshpayTopUpEnabled()
+}

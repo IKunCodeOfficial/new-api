@@ -47,6 +47,7 @@ const PAYMENT_TYPE_ICON_NAMES: Record<string, string> = {
   alipay: 'SiAlipay',
   stripe: 'SiStripe',
   waffo_pancake: 'LuCreditCard',
+  wooshpay: 'LuCreditCard',
   wxpay: 'SiWechat',
 }
 
@@ -87,6 +88,14 @@ export function PaymentMethodsVisualEditor({
         min_topup: '10',
         name: 'Stripe',
         type: 'stripe',
+      },
+    },
+    {
+      name: 'WooshPay',
+      template: {
+        icon: getDefaultIconName('wooshpay'),
+        name: 'WooshPay',
+        type: 'wooshpay',
       },
     },
     {

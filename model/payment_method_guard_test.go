@@ -103,6 +103,43 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 101))
 }
 
+func TestRechargeWooshpay_RejectsMismatchedPaymentMethod(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 102, 0)
+	insertTopUpForPaymentGuardTest(t, "wooshpay-guard", 102, PaymentProviderStripe)
+
+	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 USD", GatewayCharge{})
+	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-guard"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 102))
+	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 USD", GatewayCharge{}), ErrTopUpNotFound)
+}
+
+// A verified WooshPay payment completes its order even after the order was
+// closed as expired or failed, because the money really arrived; a completed
+// order is never credited twice and reports the duplicate sentinel.
+func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
+	truncateTables(t)
+	insertUserForPaymentGuardTest(t, 103, 0)
+
+	credited := 0
+	for _, status := range []string{common.TopUpStatusPending, common.TopUpStatusExpired, common.TopUpStatusFailed} {
+		tradeNo := "wooshpay-" + status
+		insertTopUpForPaymentGuardTest(t, tradeNo, 103, PaymentProviderWooshpay)
+		require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", tradeNo).Update("status", status).Error)
+
+		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 USD", GatewayCharge{}), status)
+		assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+		quota := getUserQuotaForPaymentGuardTest(t, 103)
+		assert.Greater(t, quota, credited, status)
+		credited = quota
+
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 USD", GatewayCharge{}), ErrTopUpStatusInvalid)
+		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103), "a completed order is not credited twice")
+	}
+}
+
 func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T) {
 	testCases := []struct {
 		name                    string
@@ -123,6 +160,20 @@ func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T)
 			tradeNo:                 "waffo-failed-guard",
 			storedPaymentProvider:   PaymentProviderStripe,
 			expectedPaymentProvider: PaymentProviderWaffo,
+			targetStatus:            common.TopUpStatusFailed,
+		},
+		{
+			name:                    "wooshpay expire",
+			tradeNo:                 "wooshpay-expire-guard",
+			storedPaymentProvider:   PaymentProviderStripe,
+			expectedPaymentProvider: PaymentProviderWooshpay,
+			targetStatus:            common.TopUpStatusExpired,
+		},
+		{
+			name:                    "wooshpay failed",
+			tradeNo:                 "wooshpay-failed-guard",
+			storedPaymentProvider:   PaymentProviderEpay,
+			expectedPaymentProvider: PaymentProviderWooshpay,
 			targetStatus:            common.TopUpStatusFailed,
 		},
 	}

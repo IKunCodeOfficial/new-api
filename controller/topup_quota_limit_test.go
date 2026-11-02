@@ -206,6 +206,41 @@ func TestStripeCreditedQuotaIncludesGroupRatio(t *testing.T) {
 	assert.True(t, decimal.NewFromInt(500000).Equal(getStripeCreditedQuota(1, "free")))
 }
 
+// WooshPay is priced by this server like epay: the top-up group ratio scales
+// the price, while the credited quota is the purchased units.
+func TestWooshpayGroupRatioScalesPriceNotCredit(t *testing.T) {
+	oldQuotaPerUnit := common.QuotaPerUnit
+	oldTopupGroupRatio := common.TopupGroupRatio2JSONString()
+	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	oldUnitPrice := setting.WooshpayUnitPrice
+	oldDiscount := operation_setting.GetPaymentSetting().AmountDiscount
+	common.QuotaPerUnit = 500000
+	setting.WooshpayUnitPrice = 8
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"vip":2}`))
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldQuotaPerUnit
+		setting.WooshpayUnitPrice = oldUnitPrice
+		operation_setting.GetPaymentSetting().AmountDiscount = oldDiscount
+		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplayType
+		require.NoError(t, common.UpdateTopupGroupRatioByJSONString(oldTopupGroupRatio))
+	})
+
+	assert.True(t, decimal.NewFromInt(500000).Equal(getWooshpayCreditedQuota(1)))
+	listed, charged := getWooshpayPayMoney(1, "vip")
+	assert.True(t, decimal.NewFromInt(16).Equal(listed), listed.String())
+	assert.True(t, decimal.NewFromInt(16).Equal(charged), charged.String())
+	_, err := validateCreditedQuota(getWooshpayCreditedQuota(int64(common.MaxWalletQuota)))
+	require.Error(t, err)
+
+	// With the Tokens display the amount is entered in tokens and rounded
+	// down to whole purchased units, as epay stores it.
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	assert.True(t, decimal.NewFromInt(1_000_000).Equal(getWooshpayCreditedQuota(1_000_000)))
+	assert.True(t, decimal.NewFromInt(500_000).Equal(getWooshpayCreditedQuota(750_000)))
+}
+
 // The paid snapshot must use the amount sent to the gateway, including its
 // currency rounding. Invalid Waffo keys stop checkout after the local insert;
 // no external payment service is contacted by these cases.

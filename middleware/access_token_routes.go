@@ -89,6 +89,8 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/amount":                        accessTokenScopeRule("wallet:read"),
 	"POST /api/user/stripe/pay":                    accessTokenScopeRule("wallet:write"),
 	"POST /api/user/stripe/amount":                 accessTokenScopeRule("wallet:read"),
+	"POST /api/user/wooshpay/pay":                  accessTokenScopeRule("wallet:write"),
+	"POST /api/user/wooshpay/amount":               accessTokenScopeRule("wallet:read"),
 	"POST /api/user/creem/pay":                     accessTokenScopeRule("wallet:write"),
 	"POST /api/user/waffo/amount":                  accessTokenScopeRule("wallet:read"),
 	"POST /api/user/waffo/pay":                     accessTokenScopeRule("wallet:write"),

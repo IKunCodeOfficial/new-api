@@ -33,6 +33,7 @@ const (
 	PaymentMethodCreem        = "creem"
 	PaymentMethodWaffo        = "waffo"
 	PaymentMethodWaffoPancake = "waffo_pancake"
+	PaymentMethodWooshpay     = "wooshpay"
 	PaymentMethodBalance      = "balance"
 )
 
@@ -42,6 +43,7 @@ const (
 	PaymentProviderCreem        = "creem"
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
+	PaymentProviderWooshpay     = "wooshpay"
 	PaymentProviderBalance      = "balance"
 )
 
@@ -159,7 +161,10 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 	return DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
-			return ErrTopUpNotFound
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
 		}
 		if expectedPaymentProvider != "" && topUp.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
@@ -304,6 +309,75 @@ func Recharge(referenceId string, customerId string, callerIp string, charge Gat
 
 	RecordTopupLog(topUp.UserId, common.NewMessage("Online top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quota), "amount": topUp.Amount}), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
 
+	return nil
+}
+
+// RechargeWooshpay completes a WooshPay order after the webhook handler has
+// re-queried the PaymentIntent and verified that it succeeded. The money has
+// then really arrived, so an order already closed as expired or failed is
+// completed too. paymentAmount is the collected amount with its currency, as
+// shown in the top-up log. It returns ErrTopUpNotFound,
+// ErrPaymentMethodMismatch or ErrTopUpStatusInvalid (already completed, the
+// duplicate-notification case) unchanged so the caller can acknowledge them;
+// any other error is a database failure worth retrying.
+func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge) (err error) {
+	if tradeNo == "" {
+		return errors.New("payment order number not provided")
+	}
+
+	var quota int
+	topUp := &TopUp{}
+
+	refCol := "`trade_no`"
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		refCol = `"trade_no"`
+	}
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
+		}
+		if topUp.PaymentProvider != PaymentProviderWooshpay {
+			return ErrPaymentMethodMismatch
+		}
+		switch topUp.Status {
+		case common.TopUpStatusPending, common.TopUpStatusExpired, common.TopUpStatusFailed:
+		default:
+			return ErrTopUpStatusInvalid
+		}
+
+		// Money is what was charged; the top-up group ratio only scales the
+		// price, so the credit is the purchased units, as with epay and Waffo.
+		var quotaErr error
+		quota, quotaErr = common.WalletQuotaFromDecimalStrict(
+			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+		if quotaErr != nil || quota <= 0 {
+			return ErrInvalidTopUpQuota
+		}
+
+		topUp.CompleteTime = common.GetTimestamp()
+		topUp.Status = common.TopUpStatusSuccess
+		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+		if err := applyGatewayCharge(tx, topUp, charge); err != nil { // fork (ikun): rebate paid snapshot
+			return err
+		}
+		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
+	})
+	if err != nil {
+		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) {
+			common.SysError(common.LogText("wooshpay topup failed: %s", err.Error()))
+		}
+		return err
+	}
+	syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("wooshpay topup"))
+
+	RecordTopupLog(topUp.UserId, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "WooshPay", "quota": logger.FormatQuota(quota), "amount": paymentAmount}), callerIp, topUp.PaymentMethod, PaymentMethodWooshpay)
 	return nil
 }
 
@@ -457,7 +531,7 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 // ManualCompleteTopUp 管理员手动完成订单并给用户充值。
 // paidMoney（可选）是管理员核对网关后填写的实收金额，币种与订单标价一致：
 // Stripe 的标价为 Amount×StripeUnitPrice，Creem 填不含税金额，其余渠道的标价为 Money。
-// 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake 的实收
+// 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake、WooshPay 的实收
 // （优惠码、测试模式）只有网关完成事件才知道，未填写时这些订单不计入返利充值。
 func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) error {
 	if tradeNo == "" {
@@ -493,7 +567,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// 计算应充值额度，与各渠道回调入账保持一致：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
 		// - Creem 订单：Amount 本身就是额度（RechargeCreem 原样入账）
-		// - 其他订单（易支付、Waffo 等）：Amount 为美元数量，* QuotaPerUnit
+		// - 其他订单（易支付、Waffo、Waffo Pancake、WooshPay 等）：Amount 为购买数量，* QuotaPerUnit
 		var quotaErr error
 		switch resolveTopUpProvider(topUp) {
 		case PaymentProviderStripe:
@@ -523,7 +597,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// price, the rule the gateways' own discount reports follow. Stripe
 		// charges the purchased quantity at the Checkout unit price (its Money
 		// is the credited value); every other gateway charges Money. Without a
-		// stated amount, Stripe, Creem and Waffo Pancake orders, whose
+		// stated amount, Stripe, Creem, Waffo Pancake and WooshPay orders, whose
 		// discounts only the gateway knows, count nothing.
 		provider := resolveTopUpProvider(topUp)
 		var charge GatewayCharge
@@ -539,7 +613,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 			// Parts per million of the list price, at most the full price.
 			share := decimal.NewFromFloat(max(*paidMoney, 0)).Div(listed)
 			charge = GatewayCharge{Listed: 1_000_000, Charged: decimal.Min(share, decimal.NewFromInt(1)).Shift(6).Floor().IntPart()}
-		case provider == PaymentProviderStripe || provider == PaymentProviderCreem || provider == PaymentProviderWaffoPancake:
+		case provider == PaymentProviderStripe || provider == PaymentProviderCreem || provider == PaymentProviderWaffoPancake || provider == PaymentProviderWooshpay:
 			charge = GatewayCharge{Listed: 1, Charged: 0}
 		}
 		if err := applyGatewayCharge(tx, topUp, charge); err != nil {

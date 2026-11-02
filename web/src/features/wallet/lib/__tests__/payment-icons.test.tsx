@@ -36,6 +36,17 @@ test.each([
   }
 )
 
+test('the WooshPay icon falls back to the generic card icon in the WooshPay color', () => {
+  const { container } = render(
+    getPaymentIcon(PAYMENT_TYPES.WOOSHPAY, 'h-6 w-6')
+  )
+  const icon = container.querySelector('svg')
+  expect(icon).toHaveClass('lucide-credit-card', 'h-6', 'w-6')
+  expect(icon).toHaveStyle({
+    color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.WOOSHPAY],
+  })
+})
+
 test('an admin-configured Simple Icon still resolves through the lazy icon loader', async () => {
   render(
     getPaymentIcon(

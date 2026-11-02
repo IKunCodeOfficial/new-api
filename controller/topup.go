@@ -97,12 +97,33 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	enableWooshpay := isWooshpayTopUpEnabled()
+	if enableWooshpay {
+		hasWooshpay := false
+		for _, method := range payMethods {
+			if method["type"] == model.PaymentMethodWooshpay {
+				hasWooshpay = true
+				break
+			}
+		}
+
+		if !hasWooshpay {
+			payMethods = append(payMethods, map[string]string{
+				"name":      "WooshPay",
+				"type":      model.PaymentMethodWooshpay,
+				"color":     "#1F6FEB",
+				"min_topup": strconv.FormatInt(getWooshpayMinTopup(), 10),
+			})
+		}
+	}
+
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
+		"enable_wooshpay_topup":            enableWooshpay,
 		"enable_redemption":                complianceConfirmed,
 		"payment_compliance_confirmed":     complianceConfirmed,
 		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
@@ -118,6 +139,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"stripe_min_topup":        setting.StripeMinTopUp,
 		"waffo_min_topup":         setting.WaffoMinTopUp,
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
+		"wooshpay_min_topup":      getWooshpayMinTopup(),
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,

@@ -19,9 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import { describe, expect, test } from 'vitest'
 
 import { PAYMENT_TYPES } from '../constants'
+import type { TopupInfo } from '../types'
 import {
   dispatchSelectedPayment,
+  getDefaultPaymentType,
+  getMinTopupAmount,
   isStripePayment,
+  isWooshpayPayment,
   isWaffoPayment,
   isWaffoPancakePayment,
 } from './payment'
@@ -33,6 +37,36 @@ describe('payment type classification', () => {
     expect(isWaffoPancakePayment(PAYMENT_TYPES.WAFFO_PANCAKE)).toBe(true)
     expect(isWaffoPancakePayment(PAYMENT_TYPES.WAFFO)).toBe(false)
     expect(isStripePayment(PAYMENT_TYPES.STRIPE)).toBe(true)
+  })
+
+  test('recognises only the wooshpay type as WooshPay', () => {
+    expect(isWooshpayPayment(PAYMENT_TYPES.WOOSHPAY)).toBe(true)
+    expect(isWooshpayPayment(PAYMENT_TYPES.STRIPE)).toBe(false)
+    expect(isStripePayment(PAYMENT_TYPES.WOOSHPAY)).toBe(false)
+  })
+})
+
+describe('WooshPay top-up defaults', () => {
+  const wooshpayOnlyTopupInfo: TopupInfo = {
+    enable_online_topup: false,
+    enable_stripe_topup: false,
+    enable_wooshpay_topup: true,
+    wooshpay_min_topup: 5,
+    pay_methods: [],
+    min_topup: 1,
+    stripe_min_topup: 1,
+    amount_options: [],
+    discount: {},
+  }
+
+  test('selects WooshPay when it is the only enabled gateway without pay methods', () => {
+    expect(getDefaultPaymentType(wooshpayOnlyTopupInfo)).toBe(
+      PAYMENT_TYPES.WOOSHPAY
+    )
+  })
+
+  test('uses the WooshPay minimum top-up when it is the only enabled gateway', () => {
+    expect(getMinTopupAmount(wooshpayOnlyTopupInfo)).toBe(5)
   })
 })
 

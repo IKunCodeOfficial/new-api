@@ -94,6 +94,13 @@ export function isStripePayment(paymentType: string): boolean {
 }
 
 /**
+ * Check if payment method is WooshPay
+ */
+export function isWooshpayPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.WOOSHPAY
+}
+
+/**
  * Check if payment method is Waffo
  */
 export function isWaffoPayment(paymentType: string): boolean {
@@ -154,6 +161,10 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.STRIPE
   }
 
+  if (topupInfo.enable_wooshpay_topup) {
+    return PAYMENT_TYPES.WOOSHPAY
+  }
+
   if (topupInfo.enable_waffo_topup) {
     return PAYMENT_TYPES.WAFFO
   }
@@ -179,6 +190,10 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 
   if (topupInfo.enable_stripe_topup) {
     return topupInfo.stripe_min_topup
+  }
+
+  if (topupInfo.enable_wooshpay_topup) {
+    return topupInfo.wooshpay_min_topup || DEFAULT_MIN_TOPUP
   }
 
   if (topupInfo.enable_waffo_topup) {

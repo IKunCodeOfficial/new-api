@@ -71,8 +71,13 @@ interface SubscriptionPlansCardProps {
 }
 
 function getEpayMethods(payMethods: PaymentMethod[] = []): PaymentMethod[] {
+  // WooshPay only supports wallet top-up; it has no subscription checkout.
   return payMethods.filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem'
+    (m) =>
+      m?.type &&
+      m.type !== 'stripe' &&
+      m.type !== 'creem' &&
+      m.type !== 'wooshpay'
   )
 }
 
