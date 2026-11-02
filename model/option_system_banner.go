@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -46,10 +47,10 @@ var systemBannerStoredKeys = []string{
 
 // SystemBannerInput is a whole-banner save from the admin form.
 type SystemBannerInput struct {
-	Enabled bool   `json:"enabled"`
-	Level   string `json:"level"`
-	TextZh  string `json:"text_zh"`
-	TextEn  string `json:"text_en"`
+	Enabled bool
+	Level   string
+	TextZh  string
+	TextEn  string
 }
 
 // UpdateSystemBanner validates and stores the whole banner in one transaction
@@ -98,12 +99,24 @@ func saveSystemBanner(edit func(next *system_setting.SystemBannerSettings)) (sys
 
 	var next system_setting.SystemBannerSettings
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		// Make sure every banner row exists before locking: a row lock cannot
+		// cover a row that is not there yet, so two first-time saves could
+		// otherwise both read "disabled" and break the both-texts rule.
+		seed := make([]Option, 0, len(systemBannerStoredKeys))
+		for k, v := range systemBannerOptionValues(system_setting.SystemBannerSettings{Level: system_setting.SystemBannerLevelNormal}) {
+			seed = append(seed, Option{Key: k, Value: v})
+		}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&seed).Error; err != nil {
+			return err
+		}
 		var rows []Option
 		if err := lockForUpdate(tx).Where(map[string]any{"key": systemBannerStoredKeys}).Find(&rows).Error; err != nil {
 			return err
 		}
+		stored := make(map[string]string, len(rows))
 		cur := system_setting.SystemBannerSettings{Level: system_setting.SystemBannerLevelNormal}
 		for _, row := range rows {
+			stored[row.Key] = row.Value
 			switch row.Key {
 			case systemBannerEnabledKey:
 				cur.Enabled = row.Value == "true"
@@ -139,17 +152,13 @@ func saveSystemBanner(edit func(next *system_setting.SystemBannerSettings)) (sys
 		if (!cur.Enabled && next.Enabled) || (next.Enabled && textChanged) {
 			next.PublishedAt = max(systemBannerNow().Unix(), cur.PublishedAt+1)
 		}
-		stored := systemBannerOptionValues(cur)
+		// Compare with the raw stored values so a non-canonical row (for
+		// example an empty level) is rewritten to what memory will hold.
 		for k, v := range systemBannerOptionValues(next) {
 			if v == stored[k] {
 				continue
 			}
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
-				return err
-			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
+			if err := tx.Model(&Option{}).Where(&Option{Key: k}).Update("value", v).Error; err != nil {
 				return err
 			}
 		}

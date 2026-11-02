@@ -129,7 +129,7 @@ func TestSystemBannerPublishedAtRules(t *testing.T) {
 	t.Run("text edit before first enable leaves published_at unset", func(t *testing.T) {
 		db := useSystemBannerFixture(t)
 		applyBannerStep(t, zh)
-		requireOptionMissing(t, db, "system_banner.published_at")
+		assert.Equal(t, "0", requireOptionValue(t, db, "system_banner.published_at"))
 		assert.Equal(t, int64(0), system_setting.GetSystemBannerSettings().PublishedAt)
 	})
 }

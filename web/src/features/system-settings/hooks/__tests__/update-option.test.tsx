@@ -73,32 +73,33 @@ test('saving an unrelated setting leaves the banner query alone', async () => {
   expect(await saveOption('QuotaPerUnit')).toBe(false)
 })
 
-test('saving the whole banner sends one request and refreshes every view of it', async () => {
+const banner = {
+  enabled: true,
+  level: 'normal',
+  text_zh: '维护',
+  text_en: 'Maintenance',
+} as const
+
+function renderBannerSave(client: QueryClient) {
+  return renderHook(() => useUpdateSystemBanner(), {
+    wrapper: (props: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, props.children),
+  })
+}
+
+test('saving the whole banner sends one request, refreshes every view of it and confirms once', async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  for (const queryKey of [
-    SYSTEM_BANNER_QUERY_KEY,
-    ['status'],
-    ['system-options'],
-  ]) {
-    client.setQueryData(queryKey, null)
-  }
-  vi.spyOn(toast, 'success').mockReturnValue('saved')
+  const views = [SYSTEM_BANNER_QUERY_KEY, ['status'], ['system-options']]
+  for (const queryKey of views) client.setQueryData(queryKey, null)
+  window.localStorage.setItem('status', '{"stale":true}')
+  const success = vi.spyOn(toast, 'success').mockReturnValue('saved')
   vi.mocked(updateSystemBanner).mockResolvedValue({
     success: true,
     message: '',
   })
-  const banner = {
-    enabled: true,
-    level: 'normal',
-    text_zh: '维护',
-    text_en: 'Maintenance',
-  } as const
-  const { result, unmount } = renderHook(() => useUpdateSystemBanner(), {
-    wrapper: (props: { children: ReactNode }) =>
-      createElement(QueryClientProvider, { client }, props.children),
-  })
+  const { result, unmount } = renderBannerSave(client)
 
   await act(async () => {
     await result.current.mutateAsync(banner)
@@ -106,13 +107,35 @@ test('saving the whole banner sends one request and refreshes every view of it',
 
   expect(updateSystemBanner).toHaveBeenCalledTimes(1)
   expect(updateSystemBanner).toHaveBeenCalledWith(banner)
-  for (const queryKey of [
-    SYSTEM_BANNER_QUERY_KEY,
-    ['status'],
-    ['system-options'],
-  ]) {
+  for (const queryKey of views) {
     expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true)
   }
+  expect(window.localStorage.getItem('status')).toBeNull()
+  expect(success).toHaveBeenCalledTimes(1)
+  unmount()
+  client.clear()
+})
+
+test('a rejected banner save reports the server reason and confirms nothing', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const success = vi.spyOn(toast, 'success').mockReturnValue('saved')
+  const failure = vi.spyOn(toast, 'error').mockReturnValue('failed')
+  vi.mocked(updateSystemBanner).mockResolvedValue({
+    success: false,
+    message: 'System banner needs both Chinese and English text while enabled',
+  })
+  const { result, unmount } = renderBannerSave(client)
+
+  await act(async () => {
+    await expect(result.current.mutateAsync(banner)).rejects.toThrow(
+      'System banner needs both Chinese and English text while enabled'
+    )
+  })
+
+  expect(success).not.toHaveBeenCalled()
+  expect(failure).toHaveBeenCalledTimes(1)
   unmount()
   client.clear()
 })
