@@ -140,6 +140,14 @@ func GetStatus(c *gin.Context) {
 	if cs.FAQEnabled {
 		data["faq"] = console_setting.GetFAQ()
 	}
+	if banner := system_setting.GetSystemBannerSettings(); banner.Enabled {
+		data["system_banner"] = gin.H{
+			"level":        banner.Level,
+			"text_zh":      banner.TextZh,
+			"text_en":      banner.TextEn,
+			"published_at": banner.PublishedAt,
+		}
+	}
 
 	// Add enabled custom OAuth providers
 	customProviders := oauth.GetEnabledCustomProviders()

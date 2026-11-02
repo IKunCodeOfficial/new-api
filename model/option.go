@@ -258,6 +258,9 @@ func validateOptionValue(key string, value string) error {
 			return common.ValidateResendConfiguration(settings["ResendApiKey"], settings["ResendFrom"])
 		}
 	}
+	if key == systemBannerPublishedAtKey {
+		return common.NewMessage("System banner publish time is maintained automatically")
+	}
 	if key == "ResendKeyConfigured" {
 		return common.NewMessage("Resend key configuration status is read-only")
 	}
@@ -290,6 +293,9 @@ func UpdateOption(key string, value string) error {
 	}
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
+	}
+	if IsSystemBannerOption(key) {
+		return updateSystemBannerOption(key, value)
 	}
 	if err := validateOptionValue(key, value); err != nil {
 		return err
@@ -328,6 +334,10 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if IsPasskeyDomainOption(key) {
 			_, err := UpdatePasskeyDomainOptions(values, false, "")
 			return err
+		}
+		// The publish-time rules live only in the single-key path.
+		if IsSystemBannerOption(key) {
+			return common.NewMessage("System banner settings must be saved one at a time")
 		}
 	}
 	for key, value := range values {
