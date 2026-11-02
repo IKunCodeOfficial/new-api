@@ -1,4 +1,3 @@
-import { CommandMenu } from '@/components/command-menu'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { CommandMenu } from '@/components/command-menu'
 import { EmailBindReminder } from '@/components/email-bind-reminder'
 import { AnimatedOutlet } from '@/components/page-transition'
 import { SkipToMain } from '@/components/skip-to-main'
