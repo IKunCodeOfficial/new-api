@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { SystemBannerStatus } from '@/components/system-banner/lib'
 import type { AuthBundle } from '@/stores/auth-store'
 
 import type { LoginResult } from './secure-verification/types'
@@ -93,6 +94,7 @@ export interface SystemStatus {
   message?: string
   data?: {
     version?: string
+    system_banner?: SystemBannerStatus
     system_name?: string
     logo?: string
     topup_link?: string
