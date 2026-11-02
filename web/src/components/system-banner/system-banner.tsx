@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Cancel01Icon } from '@hugeicons/core-free-icons'
+import {
+  Alert02Icon,
+  Cancel01Icon,
+  InformationCircleIcon,
+} from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -58,7 +62,9 @@ export function SystemBanner() {
   const banner = parseSystemBanner(status?.data?.system_banner)
   const [dismissedAt, setDismissedAt] = useState(readDismissedAt)
   const [marqueeDuration, setMarqueeDuration] = useState<number | null>(null)
-  const [reducedMotion, setReducedMotion] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia?.(REDUCED_MOTION_QUERY)?.matches ?? false
+  )
   const rootRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLSpanElement>(null)
@@ -145,6 +151,14 @@ export function SystemBanner() {
           : 'border-b border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-50'
       )}
     >
+      <HugeiconsIcon
+        icon={
+          banner.level === 'important' ? Alert02Icon : InformationCircleIcon
+        }
+        strokeWidth={2}
+        aria-hidden
+        className='size-4 shrink-0'
+      />
       <div
         ref={trackRef}
         data-slot='system-banner-track'
@@ -153,6 +167,9 @@ export function SystemBanner() {
           reducedMotion ? 'whitespace-normal' : 'whitespace-nowrap'
         )}
       >
+        <span className='sr-only'>
+          {banner.level === 'important' ? t('Important') : t('Notice')}
+        </span>
         <span
           className={cn(marqueeDuration !== null && 'animate-marquee')}
           style={

@@ -182,6 +182,20 @@ describe('SystemBanner', () => {
     }
   )
 
+  test.each([
+    ['normal', 'Notice'],
+    ['important', 'Important'],
+  ] as const)(
+    'exposes the %s level to assistive tech as hidden-from-view text',
+    (level, label) => {
+      renderBanner({ ...BANNER, level })
+      expect(
+        screen.getByRole('region', { name: 'System notice' })
+      ).toHaveTextContent(label)
+      expect(screen.getByText(label)).toHaveClass('sr-only')
+    }
+  )
+
   test('dismiss hides banner and stores published_at', async () => {
     renderBanner(BANNER)
     await userEvent.click(screen.getByRole('button', { name: 'Close notice' }))
@@ -219,16 +233,18 @@ describe('SystemBanner', () => {
     expect(screen.getByRole('region')).toBeVisible()
   })
 
-  test('short text does not scroll, overflowing text scrolls', () => {
+  test('short text does not scroll', () => {
     textWidth = 100
     trackWidth = 400
-    const short = renderBanner(BANNER)
-    expect(short.container.querySelector('.animate-marquee')).toBeNull()
-    short.unmount()
+    const view = renderBanner(BANNER)
+    expect(view.container.querySelector('.animate-marquee')).toBeNull()
+  })
 
+  test('overflowing text scrolls', () => {
     textWidth = 900
-    const long = renderBanner(BANNER)
-    expect(long.container.querySelector('.animate-marquee')).not.toBeNull()
+    trackWidth = 400
+    const view = renderBanner(BANNER)
+    expect(view.container.querySelector('.animate-marquee')).not.toBeNull()
   })
 
   test('reduced motion never scrolls long text and lets it wrap', () => {

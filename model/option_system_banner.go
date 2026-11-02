@@ -95,10 +95,11 @@ func updateSystemBannerOption(key, value string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range writes {
-		if err := updateOptionMap(k, v); err != nil {
+	// Fixed order: a new published_at must reach memory before the edited key.
+	if publishedAt, ok := writes[systemBannerPublishedAtKey]; ok {
+		if err := updateOptionMap(systemBannerPublishedAtKey, publishedAt); err != nil {
 			return err
 		}
 	}
-	return nil
+	return updateOptionMap(key, value)
 }
