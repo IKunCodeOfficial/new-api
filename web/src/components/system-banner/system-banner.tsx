@@ -63,17 +63,21 @@ function readDismissedAt(): number {
 export function SystemBanner() {
   const { t, i18n } = useTranslation()
   const { status } = useStatus()
-  // The status snapshot paints the first frame; the polled endpoint keeps
-  // open pages current after an admin publishes or turns the banner off.
-  const { data: banner = null } = useQuery({
+  // The polled endpoint keeps open pages current after an admin publishes or
+  // turns the banner off. Until it has answered once, including when its first
+  // request fails, the status snapshot decides.
+  const { data: polledBanner } = useQuery({
     queryKey: SYSTEM_BANNER_QUERY_KEY,
     queryFn: async () => parseSystemBanner(await getSystemBanner()),
-    placeholderData: () => parseSystemBanner(status?.data?.system_banner),
     staleTime: 0,
     refetchInterval: SYSTEM_BANNER_REFRESH_MS,
     refetchOnWindowFocus: true,
     meta: { errorToast: false },
   })
+  const banner =
+    polledBanner === undefined
+      ? parseSystemBanner(status?.data?.system_banner)
+      : polledBanner
   const [dismissedAt, setDismissedAt] = useState(readDismissedAt)
   const [marqueeDuration, setMarqueeDuration] = useState<number | null>(null)
   const [reducedMotion, setReducedMotion] = useState(

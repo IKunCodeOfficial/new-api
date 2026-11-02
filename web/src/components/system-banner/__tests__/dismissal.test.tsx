@@ -28,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
   SYSTEM_BANNER_DISMISSED_KEY,
+  SYSTEM_BANNER_QUERY_KEY,
   SYSTEM_BANNER_REFRESH_MS,
   type SystemBannerStatus,
 } from '@/components/system-banner/lib'
@@ -140,7 +141,7 @@ function serve(systemBanner?: unknown) {
 async function republish(systemBanner: unknown) {
   serve(systemBanner)
   await act(async () => {
-    await queryClient.refetchQueries()
+    await queryClient.refetchQueries({ queryKey: SYSTEM_BANNER_QUERY_KEY })
   })
 }
 
@@ -311,8 +312,23 @@ describe('SystemBanner', () => {
     await renderBanner(BANNER)
     vi.mocked(getSystemBanner).mockRejectedValue(new Error('offline'))
     await act(async () => {
-      await queryClient.refetchQueries()
+      await queryClient.refetchQueries({ queryKey: SYSTEM_BANNER_QUERY_KEY })
     })
+    expect(screen.getByRole('region')).toBeVisible()
+  })
+
+  test('keeps the status banner when the first banner request fails', async () => {
+    queryClient.setQueryData(STATUS_QUERY_KEY, {
+      success: true,
+      data: { system_name: 'Test', system_banner: BANNER },
+    })
+    vi.mocked(getSystemBanner).mockRejectedValue(new Error('rate limited'))
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemBanner />
+      </QueryClientProvider>
+    )
+    await act(async () => {})
     expect(screen.getByRole('region')).toBeVisible()
   })
 })
