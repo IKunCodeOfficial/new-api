@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  focusManager,
   notifyManager,
   QueryClient,
   QueryClientProvider,
@@ -27,11 +28,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
   SYSTEM_BANNER_DISMISSED_KEY,
+  SYSTEM_BANNER_REFRESH_MS,
   type SystemBannerStatus,
 } from '@/components/system-banner/lib'
 import { SystemBanner } from '@/components/system-banner/system-banner'
-import type { SystemStatus } from '@/features/auth/types'
+import { getSystemBanner } from '@/lib/api'
 import { STATUS_QUERY_KEY } from '@/lib/status-query'
+
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  getSystemBanner: vi.fn(),
+}))
 
 const BANNER: SystemBannerStatus = {
   level: 'normal',
@@ -105,6 +112,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
+  focusManager.setFocused(undefined)
   notifyManager.setScheduler((callback) => setTimeout(callback, 0))
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -122,26 +131,33 @@ afterEach(() => {
   queryClient.clear()
 })
 
-async function seed(systemBanner?: unknown) {
-  const status = {
-    success: true,
-    data: { system_name: 'Test', system_banner: systemBanner },
-  } as SystemStatus
+/** What `/api/system_banner` returns on the next request. */
+function serve(systemBanner?: unknown) {
+  vi.mocked(getSystemBanner).mockResolvedValue(systemBanner ?? null)
+}
+
+/** The banner changes on the server and the page polls once. */
+async function republish(systemBanner: unknown) {
+  serve(systemBanner)
   await act(async () => {
-    queryClient.setQueryData(STATUS_QUERY_KEY, status)
+    await queryClient.refetchQueries()
   })
 }
 
-function renderBanner(systemBanner?: unknown) {
+/** Status snapshot and banner endpoint agree, as on a normal page load. */
+async function renderBanner(systemBanner?: unknown) {
   queryClient.setQueryData(STATUS_QUERY_KEY, {
     success: true,
     data: { system_name: 'Test', system_banner: systemBanner },
   })
-  return render(
+  serve(systemBanner)
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <SystemBanner />
     </QueryClientProvider>
   )
+  await act(async () => {})
+  return view
 }
 
 function bannerHeight() {
@@ -151,8 +167,8 @@ function bannerHeight() {
 }
 
 describe('SystemBanner', () => {
-  test('renders nothing when status has no banner', () => {
-    renderBanner(undefined)
+  test('renders nothing when status has no banner', async () => {
+    await renderBanner(undefined)
     expect(screen.queryByRole('region')).toBeNull()
     expect(bannerHeight()).toBe('0px')
   })
@@ -161,13 +177,13 @@ describe('SystemBanner', () => {
     ['missing fields', { level: 'normal' }],
     ['wrong types', { ...BANNER, published_at: '1000' }],
     ['unknown level', { ...BANNER, level: 'urgent' }],
-  ])('renders nothing for a malformed banner with %s', (_name, value) => {
-    renderBanner(value)
+  ])('renders nothing for a malformed banner with %s', async (_name, value) => {
+    await renderBanner(value)
     expect(screen.queryByRole('region')).toBeNull()
   })
 
-  test('shows banner with accessible region and close button', () => {
-    renderBanner(BANNER)
+  test('shows banner with accessible region and close button', async () => {
+    await renderBanner(BANNER)
     expect(screen.getByRole('region', { name: 'System notice' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Close notice' })).toBeVisible()
     expect(screen.getByText('Maintenance tonight')).toBeVisible()
@@ -176,8 +192,8 @@ describe('SystemBanner', () => {
 
   test.each(['normal', 'important'] as const)(
     'marks the %s level on the region so it is styled distinctly',
-    (level) => {
-      renderBanner({ ...BANNER, level })
+    async (level) => {
+      await renderBanner({ ...BANNER, level })
       expect(screen.getByRole('region')).toHaveAttribute('data-level', level)
     }
   )
@@ -187,8 +203,8 @@ describe('SystemBanner', () => {
     ['important', 'Important'],
   ] as const)(
     'exposes the %s level to assistive tech as hidden-from-view text',
-    (level, label) => {
-      renderBanner({ ...BANNER, level })
+    async (level, label) => {
+      await renderBanner({ ...BANNER, level })
       expect(
         screen.getByRole('region', { name: 'System notice' })
       ).toHaveTextContent(label)
@@ -197,7 +213,7 @@ describe('SystemBanner', () => {
   )
 
   test('dismiss hides banner and stores published_at', async () => {
-    renderBanner(BANNER)
+    await renderBanner(BANNER)
     await userEvent.click(screen.getByRole('button', { name: 'Close notice' }))
     expect(screen.queryByRole('region')).toBeNull()
     expect(window.localStorage.getItem(SYSTEM_BANNER_DISMISSED_KEY)).toBe(
@@ -206,56 +222,97 @@ describe('SystemBanner', () => {
   })
 
   test('dismiss sets banner height to 0px', async () => {
-    renderBanner(BANNER)
+    await renderBanner(BANNER)
     expect(bannerHeight()).toBe('36px')
     await userEvent.click(screen.getByRole('button', { name: 'Close notice' }))
     expect(bannerHeight()).toBe('0px')
   })
 
-  test('already dismissed published_at stays hidden on mount', () => {
+  test('already dismissed published_at stays hidden on mount', async () => {
     window.localStorage.setItem(SYSTEM_BANNER_DISMISSED_KEY, '1000')
-    renderBanner(BANNER)
+    await renderBanner(BANNER)
     expect(screen.queryByRole('region')).toBeNull()
     expect(bannerHeight()).toBe('0px')
   })
 
   test('same published_at stays hidden after rerender', async () => {
-    renderBanner(BANNER)
+    await renderBanner(BANNER)
     await userEvent.click(screen.getByRole('button', { name: 'Close notice' }))
-    await seed({ ...BANNER, level: 'important' })
+    await republish({ ...BANNER, level: 'important' })
     expect(screen.queryByRole('region')).toBeNull()
   })
 
   test('new published_at shows again', async () => {
-    renderBanner(BANNER)
+    await renderBanner(BANNER)
     await userEvent.click(screen.getByRole('button', { name: 'Close notice' }))
-    await seed({ ...BANNER, published_at: 1001 })
+    await republish({ ...BANNER, published_at: 1001 })
     expect(screen.getByRole('region')).toBeVisible()
   })
 
-  test('short text does not scroll', () => {
+  test('short text does not scroll', async () => {
     textWidth = 100
     trackWidth = 400
-    const view = renderBanner(BANNER)
+    const view = await renderBanner(BANNER)
     expect(view.container.querySelector('.animate-marquee')).toBeNull()
   })
 
-  test('overflowing text scrolls', () => {
+  test('overflowing text scrolls', async () => {
     textWidth = 900
     trackWidth = 400
-    const view = renderBanner(BANNER)
+    const view = await renderBanner(BANNER)
     expect(view.container.querySelector('.animate-marquee')).not.toBeNull()
   })
 
-  test('reduced motion never scrolls long text and lets it wrap', () => {
+  test('reduced motion never scrolls long text and lets it wrap', async () => {
     stubReducedMotion(true)
     textWidth = 900
     trackWidth = 400
-    const view = renderBanner(BANNER)
+    const view = await renderBanner(BANNER)
     expect(view.container.querySelector('.animate-marquee')).toBeNull()
     expect(
       view.container.querySelector('[data-slot="system-banner-track"]')
     ).not.toHaveClass('whitespace-nowrap')
     expect(bannerHeight()).toBe('36px')
+  })
+
+  test('shows a banner published after load on the next scheduled refresh', async () => {
+    vi.useFakeTimers()
+    await renderBanner(undefined)
+    expect(screen.queryByRole('region')).toBeNull()
+
+    serve(BANNER)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SYSTEM_BANNER_REFRESH_MS)
+    })
+
+    expect(screen.getByRole('region')).toBeVisible()
+  })
+
+  test('refreshes the banner when the tab regains focus', async () => {
+    await renderBanner(undefined)
+
+    serve(BANNER)
+    await act(async () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+
+    expect(screen.getByRole('region')).toBeVisible()
+  })
+
+  test('hides the banner once a refresh reports it turned off', async () => {
+    await renderBanner(BANNER)
+    await republish(null)
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(bannerHeight()).toBe('0px')
+  })
+
+  test('keeps the last banner when a refresh fails', async () => {
+    await renderBanner(BANNER)
+    vi.mocked(getSystemBanner).mockRejectedValue(new Error('offline'))
+    await act(async () => {
+      await queryClient.refetchQueries()
+    })
+    expect(screen.getByRole('region')).toBeVisible()
   })
 })

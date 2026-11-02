@@ -22,17 +22,21 @@ import {
   InformationCircleIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
+import { getSystemBanner } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 import {
   parseSystemBanner,
   pickSystemBannerText,
   SYSTEM_BANNER_DISMISSED_KEY,
+  SYSTEM_BANNER_QUERY_KEY,
+  SYSTEM_BANNER_REFRESH_MS,
 } from './lib'
 
 const BANNER_HEIGHT_VAR = '--system-banner-height'
@@ -59,7 +63,17 @@ function readDismissedAt(): number {
 export function SystemBanner() {
   const { t, i18n } = useTranslation()
   const { status } = useStatus()
-  const banner = parseSystemBanner(status?.data?.system_banner)
+  // The status snapshot paints the first frame; the polled endpoint keeps
+  // open pages current after an admin publishes or turns the banner off.
+  const { data: banner = null } = useQuery({
+    queryKey: SYSTEM_BANNER_QUERY_KEY,
+    queryFn: async () => parseSystemBanner(await getSystemBanner()),
+    placeholderData: () => parseSystemBanner(status?.data?.system_banner),
+    staleTime: 0,
+    refetchInterval: SYSTEM_BANNER_REFRESH_MS,
+    refetchOnWindowFocus: true,
+    meta: { errorToast: false },
+  })
   const [dismissedAt, setDismissedAt] = useState(readDismissedAt)
   const [marqueeDuration, setMarqueeDuration] = useState<number | null>(null)
   const [reducedMotion, setReducedMotion] = useState(

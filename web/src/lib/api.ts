@@ -75,6 +75,12 @@ export async function getStatus() {
   return requireServerSuccess(res.data)?.data as Record<string, unknown>
 }
 
+/** The system banner alone, `null` while it is off. Polled by open pages. */
+export async function getSystemBanner(): Promise<unknown> {
+  const res = await api.get('/api/system_banner')
+  return requireServerSuccess(res.data)?.data ?? null
+}
+
 export async function getNotice(): Promise<{
   success: boolean
   message?: string

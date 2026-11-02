@@ -20,6 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
+import { SYSTEM_BANNER_QUERY_KEY } from '@/components/system-banner/lib'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
@@ -75,6 +76,10 @@ export function useUpdateOption() {
           } catch {
             /* empty */
           }
+        }
+
+        if (variables.key.startsWith('system_banner.')) {
+          queryClient.invalidateQueries({ queryKey: SYSTEM_BANNER_QUERY_KEY })
         }
 
         toast.success(i18next.t('Setting updated successfully'))

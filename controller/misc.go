@@ -140,13 +140,8 @@ func GetStatus(c *gin.Context) {
 	if cs.FAQEnabled {
 		data["faq"] = console_setting.GetFAQ()
 	}
-	if banner := system_setting.GetSystemBannerSettings(); banner.Enabled {
-		data["system_banner"] = gin.H{
-			"level":        banner.Level,
-			"text_zh":      banner.TextZh,
-			"text_en":      banner.TextEn,
-			"published_at": banner.PublishedAt,
-		}
+	if banner := systemBannerPayload(); banner != nil {
+		data["system_banner"] = banner
 	}
 
 	// Add enabled custom OAuth providers
@@ -183,6 +178,29 @@ func GetStatus(c *gin.Context) {
 		"data":    data,
 	})
 	return
+}
+
+// systemBannerPayload is the public view of the system banner, nil while it is off.
+func systemBannerPayload() gin.H {
+	banner := system_setting.GetSystemBannerSettings()
+	if !banner.Enabled {
+		return nil
+	}
+	return gin.H{
+		"level":        banner.Level,
+		"text_zh":      banner.TextZh,
+		"text_en":      banner.TextEn,
+		"published_at": banner.PublishedAt,
+	}
+}
+
+// GetSystemBanner serves only the banner so open pages can poll it cheaply.
+func GetSystemBanner(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    systemBannerPayload(),
+	})
 }
 
 func GetNotice(c *gin.Context) {

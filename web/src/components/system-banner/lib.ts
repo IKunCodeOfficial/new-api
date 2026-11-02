@@ -27,6 +27,11 @@ export type SystemBannerStatus = {
 
 export const SYSTEM_BANNER_DISMISSED_KEY = 'system-banner-dismissed'
 
+export const SYSTEM_BANNER_QUERY_KEY = ['system-banner'] as const
+
+/** Open pages re-check the banner this often so a publish reaches them within a minute. */
+export const SYSTEM_BANNER_REFRESH_MS = 60_000
+
 /** Chinese interface codes (zhCN, zhTW) get the Chinese text, all else English. */
 export function pickSystemBannerText(
   banner: SystemBannerStatus,
