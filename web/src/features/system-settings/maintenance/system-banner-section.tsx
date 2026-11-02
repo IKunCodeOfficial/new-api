@@ -108,9 +108,13 @@ export function SystemBannerSection(props: SystemBannerSectionProps) {
   ]
 
   const { enabled, level, text_zh, text_en } = props.defaultValues
+  // Follow saved values only while the form is pristine, so a partly failed
+  // save (each success refetches the options) never wipes the admin's edits.
+  const isDirty = form.formState.isDirty
   useEffect(() => {
+    if (isDirty) return
     form.reset({ enabled, level, text_zh, text_en })
-  }, [enabled, level, text_zh, text_en, form])
+  }, [enabled, level, text_zh, text_en, isDirty, form])
 
   const onSubmit = async (values: SystemBannerFormValues) => {
     const textChanges = (['level', 'text_zh', 'text_en'] as const)
@@ -135,6 +139,7 @@ export function SystemBannerSection(props: SystemBannerSectionProps) {
         return
       }
     }
+    form.reset(values)
   }
 
   return (

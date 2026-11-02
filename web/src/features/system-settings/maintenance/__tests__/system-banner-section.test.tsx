@@ -25,10 +25,12 @@ import { SettingsPageProvider } from '../../components/settings-page-context'
 import { SystemBannerSection } from '../system-banner-section'
 
 const calls: Array<{ key: string; value: unknown }> = []
-const mutateAsync = vi.fn(async (request: { key: string; value: unknown }) => {
+type Request = { key: string; value: unknown }
+const succeed = async (request: Request) => {
   calls.push(request)
   return { success: true }
-})
+}
+const mutateAsync = vi.fn(succeed)
 
 vi.mock('../../hooks/use-update-option', () => ({
   useUpdateOption: () => ({ mutateAsync, isPending: false }),
@@ -68,7 +70,8 @@ async function save() {
 
 beforeEach(() => {
   calls.length = 0
-  mutateAsync.mockClear()
+  mutateAsync.mockReset()
+  mutateAsync.mockImplementation(succeed)
 })
 
 test('fields are reachable by their labels', async () => {
@@ -138,4 +141,29 @@ test('unchanged form saves nothing', async () => {
   await screen.findByRole('switch', { name: 'Show banner' })
   await save()
   expect(mutateAsync).not.toHaveBeenCalled()
+})
+
+test('a failed save keeps the unsaved edits and later keys unsaved', async () => {
+  mutateAsync.mockImplementation(async (request) => {
+    calls.push(request)
+    if (request.key === 'system_banner.text_en') throw new Error('rejected')
+    return { success: true }
+  })
+  const view = render(<Fixture defaultValues={disabled} />)
+  await userEvent.type(await screen.findByLabelText('Chinese text'), '维护')
+  await userEvent.type(screen.getByLabelText('English text'), 'Maintenance')
+  await userEvent.click(screen.getByRole('switch', { name: 'Show banner' }))
+  await save()
+  await waitFor(() => expect(calls).toHaveLength(2))
+
+  // The refetch after the first success changes the saved defaults.
+  view.rerender(<Fixture defaultValues={{ ...disabled, text_zh: '维护' }} />)
+
+  expect(screen.getByLabelText('English text')).toHaveValue('Maintenance')
+  expect(screen.getByLabelText('Chinese text')).toHaveValue('维护')
+  expect(screen.getByRole('switch', { name: 'Show banner' })).toBeChecked()
+  expect(calls.map((c) => c.key)).toEqual([
+    'system_banner.text_zh',
+    'system_banner.text_en',
+  ])
 })
