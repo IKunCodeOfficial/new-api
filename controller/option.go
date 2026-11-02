@@ -182,6 +182,22 @@ func writePasskeyDomainSettingsError(c *gin.Context, err error) {
 	common.ApiError(c, err)
 }
 
+// UpdateSystemBanner saves the whole system banner in one request, so the
+// admin form never leaves it half saved.
+func UpdateSystemBanner(c *gin.Context) {
+	var input model.SystemBannerInput
+	if err := common.DecodeJson(c.Request.Body, &input); err != nil {
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
+		return
+	}
+	saved, err := model.UpdateSystemBanner(input)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, saved)
+}
+
 func UpdateOption(c *gin.Context) {
 	var option OptionUpdateRequest
 	err := common.DecodeJson(c.Request.Body, &option)

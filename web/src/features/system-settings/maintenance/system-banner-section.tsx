@@ -48,7 +48,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import { useUpdateSystemBanner } from '../hooks/use-update-system-banner'
 
 const MAX_TEXT_LENGTH = 500
 
@@ -97,7 +97,7 @@ const TEXT_FIELDS = [
 
 export function SystemBannerSection(props: SystemBannerSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateBanner = useUpdateSystemBanner()
   const form = useForm<SystemBannerFormValues>({
     resolver: zodResolver(systemBannerSchema),
     defaultValues: props.defaultValues,
@@ -108,8 +108,8 @@ export function SystemBannerSection(props: SystemBannerSectionProps) {
   ]
 
   const { enabled, level, text_zh, text_en } = props.defaultValues
-  // Follow saved values only while the form is pristine, so a partly failed
-  // save (each success refetches the options) never wipes the admin's edits.
+  // Follow saved values only while the form is pristine, so a refetch never
+  // wipes edits the admin has not saved yet.
   const isDirty = form.formState.isDirty
   useEffect(() => {
     if (isDirty) return
@@ -117,27 +117,15 @@ export function SystemBannerSection(props: SystemBannerSectionProps) {
   }, [enabled, level, text_zh, text_en, isDirty, form])
 
   const onSubmit = async (values: SystemBannerFormValues) => {
-    const textChanges = (['level', 'text_zh', 'text_en'] as const)
-      .filter((name) => values[name] !== props.defaultValues[name])
-      .map((name) => ({ key: `system_banner.${name}`, value: values[name] }))
-    const enabledChange =
-      values.enabled === props.defaultValues.enabled
-        ? []
-        : [{ key: 'system_banner.enabled', value: values.enabled }]
-
-    // The backend refuses to enable without both texts and refuses to clear
-    // them while enabled, so enabling goes last and disabling goes first.
-    const requests = values.enabled
-      ? [...textChanges, ...enabledChange]
-      : [...enabledChange, ...textChanges]
-
-    for (const request of requests) {
-      try {
-        await updateOption.mutateAsync(request)
-      } catch {
-        // useUpdateOption already reported the failure; stop here.
-        return
-      }
+    const unchanged = (
+      ['enabled', 'level', 'text_zh', 'text_en'] as const
+    ).every((name) => values[name] === props.defaultValues[name])
+    if (unchanged) return
+    try {
+      await updateBanner.mutateAsync(values)
+    } catch {
+      // useUpdateSystemBanner already reported the failure; keep the edits.
+      return
     }
     form.reset(values)
   }
@@ -148,7 +136,7 @@ export function SystemBannerSection(props: SystemBannerSectionProps) {
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            isSaving={updateBanner.isPending}
             saveLabel='Save system banner'
           />
           <FormField

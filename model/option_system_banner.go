@@ -34,53 +34,116 @@ func IsSystemBannerOption(key string) bool {
 	return false
 }
 
-// updateSystemBannerOption validates and stores one banner key. It also
-// maintains published_at: every publish (enable, or a text change while
-// enabled) gets a strictly larger value than the previous one, so a visitor's
-// dismissal of an older publish never hides a newer one.
+// systemBannerStoredKeys lists every banner option row, published_at first so
+// memory learns a new publish time before it learns the banner is enabled.
+var systemBannerStoredKeys = []string{
+	systemBannerPublishedAtKey,
+	systemBannerLevelKey,
+	systemBannerTextZhKey,
+	systemBannerTextEnKey,
+	systemBannerEnabledKey,
+}
+
+// SystemBannerInput is a whole-banner save from the admin form.
+type SystemBannerInput struct {
+	Enabled bool   `json:"enabled"`
+	Level   string `json:"level"`
+	TextZh  string `json:"text_zh"`
+	TextEn  string `json:"text_en"`
+}
+
+// UpdateSystemBanner validates and stores the whole banner in one transaction
+// and returns the saved banner, including its publish time.
+func UpdateSystemBanner(input SystemBannerInput) (system_setting.SystemBannerSettings, error) {
+	return saveSystemBanner(func(next *system_setting.SystemBannerSettings) {
+		next.Enabled = input.Enabled
+		next.Level = input.Level
+		next.TextZh = input.TextZh
+		next.TextEn = input.TextEn
+	})
+}
+
+// updateSystemBannerOption stores one banner key sent through the generic
+// option API.
 func updateSystemBannerOption(key, value string) error {
+	if key == systemBannerEnabledKey && value != "true" && value != "false" {
+		return common.NewMessage("System banner enabled must be true or false")
+	}
+	_, err := saveSystemBanner(func(next *system_setting.SystemBannerSettings) {
+		switch key {
+		case systemBannerEnabledKey:
+			next.Enabled = value == "true"
+		case systemBannerLevelKey:
+			next.Level = value
+		case systemBannerTextZhKey:
+			next.TextZh = value
+		case systemBannerTextEnKey:
+			next.TextEn = value
+		}
+	})
+	return err
+}
+
+// saveSystemBanner applies an edit to the stored banner. It also maintains
+// published_at: every publish (enable, or a text change while enabled) gets a
+// strictly larger value than the previous one, so a visitor's dismissal of an
+// older publish never hides a newer one.
+//
+// The current banner is read from the database inside the transaction, not
+// from memory: with several instances, the one handling this request may not
+// have synced keys another instance just saved.
+func saveSystemBanner(edit func(next *system_setting.SystemBannerSettings)) (system_setting.SystemBannerSettings, error) {
 	systemBannerMutex.Lock()
 	defer systemBannerMutex.Unlock()
 
-	cur := *system_setting.GetSystemBannerSettings()
-	next := cur
-	isText := key == systemBannerTextZhKey || key == systemBannerTextEnKey
-	if isText {
-		value = strings.TrimSpace(value)
-		if utf8.RuneCountInString(value) > system_setting.SystemBannerTextMaxRunes {
-			return common.NewMessage("System banner text must be at most 500 characters")
+	var next system_setting.SystemBannerSettings
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var rows []Option
+		if err := lockForUpdate(tx).Where(map[string]any{"key": systemBannerStoredKeys}).Find(&rows).Error; err != nil {
+			return err
 		}
-	}
-	switch key {
-	case systemBannerEnabledKey:
-		if value != "true" && value != "false" {
-			return common.NewMessage("System banner enabled must be true or false")
+		cur := system_setting.SystemBannerSettings{Level: system_setting.SystemBannerLevelNormal}
+		for _, row := range rows {
+			switch row.Key {
+			case systemBannerEnabledKey:
+				cur.Enabled = row.Value == "true"
+			case systemBannerLevelKey:
+				if row.Value != "" {
+					cur.Level = row.Value
+				}
+			case systemBannerTextZhKey:
+				cur.TextZh = row.Value
+			case systemBannerTextEnKey:
+				cur.TextEn = row.Value
+			case systemBannerPublishedAtKey:
+				cur.PublishedAt, _ = strconv.ParseInt(row.Value, 10, 64)
+			}
 		}
-		next.Enabled = value == "true"
-	case systemBannerLevelKey:
-		if value != system_setting.SystemBannerLevelNormal && value != system_setting.SystemBannerLevelImportant {
+
+		next = cur
+		edit(&next)
+		next.TextZh = strings.TrimSpace(next.TextZh)
+		next.TextEn = strings.TrimSpace(next.TextEn)
+		if next.Level != system_setting.SystemBannerLevelNormal && next.Level != system_setting.SystemBannerLevelImportant {
 			return common.NewMessage("System banner level must be normal or important")
 		}
-		next.Level = value
-	case systemBannerTextZhKey:
-		next.TextZh = value
-	case systemBannerTextEnKey:
-		next.TextEn = value
-	}
-	if next.Enabled && (next.TextZh == "" || next.TextEn == "") {
-		return common.NewMessage("System banner needs both Chinese and English text while enabled")
-	}
+		if utf8.RuneCountInString(next.TextZh) > system_setting.SystemBannerTextMaxRunes ||
+			utf8.RuneCountInString(next.TextEn) > system_setting.SystemBannerTextMaxRunes {
+			return common.NewMessage("System banner text must be at most 500 characters")
+		}
+		if next.Enabled && (next.TextZh == "" || next.TextEn == "") {
+			return common.NewMessage("System banner needs both Chinese and English text while enabled")
+		}
 
-	textChanged := (key == systemBannerTextZhKey && value != cur.TextZh) ||
-		(key == systemBannerTextEnKey && value != cur.TextEn)
-	writes := map[string]string{key: value}
-	if (!cur.Enabled && next.Enabled) || (next.Enabled && textChanged) {
-		publishedAt := max(systemBannerNow().Unix(), cur.PublishedAt+1)
-		writes[systemBannerPublishedAtKey] = strconv.FormatInt(publishedAt, 10)
-	}
-
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range writes {
+		textChanged := next.TextZh != cur.TextZh || next.TextEn != cur.TextEn
+		if (!cur.Enabled && next.Enabled) || (next.Enabled && textChanged) {
+			next.PublishedAt = max(systemBannerNow().Unix(), cur.PublishedAt+1)
+		}
+		stored := systemBannerOptionValues(cur)
+		for k, v := range systemBannerOptionValues(next) {
+			if v == stored[k] {
+				continue
+			}
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -93,13 +156,26 @@ func updateSystemBannerOption(key, value string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return system_setting.SystemBannerSettings{}, err
 	}
-	// Fixed order: a new published_at must reach memory before the edited key.
-	if publishedAt, ok := writes[systemBannerPublishedAtKey]; ok {
-		if err := updateOptionMap(systemBannerPublishedAtKey, publishedAt); err != nil {
-			return err
+
+	// Bring this instance's memory up to the committed banner, including keys
+	// another instance saved, in systemBannerStoredKeys order.
+	values := systemBannerOptionValues(next)
+	for _, k := range systemBannerStoredKeys {
+		if err := updateOptionMap(k, values[k]); err != nil {
+			return system_setting.SystemBannerSettings{}, err
 		}
 	}
-	return updateOptionMap(key, value)
+	return next, nil
+}
+
+func systemBannerOptionValues(banner system_setting.SystemBannerSettings) map[string]string {
+	return map[string]string{
+		systemBannerPublishedAtKey: strconv.FormatInt(banner.PublishedAt, 10),
+		systemBannerLevelKey:       banner.Level,
+		systemBannerTextZhKey:      banner.TextZh,
+		systemBannerTextEnKey:      banner.TextEn,
+		systemBannerEnabledKey:     strconv.FormatBool(banner.Enabled),
+	}
 }

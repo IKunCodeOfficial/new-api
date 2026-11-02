@@ -23,12 +23,17 @@ import { toast } from 'sonner'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { SYSTEM_BANNER_QUERY_KEY } from '@/components/system-banner/lib'
-import { updateSystemOption } from '@/features/system-settings/api'
+import {
+  updateSystemBanner,
+  updateSystemOption,
+} from '@/features/system-settings/api'
 import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import { useUpdateSystemBanner } from '@/features/system-settings/hooks/use-update-system-banner'
 
 vi.mock('@/features/system-settings/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/system-settings/api')>()),
   updateSystemOption: vi.fn(),
+  updateSystemBanner: vi.fn(),
 }))
 
 afterEach(() => {
@@ -41,7 +46,10 @@ async function saveOption(key: string) {
   })
   client.setQueryData(SYSTEM_BANNER_QUERY_KEY, null)
   vi.spyOn(toast, 'success').mockReturnValue('saved')
-  vi.mocked(updateSystemOption).mockResolvedValue({ success: true, message: '' })
+  vi.mocked(updateSystemOption).mockResolvedValue({
+    success: true,
+    message: '',
+  })
   const { result, unmount } = renderHook(() => useUpdateOption(), {
     wrapper: (props: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, props.children),
@@ -63,4 +71,48 @@ test('saving a system banner setting refreshes the banner right away', async () 
 
 test('saving an unrelated setting leaves the banner query alone', async () => {
   expect(await saveOption('QuotaPerUnit')).toBe(false)
+})
+
+test('saving the whole banner sends one request and refreshes every view of it', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  for (const queryKey of [
+    SYSTEM_BANNER_QUERY_KEY,
+    ['status'],
+    ['system-options'],
+  ]) {
+    client.setQueryData(queryKey, null)
+  }
+  vi.spyOn(toast, 'success').mockReturnValue('saved')
+  vi.mocked(updateSystemBanner).mockResolvedValue({
+    success: true,
+    message: '',
+  })
+  const banner = {
+    enabled: true,
+    level: 'normal',
+    text_zh: '维护',
+    text_en: 'Maintenance',
+  } as const
+  const { result, unmount } = renderHook(() => useUpdateSystemBanner(), {
+    wrapper: (props: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, props.children),
+  })
+
+  await act(async () => {
+    await result.current.mutateAsync(banner)
+  })
+
+  expect(updateSystemBanner).toHaveBeenCalledTimes(1)
+  expect(updateSystemBanner).toHaveBeenCalledWith(banner)
+  for (const queryKey of [
+    SYSTEM_BANNER_QUERY_KEY,
+    ['status'],
+    ['system-options'],
+  ]) {
+    expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true)
+  }
+  unmount()
+  client.clear()
 })
