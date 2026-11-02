@@ -163,10 +163,12 @@ export function SystemBanner() {
       aria-label={t('System notice')}
       data-level={banner.level}
       className={cn(
-        'fixed inset-x-0 top-0 z-[60] flex items-center gap-2 px-3 py-1.5 text-sm',
+        // Opaque tints of the theme colours: page content scrolls under the
+        // fixed bar, so a translucent `bg-primary/10` would show through.
+        'fixed inset-x-0 top-0 z-[60] flex items-center gap-2 border-b px-3 py-1.5 text-sm text-foreground',
         banner.level === 'important'
-          ? 'bg-red-600 text-white'
-          : 'border-b border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-50'
+          ? 'border-[color-mix(in_oklch,var(--destructive)_30%,var(--background))] bg-[color-mix(in_oklch,var(--destructive)_10%,var(--background))]'
+          : 'border-[color-mix(in_oklch,var(--primary)_25%,var(--background))] bg-[color-mix(in_oklch,var(--primary)_10%,var(--background))]'
       )}
     >
       <HugeiconsIcon
@@ -175,7 +177,10 @@ export function SystemBanner() {
         }
         strokeWidth={2}
         aria-hidden
-        className='size-4 shrink-0'
+        className={cn(
+          'size-4 shrink-0',
+          banner.level === 'important' ? 'text-destructive' : 'text-primary'
+        )}
       />
       <div
         ref={trackRef}
@@ -208,7 +213,7 @@ export function SystemBanner() {
         variant='ghost'
         size='icon-xs'
         aria-label={t('Close notice')}
-        className='shrink-0 text-current hover:bg-black/10 hover:text-current dark:hover:bg-white/10'
+        className='text-muted-foreground hover:bg-foreground/10 hover:text-foreground shrink-0'
         onClick={dismiss}
       >
         <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} aria-hidden />
