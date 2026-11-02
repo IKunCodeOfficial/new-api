@@ -7514,6 +7514,20 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "System banner": "Bannière système",
+    "Show banner": "Afficher la bannière",
+    "Level": "Niveau",
+    "Normal": "Normal",
+    "Chinese text": "Texte en chinois",
+    "English text": "Texte en anglais",
+    "Required while the banner is shown": "Obligatoire tant que la bannière est affichée",
+    "Save system banner": "Enregistrer la bannière système",
+    "System banner level must be normal or important": "Le niveau de la bannière système doit être normal ou important",
+    "System banner text must be at most 500 characters": "Le texte de la bannière système ne doit pas dépasser 500 caractères",
+    "System banner needs both Chinese and English text while enabled": "La bannière système nécessite un texte en chinois et en anglais lorsqu'elle est activée",
+    "System banner publish time is maintained automatically": "L'heure de publication de la bannière système est gérée automatiquement",
+    "System banner enabled must be true or false": "L'activation de la bannière système doit être true ou false",
+    "System banner settings must be saved one at a time": "Les paramètres de la bannière système doivent être enregistrés un par un"
   }
 }

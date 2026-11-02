@@ -142,6 +142,10 @@ export type SystemTaskFilters = {
 
 export type SiteSettings = {
   Notice: string
+  'system_banner.enabled': boolean
+  'system_banner.level': string
+  'system_banner.text_zh': string
+  'system_banner.text_en': string
   SystemName: string
   Logo: string
   Footer: string

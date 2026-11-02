@@ -7514,6 +7514,20 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "System banner": "Biểu ngữ hệ thống",
+    "Show banner": "Hiển thị biểu ngữ",
+    "Level": "Mức độ",
+    "Normal": "Bình thường",
+    "Chinese text": "Nội dung tiếng Trung",
+    "English text": "Nội dung tiếng Anh",
+    "Required while the banner is shown": "Bắt buộc khi biểu ngữ đang hiển thị",
+    "Save system banner": "Lưu biểu ngữ hệ thống",
+    "System banner level must be normal or important": "Mức độ của biểu ngữ hệ thống phải là bình thường hoặc quan trọng",
+    "System banner text must be at most 500 characters": "Nội dung biểu ngữ hệ thống tối đa 500 ký tự",
+    "System banner needs both Chinese and English text while enabled": "Biểu ngữ hệ thống cần cả nội dung tiếng Trung và tiếng Anh khi được bật",
+    "System banner publish time is maintained automatically": "Thời gian đăng biểu ngữ hệ thống được duy trì tự động",
+    "System banner enabled must be true or false": "Trạng thái bật biểu ngữ hệ thống phải là true hoặc false",
+    "System banner settings must be saved one at a time": "Cài đặt biểu ngữ hệ thống phải được lưu từng mục một"
   }
 }

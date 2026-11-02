@@ -26,6 +26,10 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
+  'system_banner.enabled': false,
+  'system_banner.level': 'normal',
+  'system_banner.text_zh': '',
+  'system_banner.text_en': '',
   SystemName: 'New API',
   Logo: '',
   Footer: '',

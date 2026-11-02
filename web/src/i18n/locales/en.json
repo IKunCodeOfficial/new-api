@@ -7514,6 +7514,20 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "System banner": "System banner",
+    "Show banner": "Show banner",
+    "Level": "Level",
+    "Normal": "Normal",
+    "Chinese text": "Chinese text",
+    "English text": "English text",
+    "Required while the banner is shown": "Required while the banner is shown",
+    "Save system banner": "Save system banner",
+    "System banner level must be normal or important": "System banner level must be normal or important",
+    "System banner text must be at most 500 characters": "System banner text must be at most 500 characters",
+    "System banner needs both Chinese and English text while enabled": "System banner needs both Chinese and English text while enabled",
+    "System banner publish time is maintained automatically": "System banner publish time is maintained automatically",
+    "System banner enabled must be true or false": "System banner enabled must be true or false",
+    "System banner settings must be saved one at a time": "System banner settings must be saved one at a time"
   }
 }

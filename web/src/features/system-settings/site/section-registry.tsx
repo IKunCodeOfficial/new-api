@@ -26,6 +26,7 @@ import {
 import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
+import { SystemBannerSection } from '../maintenance/system-banner-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -59,6 +60,23 @@ const SITE_SECTIONS = [
     titleKey: 'System Notice',
     build: (settings: SiteSettings) => (
       <NoticeSection defaultValue={settings.Notice ?? ''} />
+    ),
+  },
+  {
+    id: 'system-banner',
+    titleKey: 'System banner',
+    build: (settings: SiteSettings) => (
+      <SystemBannerSection
+        defaultValues={{
+          enabled: settings['system_banner.enabled'],
+          level:
+            settings['system_banner.level'] === 'important'
+              ? 'important'
+              : 'normal',
+          text_zh: settings['system_banner.text_zh'],
+          text_en: settings['system_banner.text_en'],
+        }}
+      />
     ),
   },
   {

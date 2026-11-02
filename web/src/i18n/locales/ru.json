@@ -7514,6 +7514,20 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "System banner": "Системный баннер",
+    "Show banner": "Показывать баннер",
+    "Level": "Уровень",
+    "Normal": "Обычный",
+    "Chinese text": "Текст на китайском",
+    "English text": "Текст на английском",
+    "Required while the banner is shown": "Обязательно, пока баннер отображается",
+    "Save system banner": "Сохранить системный баннер",
+    "System banner level must be normal or important": "Уровень системного баннера должен быть обычным или важным",
+    "System banner text must be at most 500 characters": "Текст системного баннера должен содержать не более 500 символов",
+    "System banner needs both Chinese and English text while enabled": "Для включённого системного баннера нужны тексты на китайском и английском",
+    "System banner publish time is maintained automatically": "Время публикации системного баннера задаётся автоматически",
+    "System banner enabled must be true or false": "Значение включения системного баннера должно быть true или false",
+    "System banner settings must be saved one at a time": "Настройки системного баннера нужно сохранять по одной"
   }
 }

@@ -7514,6 +7514,20 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "System banner": "系統橫幅",
+    "Show banner": "顯示橫幅",
+    "Level": "級別",
+    "Normal": "一般",
+    "Chinese text": "中文文字",
+    "English text": "英文文字",
+    "Required while the banner is shown": "顯示橫幅時必填",
+    "Save system banner": "儲存系統橫幅",
+    "System banner level must be normal or important": "系統橫幅級別必須為一般或重要",
+    "System banner text must be at most 500 characters": "系統橫幅文字最多 500 個字元",
+    "System banner needs both Chinese and English text while enabled": "啟用系統橫幅時必須同時填寫中文和英文文字",
+    "System banner publish time is maintained automatically": "系統橫幅發布時間由系統自動維護",
+    "System banner enabled must be true or false": "系統橫幅啟用狀態必須為 true 或 false",
+    "System banner settings must be saved one at a time": "系統橫幅設定必須逐項儲存"
   }
 }

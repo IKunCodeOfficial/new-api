@@ -7514,6 +7514,20 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "System banner": "システムバナー",
+    "Show banner": "バナーを表示",
+    "Level": "レベル",
+    "Normal": "通常",
+    "Chinese text": "中国語テキスト",
+    "English text": "英語テキスト",
+    "Required while the banner is shown": "バナー表示中は必須",
+    "Save system banner": "システムバナーを保存",
+    "System banner level must be normal or important": "システムバナーのレベルは通常または重要である必要があります",
+    "System banner text must be at most 500 characters": "システムバナーのテキストは500文字以内にしてください",
+    "System banner needs both Chinese and English text while enabled": "システムバナーを有効にするには中国語と英語の両方のテキストが必要です",
+    "System banner publish time is maintained automatically": "システムバナーの公開時刻は自動で管理されます",
+    "System banner enabled must be true or false": "システムバナーの有効設定は true または false である必要があります",
+    "System banner settings must be saved one at a time": "システムバナーの設定は1つずつ保存してください"
   }
 }
