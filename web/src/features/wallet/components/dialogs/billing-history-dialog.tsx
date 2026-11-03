@@ -277,19 +277,26 @@ export function BillingHistoryDialog({
                         </div>
                       </div>
 
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
+                      {/* Admin Actions: WooshPay closes an order when its
+                          session expires, yet a payment may still have
+                          arrived, so its expired and failed orders can be
+                          completed too. */}
+                      {isAdmin &&
+                        (record.status === 'pending' ||
+                          (record.payment_method === 'wooshpay' &&
+                            (record.status === 'expired' ||
+                              record.status === 'failed'))) && (
+                          <div className='mt-4 flex justify-end'>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => setConfirmTradeNo(record.trade_no)}
+                              disabled={completing}
+                            >
+                              {t('Complete Order')}
+                            </Button>
+                          </div>
+                        )}
                     </div>
                   )
                 })}

@@ -25,6 +25,7 @@ import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
 
 import { PaymentConfirmDialog } from '../components/dialogs/payment-confirm-dialog'
+import { RechargeFormCard } from '../components/recharge-form-card'
 import { PAYMENT_TYPES } from '../constants'
 
 const i18n = createInstance()
@@ -79,5 +80,56 @@ it('the WooshPay currency amount follows the interface language', async () => {
 it('a payment without a gateway currency keeps the plain amount', () => {
   renderDialog(16)
   expect(screen.getByText('16')).toBeVisible()
+  expect(screen.queryByText(/USD/)).toBeNull()
+})
+
+function renderPresets(gatewayPricing?: {
+  currency: string
+  pricePerAmount: number
+}) {
+  render(
+    <I18nextProvider i18n={i18n}>
+      <RechargeFormCard
+        topupInfo={{
+          enable_online_topup: false,
+          enable_stripe_topup: false,
+          enable_wooshpay_topup: true,
+          wooshpay_min_topup: 1,
+          pay_methods: [{ name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY }],
+          min_topup: 1,
+          stripe_min_topup: 1,
+          amount_options: [],
+          discount: {},
+        }}
+        presetAmounts={[{ value: 2 }, { value: 5, discount: 0.8 }]}
+        selectedPreset={null}
+        onSelectPreset={vi.fn()}
+        topupAmount={2}
+        onTopupAmountChange={vi.fn()}
+        paymentAmount={16}
+        calculating={false}
+        onPaymentMethodSelect={vi.fn()}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={vi.fn()}
+        onRedeem={vi.fn()}
+        redeeming={false}
+        priceRatio={7.3}
+        gatewayPricing={gatewayPricing}
+      />
+    </I18nextProvider>
+  )
+}
+
+it('WooshPay preset cards show the WooshPay price in its currency', () => {
+  renderPresets({ currency: 'USD', pricePerAmount: 8 })
+  expect(screen.getByText(/^Pay USD\s16\.00$/)).toBeVisible()
+  expect(screen.getByText(/^Pay USD\s32\.00/)).toBeVisible()
+  expect(screen.getByText(/Save USD\s8\.00/)).toBeVisible()
+})
+
+it('preset cards without gateway pricing keep the regular price', () => {
+  renderPresets()
+  expect(screen.getByText('Pay 14.6')).toBeVisible()
   expect(screen.queryByText(/USD/)).toBeNull()
 })

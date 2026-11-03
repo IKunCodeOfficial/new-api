@@ -116,6 +116,7 @@ func isWooshpayTopUpEnabled() bool {
 	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
 		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
 		setting.WooshpayUnitPrice > 0 &&
+		setting.ValidateWooshpayOption("WooshpayCurrency", setting.WooshpayCurrency) == nil &&
 		setting.WooshpayApiBaseMatchesKey()
 }
 

@@ -148,10 +148,16 @@ export function usePayment() {
           return false
         }
 
-        // Stripe and WooshPay return a hosted checkout link
+        // Stripe and WooshPay return a hosted checkout link. WooshPay
+        // redirects in the same tab like Waffo Pancake: the user gesture is
+        // lost across the await, so a new window would be popup-blocked.
         if (isPayLinkGateway && response.data?.pay_link) {
-          window.open(response.data.pay_link as string, '_blank')
           toast.success(i18next.t('Redirecting to payment page...'))
+          if (isWooshpay) {
+            window.location.href = response.data.pay_link as string
+          } else {
+            window.open(response.data.pay_link as string, '_blank')
+          }
           return true
         }
 

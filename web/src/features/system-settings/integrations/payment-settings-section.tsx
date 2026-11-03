@@ -56,9 +56,10 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
 import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { confirmPaymentCompliance } from '../api'
+import { confirmPaymentCompliance, updateWooshpayEnvironment } from '../api'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -170,7 +171,8 @@ const paymentSchema = z.object({
   WooshpayMinTopUp: z.coerce
     .number()
     .int('Minimum top-up must be a whole number of at least 1')
-    .min(1, 'Minimum top-up must be a whole number of at least 1'),
+    .min(1, 'Minimum top-up must be a whole number of at least 1')
+    .max(10000, 'Minimum top-up cannot exceed 10000'),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
@@ -648,15 +650,12 @@ export function PaymentSettingsSection({
       })
     }
 
-    if (
-      sanitized.WooshpaySecretKey &&
+    // A new secret key is saved together with the API base of the form, so
+    // switching between the test and live environments is one save; the
+    // server refuses a key paired with the other environment's API base.
+    const savesWooshpayEnvironment =
+      sanitized.WooshpaySecretKey !== '' &&
       sanitized.WooshpaySecretKey !== initial.WooshpaySecretKey
-    ) {
-      updates.push({
-        key: 'WooshpaySecretKey',
-        value: sanitized.WooshpaySecretKey,
-      })
-    }
 
     if (
       sanitized.WooshpayWebhookSecret &&
@@ -668,7 +667,10 @@ export function PaymentSettingsSection({
       })
     }
 
-    if (sanitized.WooshpayApiBase !== initial.WooshpayApiBase) {
+    if (
+      !savesWooshpayEnvironment &&
+      sanitized.WooshpayApiBase !== initial.WooshpayApiBase
+    ) {
       updates.push({ key: 'WooshpayApiBase', value: sanitized.WooshpayApiBase })
     }
 
@@ -800,13 +802,33 @@ export function PaymentSettingsSection({
       waffoPancakeSelection.storeID !== waffoPancakeSavedBinding.storeID ||
       waffoPancakeSelection.productID !== waffoPancakeSavedBinding.productID
 
-    if (updates.length === 0 && !hasWaffoPancakeChanges) {
+    if (
+      updates.length === 0 &&
+      !savesWooshpayEnvironment &&
+      !hasWaffoPancakeChanges
+    ) {
       toast.info(t('No changes to save'))
       return
     }
 
     for (const update of updates) {
       await updateOption.mutateAsync(update)
+    }
+
+    if (savesWooshpayEnvironment) {
+      try {
+        requireServerSuccess(
+          await updateWooshpayEnvironment({
+            secret_key: sanitized.WooshpaySecretKey,
+            api_base: sanitized.WooshpayApiBase,
+          })
+        )
+        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        toast.success(t('Setting updated successfully'))
+      } catch (error) {
+        handleServerError(error, t('Failed to update setting'))
+        return
+      }
     }
 
     if (!hasWaffoPancakeChanges) {
@@ -1587,6 +1609,15 @@ export function PaymentSettingsSection({
                     </li>
                   </ul>
                 </div>
+
+                <Alert>
+                  <ShieldAlert className='h-4 w-4' />
+                  <AlertDescription>
+                    {t(
+                      'WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.'
+                    )}
+                  </AlertDescription>
+                </Alert>
 
                 <div className='grid gap-6 md:grid-cols-3'>
                   <FormField

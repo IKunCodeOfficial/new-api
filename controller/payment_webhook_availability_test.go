@@ -58,7 +58,9 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	originalWebhookSecret := setting.WooshpayWebhookSecret
 	originalUnitPrice := setting.WooshpayUnitPrice
 	originalApiBase := setting.WooshpayApiBase
+	originalCurrency := setting.WooshpayCurrency
 	t.Cleanup(func() {
+		setting.WooshpayCurrency = originalCurrency
 		setting.WooshpaySecretKey = originalSecretKey
 		setting.WooshpayWebhookSecret = originalWebhookSecret
 		setting.WooshpayUnitPrice = originalUnitPrice
@@ -71,20 +73,22 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		webhookSecret string
 		unitPrice     float64
 		apiBase       string
+		currency      string
 		uncompliant   bool
 		enabled       bool
 	}{
-		{"test key on test host", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", false, true},
-		{"live key on live host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com", false, true},
-		{"trailing slash on the host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com/", false, true},
-		{"missing webhook secret", "sk_test_123", "", 8, "https://apitest.wooshpay.com", false, false},
-		{"zero unit price", "sk_test_123", "whsec_test", 0, "https://apitest.wooshpay.com", false, false},
-		{"blank secret key", " ", "whsec_test", 8, "https://apitest.wooshpay.com", false, false},
-		{"test key on live host", "sk_test_123", "whsec_test", 8, "https://api.wooshpay.com", false, false},
-		{"live key on test host", "sk_live_123", "whsec_test", 8, "https://apitest.wooshpay.com", false, false},
-		{"unknown key prefix", "pk_live_123", "whsec_test", 8, "https://api.wooshpay.com", false, false},
-		{"other host", "sk_live_123", "whsec_test", 8, "https://api.example.com", false, false},
-		{"compliance not confirmed", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", true, false},
+		{"test key on test host", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", "USD", false, true},
+		{"live key on live host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com", "USD", false, true},
+		{"trailing slash on the host", "sk_live_123", "whsec_test", 8, "https://api.wooshpay.com/", "USD", false, true},
+		{"missing webhook secret", "sk_test_123", "", 8, "https://apitest.wooshpay.com", "USD", false, false},
+		{"zero unit price", "sk_test_123", "whsec_test", 0, "https://apitest.wooshpay.com", "USD", false, false},
+		{"blank secret key", " ", "whsec_test", 8, "https://apitest.wooshpay.com", "USD", false, false},
+		{"test key on live host", "sk_test_123", "whsec_test", 8, "https://api.wooshpay.com", "USD", false, false},
+		{"live key on test host", "sk_live_123", "whsec_test", 8, "https://apitest.wooshpay.com", "USD", false, false},
+		{"unknown key prefix", "pk_live_123", "whsec_test", 8, "https://api.wooshpay.com", "USD", false, false},
+		{"other host", "sk_live_123", "whsec_test", 8, "https://api.example.com", "USD", false, false},
+		{"compliance not confirmed", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", "USD", true, false},
+		{"unsupported currency loaded from the database", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", "usd", false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,6 +100,7 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 			setting.WooshpayWebhookSecret = tc.webhookSecret
 			setting.WooshpayUnitPrice = tc.unitPrice
 			setting.WooshpayApiBase = tc.apiBase
+			setting.WooshpayCurrency = tc.currency
 			assert.Equal(t, tc.enabled, isWooshpayWebhookEnabled())
 		})
 	}

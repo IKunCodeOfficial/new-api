@@ -34,7 +34,7 @@
 | 请求体 | `application/json`（已与 WooshPay 确认） |
 | 幂等 | 支持 `Idempotency-Key` 请求头（错误类型 `idempotency_error`、HTTP 409） |
 | 金额单位 | `unit_amount` 是**最小货币单位（分）**。各币种小数位见 Supported currencies：USD/CNY/HKD 是 2 位，JPY/KRW 是 0 位 |
-| 会话有效期 | 默认 24h；`expires_at`（秒级时间戳）可设为创建后 1–24h |
+| 会话有效期 | 默认 24h。WooshPay 的时间戳是毫秒级，本站**不传** `expires_at`，直接使用默认的 24h |
 | 错误体 | `{"error":{"type","code","message","param"}}` |
 
 ### 2.1 使用到的接口
@@ -56,7 +56,6 @@
   "cancel_url": "https://example.com/wallet",
   "client_reference_id": "wsp_9f2c...",
   "customer_email": "user@example.com",
-  "expires_at": 1767225600,
   "line_items": [
     {
       "price_data": {
@@ -81,7 +80,9 @@
 }
 ```
 
-响应里会用到这些字段：`id`（`cs_...`）、`url`（跳转地址）、`payment_intent`（`pi_...`）、`status`（`open`）、`expires_at`。
+响应里会用到这些字段：`id`（`cs_...`）、`url`（跳转地址）、`payment_intent`（`pi_...`）、`status`（`open`）。
+
+`new_api_amount_listed`（未折扣的标价，最小货币单位）只用于对账：超出 int32 范围时不写这一项（见 §6.1）。
 
 > 订单号必须写进 `payment_intent_data.metadata` 和 `merchant_order_id`。成功事件 `payment_intent.succeeded` 的 `data.object` 是 PaymentIntent，不是 Session，只有写在 PaymentIntent 上的字段才能在回调里拿到。
 
@@ -146,13 +147,16 @@ var WooshpayUnitPrice = 8.0         // 每 1 单位充值额对应的标价（Wo
 var WooshpayMinTopUp = 1            // 最低充值数量
 ```
 
-测试模式由密钥前缀推导（`strings.HasPrefix(WooshpaySecretKey, "sk_test_")`），不再单独设开关，避免“生产密钥 + 测试开关”这种配置不一致。密钥与 API Base 必须对应：`sk_test_` 只能配 `apitest.wooshpay.com`，`sk_live_` 只能配 `api.wooshpay.com`，否则视为未启用。`WooshpayApiBase` 保存时去掉首尾空白和末尾的 `/`。
+测试模式由密钥前缀推导（`strings.HasPrefix(WooshpaySecretKey, "sk_test_")`），不再单独设开关，避免“生产密钥 + 测试开关”这种配置不一致。密钥与 API Base 必须对应：`sk_test_` 只能配 `apitest.wooshpay.com`，`sk_live_` 只能配 `api.wooshpay.com`，否则视为未启用。`WooshpayApiBase` 保存时去掉首尾空白和末尾的 `/`；`WooshpayWebhookSecret` 保存时和参与 HMAC 计算时都去掉首尾空白。
+
+保存时交叉校验（`setting.ValidateWooshpayKeyBase`，由 `model.UpdateOption` / `model.UpdateOptionsBulk` 调用）：单独保存密钥或 API Base 时，与库里另一项的当前值组合；组合是已知的错配（`sk_test_` 配非 `apitest` 主机，`sk_live_` 配非 `api` 主机）就拒绝保存。前缀不是这两种的密钥不算已知错配，只是保持未启用。因为两项分开保存，测试与生产之间切换时任何一项先保存都会被拒绝，所以后台填写了新密钥时，前端用 `PUT /api/option/wooshpay/environment`（`{"secret_key","api_base"}`）把密钥和表单里的 API Base 一起保存（`UpdateOptionsBulk`，同一事务，按合并后的组合校验）；只改 API Base 时仍走普通的单项保存。
 
 ### 4.2 `model/option.go`
 
 - `InitOptionMap`：把上面 6 个配置项全部注册进去。其中 `WooshpaySecretKey` 和 `WooshpayWebhookSecret` 照 Stripe 密钥的方式处理，不回显给前端。
 - `updateOptionMap` 的 switch：加对应的 case，`WooshpayUnitPrice` 用 `strconv.ParseFloat`，`WooshpayMinTopUp` 用 `strconv.Atoi`。
-- 保存时校验：`WooshpayCurrency` 必须是 3 位大写字母；`WooshpayUnitPrice` 必须大于 0 且是有限值；`WooshpayApiBase` 必须是 `https://` 开头。
+- 保存时校验：`WooshpayCurrency` 必须是 WooshPay 支持的大写 ISO 4217 代码；`WooshpayUnitPrice` 必须大于 0 且是有限值；`WooshpayMinTopUp` 必须是 1 到 10000（单笔购买数量上限）之间的整数；`WooshpayApiBase` 必须是 `https://` 开头；密钥与 API Base 的交叉校验见 §4.1。
+- 从数据库加载的 `WooshpayCurrency` 不是受支持的币种时，`isWooshpayTopUpEnabled` 返回 false（WooshPay 不启用），直到管理员改正。
 
 ### 4.3 可用性判断：`controller/payment_webhook_availability.go`
 
@@ -164,6 +168,7 @@ func isWooshpayTopUpEnabled() bool {
 	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
 		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
 		setting.WooshpayUnitPrice > 0 &&
+		setting.ValidateWooshpayOption("WooshpayCurrency", setting.WooshpayCurrency) == nil &&
 		setting.WooshpayApiBaseMatchesKey() // sk_test_ ⇔ apitest.wooshpay.com，sk_live_ ⇔ api.wooshpay.com
 }
 
@@ -189,7 +194,7 @@ WooshPay 和易支付、Waffo、Waffo Pancake 一样由本站定价，所以沿�
 
 | 字段 | 值 |
 |---|---|
-| `Amount` | 购买数量（整数个货币单位）。Tokens 展示模式下用户输入的是 token 数，与易支付一样换算为 `floor(输入 ÷ QuotaPerUnit)` 后存储 |
+| `Amount` | 购买数量（整数个货币单位）。Tokens 展示模式下用户输入的是 token 数，必须是 `QuotaPerUnit` 的整数倍（否则 `/amount`、`/pay` 都返回错误 “With the Tokens display the top-up amount must be a multiple of {{unit}} tokens”，不再静默向下取整），存储 `输入 ÷ QuotaPerUnit` |
 | `Money` | 实付金额 = `Amount × WooshpayUnitPrice × TopupGroupRatio × 折扣`，按币种小数位取整后的值（`WooshpayCurrency` 计价），与 Waffo Pancake 的 `Money: payMoney` 一致 |
 | `TradeNo` | `"wsp_" + common.Sha1("new-api-wsp-{uid}-{unixMilli}-{rand4}")` |
 | `PaymentMethod` / `PaymentProvider` | `wooshpay` |
@@ -251,9 +256,9 @@ func RechargeWooshpay(tradeNo string, callerIp string, charge GatewayCharge) (er
 
 1. 入账额度 = `Amount × QPU`（默认分支）。
 2. 填了实付金额时，标价 = `Money`（实付按标价比例缩放快照）。
-3. 没填实付金额时，用 `GatewayCharge{Listed:1, Charged:0}`。
+3. 没填实付金额时，与易支付一样保留下单时的快照（WooshPay 由本站定价，`Money` 就是发给网关的金额；`sk_test_` 订单的快照本来就是 0），不再按 `GatewayCharge{Listed:1, Charged:0}` 清零。
 
-补单仍只处理 `pending` 订单；已被置为 `expired`/`failed` 的已付款订单由下一次成功回调自动完成。
+WooshPay 订单在 `pending`、`expired`、`failed` 状态下都可以补单（会话过期只关单，钱仍可能到账，而 Webhook 72 小时后停止重投）；其他渠道仍只处理 `pending`；已 `success` 的订单不会再次入账。后台“账单记录”里 WooshPay 的 `expired`/`failed` 订单同样显示“完成订单”按钮。
 
 ---
 
@@ -274,14 +279,14 @@ type WooshpayPayRequest struct {
 
 ```
 units    = amount                                   (USD/CNY 展示)
-         = floor(amount ÷ QuotaPerUnit)             (Tokens 展示，amount 是 token 数，与易支付存 Amount 的方式相同)
+         = amount ÷ QuotaPerUnit                    (Tokens 展示，amount 是 token 数，必须是 QuotaPerUnit 的整数倍，否则拒绝)
 payMoney = units × WooshpayUnitPrice × topupGroupRatio × discount
            discount 取 AmountDiscount[amount]（按用户输入的展示值查，与易支付相同）
 listed   = 同上，但 discount = 1
 credited = units × QuotaPerUnit
 ```
 
-与易支付的一处差异：易支付在 Tokens 模式下按未取整的 `amount ÷ QPU` 计价、按取整后的单位入账；WooshPay 计价和入账都用取整后的 `units`，保证付的钱与到账额度一致。
+与易支付的一处差异：易支付在 Tokens 模式下按未取整的 `amount ÷ QPU` 计价、按取整后的单位入账；WooshPay 直接拒绝不是整数单位的输入，计价和入账都用同一个 `units`，保证付的钱与到账额度一致。
 
 `unit_amount` 换算成最小货币单位，**必须用 decimal**，不允许用 float 直接乘：
 
@@ -293,7 +298,8 @@ cents := decimal.NewFromFloat(payMoney).Shift(int32(digits)).Round(0).IntPart()
 金额边界（计费安全要求）：
 
 - `amount` 不小于 `getWooshpayMinTopup()`（展示单位；Tokens 模式下为 `WooshpayMinTopUp × QPU`），且 `units` 在 `[WooshpayMinTopUp, 10000]` 区间内；上限作用于购买数量，超限提示按展示单位给出。
-- `cents` 必须 `> 0`，并且不超过 `math.MaxInt32`，否则返回 400。
+- Tokens 展示模式下 `amount` 必须是 `QuotaPerUnit` 的整数倍。
+- 只约束实际扣款：折扣后的 `cents` 必须 `> 0`，并且不超过 `math.MaxInt32`，否则返回错误。未折扣的标价（`listed`）不参与校验：例如 IDR 单价 16,000,000、购买 100 个单位时标价是 160,000,000,000 sen，超出 int32，但 0.01 的预设折扣后实扣 1,600,000,000 sen，订单照常创建，metadata 里不写 `new_api_amount_listed`。
 - 调用 `rejectInvalidCreditedQuota(c, uid, getWooshpayCreditedQuota(amount))`（`units × QPU`，不含分组倍率），提前挡住会让钱包溢出的订单。
 
 ### 6.2 `RequestWooshpayAmount`：`POST /api/user/wooshpay/amount`
@@ -307,7 +313,7 @@ cents := decimal.NewFromFloat(payMoney).Shift(int32(digits)).Round(0).IntPart()
 3. 用 `common.ValidateRedirectURL` 校验 SuccessURL 和 CancelURL。为空时分别默认 `paymentReturnPath("/usage-logs")` 和 `paymentReturnPath("/wallet")`。
 4. 生成 TradeNo，按 §6.1 计算 `listed`、`cents`。
 5. **先调网关，成功后再插入订单**（顺序和 Stripe 一样，避免留下没有支付链接的悬空订单）：
-   - 调用 `POST /v1/checkout/sessions`，带 `Idempotency-Key: <TradeNo>`，请求体见 §2.2；`expires_at = now + 2h`。
+   - 调用 `POST /v1/checkout/sessions`，带 `Idempotency-Key: <TradeNo>`，请求体见 §2.2；不传 `expires_at`，会话按 WooshPay 默认 24h 过期（WooshPay 时间戳是毫秒级，传秒级会出错）。
    - 网关失败时返回通用错误。日志里记下 `error.type`、`error.code`，但不要记密钥。
 6. `model.TopUp{...}.Insert()`，返回 `{"message":"success","data":{"pay_link": session.url}}`。插入失败时会话已存在，用 Error 日志记录 trade_no 和 session_id，提示“付款不会自动入账，需要人工处理”。
 
@@ -336,9 +342,9 @@ type wooshpayPaymentIntent struct {
 	ID              string            `json:"id"`
 	Status          string            `json:"status"`
 	Amount          int64             `json:"amount"`
-	AmountReceived  int64             `json:"amount_received"`
+	AmountReceived  *int64            `json:"amount_received"` // 缺失时为 nil，视为尚未确认
 	Currency        string            `json:"currency"`
-	Livemode        bool              `json:"livemode"`
+	Livemode        *bool             `json:"livemode"`        // 同上
 	MerchantOrderID string            `json:"merchant_order_id"`
 	Metadata        map[string]string `json:"metadata"`
 }
@@ -348,7 +354,8 @@ type wooshpayPaymentIntent struct {
 
 ```go
 func WooshpayWebhook(c *gin.Context) {
-	ctx := c.Request.Context()
+	// 回查和入账不能因为 WooshPay 断开连接而被取消
+	ctx := context.WithoutCancel(c.Request.Context())
 	if !isWooshpayWebhookEnabled() {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
@@ -399,18 +406,21 @@ func WooshpayWebhook(c *gin.Context) {
 
 1. 从事件对象里取出 `pi.id`；如果为空或者不是 `pi_` 开头，忽略并返回 200。
 2. **回查**：`GET /v1/payment_intents/{id}`。失败时返回可重试错误（500），由 WooshPay 重投。
-3. 校验以下全部条件，任何一项不满足都返回 200（不重试，也不入账）；回查到的 `status == "succeeded"` 时记 Error（“已付款未入账，需要人工处理”，带 trade_no 和 pi id），否则记 Warn：
-   - `status == "succeeded"`
-   - `tradeNo := pi.Metadata["new_api_trade_no"]` 非空，并且等于 `pi.MerchantOrderID`
-   - `strings.EqualFold(pi.Currency, pi.Metadata["new_api_currency"])`
-   - `pi.AmountReceived == parse(pi.Metadata["new_api_amount_charged"])`
-   - `pi.Livemode == !isWooshpayTestKey()`
+3. 按顺序判断：
+   - `pi.Metadata["new_api_trade_no"]` 为空（不是本站创建的 PaymentIntent）：Warn 日志，返回 200。
+   - `status != "succeeded"`（如 `processing`、`requires_*`），或 `amount_received` / `livemode` 缺失：还不能下结论，Warn 日志后返回 500（`errWooshpayRetry`），让 WooshPay 重投。
+   - 已 `succeeded` 且字段齐全，但以下任一项不一致：Error 日志（“已付款未入账，需要人工处理”，带 trade_no、pi id 和不一致的字段），返回 200，不入账：
+     - `pi.ID` 等于事件里的 id
+     - `tradeNo` 等于 `pi.MerchantOrderID`
+     - `strings.EqualFold(pi.Currency, pi.Metadata["new_api_currency"])`
+     - `*pi.AmountReceived == parse(pi.Metadata["new_api_amount_charged"])`
+     - `*pi.Livemode == !isWooshpayTestKey()`
 4. `LockOrder(tradeNo)`，函数退出时 `UnlockOrder(tradeNo)`。
 5. `charge := model.GatewayCharge{Listed: metadata.charged, Charged: pi.AmountReceived, Test: !pi.Livemode}`（两者已校验相等，只有测试模式会改快照）；`new_api_amount_listed` 只用于对账，不参与计算。
 6. 调用 `model.RechargeWooshpay(tradeNo, callerIp, paymentAmount, charge)`，`paymentAmount` 是 `amount_received` 用 decimal 按币种小数位换算后的字符串加币种：
    - 返回 `ErrTopUpStatusInvalid`（订单已 success）：属于重复通知，Info 日志后返回 200。
-   - 返回 `ErrTopUpNotFound` / `ErrPaymentMethodMismatch`：Error 日志（已付款未入账，需要人工处理）后返回 200。
-   - 其他 DB 错误：Error 日志后返回 500。
+   - 返回 `ErrTopUpNotFound` / `ErrPaymentMethodMismatch`，或订单的用户已不存在（`gorm.ErrRecordNotFound`）：Error 日志（已付款未入账，需要人工处理）后返回 200，重投也不会改变结果。
+   - 其他 DB 错误（真正的临时故障）：Error 日志后返回 500。
 
 > metadata 由我方用私钥写入，而且是**从 API 回查**拿到的（不是用回调体里的数据），客户无法篡改。“实际到账金额”与“下单时我方期望扣款金额”相互印证，所以不需要新增数据库列来存期望金额。
 
@@ -452,6 +462,8 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
   - Secret Key（密码框）
   - Webhook Secret（密码框）
   - API Base（下拉选择 测试 / 生产）
+  - 一条静态提示：密钥和 API Base 属于同一环境之前 WooshPay 保持停用（`sk_test_` 配 `apitest`，`sk_live_` 配 `api`）
+  - 保存：填写了新密钥时，密钥与 API Base 通过 `PUT /api/option/wooshpay/environment` 一起保存（见 §4.1）；`WooshpayCurrency`、`WooshpayUnitPrice` 保存后会刷新 `/api/status` 缓存（`use-update-option.ts` 的 `STATUS_RELATED_KEYS`）
   - 币种
   - 单价
   - 最低充值
@@ -463,8 +475,8 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 | 文件 | 改动 |
 |---|---|
 | `features/wallet/api.ts` | `calculateWooshpayAmount` → `/api/user/wooshpay/amount`；`requestWooshpayPayment` → `/api/user/wooshpay/pay` |
-| `hooks/use-payment.ts` | calculators 映射加 `wooshpay`；`processPayment` 复用 `pay_link` 新窗口打开的逻辑 |
-| `lib/payment.ts` | `isWooshpayPayment`；默认类型和最低充值的推导 |
+| `hooks/use-payment.ts` | calculators 映射加 `wooshpay`；`processPayment` 拿到 `pay_link` 后与 Waffo Pancake 一样在当前页跳转（`window.location.href`），避免 await 之后 `window.open` 被拦截；Stripe 仍新窗口打开 |
+| `lib/payment.ts` | `isWooshpayPayment`；默认类型和最低充值的推导（WooshPay 排在 Waffo、Waffo Pancake 之后，不抬高其他方式的最低充值；WooshPay 按钮自身的最低值来自 `pay_methods[].min_topup`）；`getWooshpayPresetPricing`：WooshPay 是已选或唯一的支付方式时，预设金额卡片按 `/api/status` 的 `wooshpay_unit_price` 计价、按 `wooshpay_currency` 显示 |
 | `hooks/use-topup-info.ts`、`types.ts` | `enable_wooshpay_topup`、`wooshpay_min_topup` |
 | `constants.ts` | `PAYMENT_TYPES` 加 `WOOSHPAY` 和颜色 |
 | `lib/ui.tsx`、`assets/brand-icons/` | 图标（没有官方图标时用通用卡片图标） |

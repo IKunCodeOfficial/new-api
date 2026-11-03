@@ -7549,7 +7549,11 @@
     "Payment amount is too high": "Le montant du paiement est trop élevé",
     "WooshPay currency must be an uppercase ISO 4217 code supported by WooshPay, such as USD": "La devise WooshPay doit être un code ISO 4217 en majuscules pris en charge par WooshPay, par exemple USD",
     "WooshPay unit price must be a number greater than 0": "Le prix unitaire WooshPay doit être un nombre supérieur à 0",
-    "WooshPay minimum top-up must be a positive integer": "La recharge minimale WooshPay doit être un entier positif",
-    "WooshPay API base must start with https://": "La base de l'API WooshPay doit commencer par https://"
+    "WooshPay minimum top-up must be an integer from 1 to {{max}}": "La recharge minimale WooshPay doit être un entier compris entre 1 et {{max}}",
+    "WooshPay API base must start with https://": "La base de l'API WooshPay doit commencer par https://",
+    "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "Les clés secrètes de test WooshPay (sk_test_) nécessitent la base d'API https://apitest.wooshpay.com, et les clés secrètes de production (sk_live_) nécessitent https://api.wooshpay.com",
+    "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Avec l'affichage en tokens, le montant de la recharge doit être un multiple de {{unit}} tokens",
+    "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay reste désactivé tant que la clé secrète et la base d'API n'appartiennent pas au même environnement : les clés sk_test_ nécessitent https://apitest.wooshpay.com et les clés sk_live_ nécessitent https://api.wooshpay.com.",
+    "Minimum top-up cannot exceed 10000": "La recharge minimale ne peut pas dépasser 10000"
   }
 }

@@ -7549,7 +7549,11 @@
     "Payment amount is too high": "支付金额过高",
     "WooshPay currency must be an uppercase ISO 4217 code supported by WooshPay, such as USD": "WooshPay 币种必须是 WooshPay 支持的大写 ISO 4217 代码，例如 USD",
     "WooshPay unit price must be a number greater than 0": "WooshPay 单价必须是大于 0 的数字",
-    "WooshPay minimum top-up must be a positive integer": "WooshPay 最低充值必须是正整数",
-    "WooshPay API base must start with https://": "WooshPay API 地址必须以 https:// 开头"
+    "WooshPay minimum top-up must be an integer from 1 to {{max}}": "WooshPay 最低充值必须是 1 到 {{max}} 之间的整数",
+    "WooshPay API base must start with https://": "WooshPay API 地址必须以 https:// 开头",
+    "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "WooshPay 测试密钥（sk_test_）需要使用 API 地址 https://apitest.wooshpay.com，正式密钥（sk_live_）需要使用 https://api.wooshpay.com",
+    "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Tokens 显示模式下，充值数量必须是 {{unit}} tokens 的整数倍",
+    "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "密钥和 API 地址属于同一环境之前，WooshPay 保持停用：sk_test_ 密钥需要 https://apitest.wooshpay.com，sk_live_ 密钥需要 https://api.wooshpay.com。",
+    "Minimum top-up cannot exceed 10000": "最低充值不能超过 10000"
   }
 }

@@ -16,10 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, test } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
 
 import { PAYMENT_TYPES } from '../constants'
-import { requestPaymentAmount } from './use-payment'
+import { requestPaymentAmount, usePayment } from './use-payment'
 
 describe('payment amount routing', () => {
   test('uses the dedicated Waffo amount calculator', async () => {
@@ -78,5 +81,44 @@ describe('payment amount routing', () => {
 
     expect(amount).toBe(80)
     expect(calls).toEqual(['wooshpay:10'])
+  })
+})
+
+describe('hosted checkout redirect', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    window.location.hash = ''
+  })
+
+  async function pay(paymentType: string, payLink: string) {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: { message: 'success', data: { pay_link: payLink } },
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const { result } = renderHook(() => usePayment())
+    let succeeded = false
+    await act(async () => {
+      succeeded = await result.current.processPayment(10, paymentType)
+    })
+    return { succeeded, open }
+  }
+
+  test('WooshPay redirects in the same tab instead of opening a popup', async () => {
+    // A fragment-only change keeps jsdom on the page while still recording
+    // the navigation in location.href.
+    const payLink = `${window.location.origin}${window.location.pathname}#wooshpay-checkout`
+    const { succeeded, open } = await pay(PAYMENT_TYPES.WOOSHPAY, payLink)
+
+    expect(succeeded).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+    expect(window.location.href).toBe(payLink)
+  })
+
+  test('Stripe still opens its checkout in a new tab', async () => {
+    const payLink = 'https://checkout.stripe.com/c/pay/cs_test'
+    const { succeeded, open } = await pay(PAYMENT_TYPES.STRIPE, payLink)
+
+    expect(succeeded).toBe(true)
+    expect(open).toHaveBeenCalledWith(payLink, '_blank')
   })
 })

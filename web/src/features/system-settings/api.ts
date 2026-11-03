@@ -44,6 +44,22 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
   return res.data
 }
 
+/**
+ * Save the WooshPay secret key together with the API base of its
+ * environment; saved one at a time, a switch between the test and live
+ * environments would be refused as a mismatched pair.
+ */
+export async function updateWooshpayEnvironment(request: {
+  secret_key: string
+  api_base: string
+}) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/wooshpay/environment',
+    request
+  )
+  return res.data
+}
+
 export async function updatePasskeyDomains(
   request: UpdatePasskeyDomainsRequest
 ) {

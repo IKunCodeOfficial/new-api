@@ -161,10 +161,6 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.STRIPE
   }
 
-  if (topupInfo.enable_wooshpay_topup) {
-    return PAYMENT_TYPES.WOOSHPAY
-  }
-
   if (topupInfo.enable_waffo_topup) {
     return PAYMENT_TYPES.WAFFO
   }
@@ -173,11 +169,19 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.WAFFO_PANCAKE
   }
 
+  if (topupInfo.enable_wooshpay_topup) {
+    return PAYMENT_TYPES.WOOSHPAY
+  }
+
   return DEFAULT_PAYMENT_TYPE
 }
 
 /**
  * Get minimum topup amount from topup info
+ *
+ * WooshPay comes last: its own minimum only applies when no earlier gateway
+ * is enabled, and its pay method button carries its minimum (min_topup) so
+ * it never raises the minimum of the other methods.
  */
 export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
   if (!topupInfo) {
@@ -192,10 +196,6 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
     return topupInfo.stripe_min_topup
   }
 
-  if (topupInfo.enable_wooshpay_topup) {
-    return topupInfo.wooshpay_min_topup || DEFAULT_MIN_TOPUP
-  }
-
   if (topupInfo.enable_waffo_topup) {
     return topupInfo.waffo_min_topup || DEFAULT_MIN_TOPUP
   }
@@ -204,7 +204,61 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
     return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
   }
 
+  if (topupInfo.enable_wooshpay_topup) {
+    return topupInfo.wooshpay_min_topup || DEFAULT_MIN_TOPUP
+  }
+
   return DEFAULT_MIN_TOPUP
+}
+
+/**
+ * Price of the preset amount cards in a gateway's own currency.
+ * pricePerAmount is the price of one unit of the entered amount (one token
+ * with the Tokens display).
+ */
+export interface GatewayPresetPricing {
+  currency: string
+  pricePerAmount: number
+}
+
+/**
+ * WooshPay charges WooshpayUnitPrice per unit in WooshpayCurrency (from
+ * /api/status), not the epay price. The preset cards show that price when
+ * WooshPay is the selected payment method, or the only one when none is
+ * selected yet; otherwise they keep the regular price.
+ */
+export function getWooshpayPresetPricing(options: {
+  selectedPaymentType?: string
+  payMethods: PaymentMethod[]
+  unitPrice: unknown
+  currency: unknown
+  tokensPerUnit?: number
+}): GatewayPresetPricing | undefined {
+  let wooshpayChosen = false
+  if (options.selectedPaymentType) {
+    wooshpayChosen = isWooshpayPayment(options.selectedPaymentType)
+  } else {
+    wooshpayChosen =
+      options.payMethods.length > 0 &&
+      options.payMethods.every((method) => isWooshpayPayment(method.type))
+  }
+  const unitPrice = Number(options.unitPrice)
+  if (
+    !wooshpayChosen ||
+    !(unitPrice > 0) ||
+    typeof options.currency !== 'string' ||
+    !options.currency
+  ) {
+    return undefined
+  }
+  const tokensPerUnit =
+    options.tokensPerUnit && options.tokensPerUnit > 0
+      ? options.tokensPerUnit
+      : 1
+  return {
+    currency: options.currency,
+    pricePerAmount: unitPrice / tokensPerUnit,
+  }
 }
 
 /**

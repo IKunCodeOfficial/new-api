@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
+	"gorm.io/gorm"
 )
 
 // WooshPay metadata keys. They are written by this server with its secret key
@@ -62,9 +63,9 @@ type wooshpayPaymentIntent struct {
 	ID              string            `json:"id"`
 	Status          string            `json:"status"`
 	Amount          int64             `json:"amount"`
-	AmountReceived  int64             `json:"amount_received"`
+	AmountReceived  *int64            `json:"amount_received"`
 	Currency        string            `json:"currency"`
-	Livemode        bool              `json:"livemode"`
+	Livemode        *bool             `json:"livemode"`
 	MerchantOrderID string            `json:"merchant_order_id"`
 	Metadata        map[string]string `json:"metadata"`
 }
@@ -156,11 +157,6 @@ func RequestWooshpayPay(c *gin.Context) {
 
 	currency := setting.WooshpayCurrency
 	listedMoney, payMoney := getWooshpayPayMoney(req.Amount, user.Group)
-	listed, err := wooshpayMinorUnits(currency, listedMoney)
-	if err != nil {
-		paymentError(c, err)
-		return
-	}
 	charged, err := wooshpayMinorUnits(currency, payMoney)
 	if err != nil {
 		paymentError(c, err)
@@ -176,16 +172,21 @@ func RequestWooshpayPay(c *gin.Context) {
 	tradeNo := "wsp_" + common.Sha1([]byte(reference))
 	metadata := map[string]string{
 		wooshpayTradeNoMetadataKey:       tradeNo,
-		wooshpayAmountListedMetadataKey:  strconv.FormatInt(listed, 10),
 		wooshpayAmountChargedMetadataKey: strconv.FormatInt(charged, 10),
 		wooshpayCurrencyMetadataKey:      currency,
+	}
+	// Only the charged amount is bounded: a preset discount can bring an
+	// undiscounted price above the int32 range back into it. The listed amount
+	// is only for reconciliation and is left out when it does not fit.
+	listedMinor := listedMoney.Shift(setting.WooshpayCurrencyMinorDigits[currency]).Round(0)
+	if listedMinor.IsPositive() && listedMinor.LessThanOrEqual(decimal.NewFromInt(math.MaxInt32)) {
+		metadata[wooshpayAmountListedMetadataKey] = listedMinor.String()
 	}
 	params := map[string]any{
 		"mode":                "payment",
 		"success_url":         successURL,
 		"cancel_url":          cancelURL,
 		"client_reference_id": tradeNo,
-		"expires_at":          time.Now().Add(2 * time.Hour).Unix(),
 		"line_items": []map[string]any{{
 			"price_data": map[string]any{
 				"currency":    currency,
@@ -245,8 +246,35 @@ func RequestWooshpayPay(c *gin.Context) {
 	})
 }
 
+// UpdateWooshpayEnvironment saves the WooshPay secret key together with the
+// API base of its environment. Saved one at a time, moving between the test
+// and live environments would first pair either value with the other
+// environment's and be refused.
+func UpdateWooshpayEnvironment(c *gin.Context) {
+	var req struct {
+		SecretKey string `json:"secret_key"`
+		ApiBase   string `json:"api_base"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || strings.TrimSpace(req.SecretKey) == "" {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	if err := model.UpdateOptionsBulk(map[string]string{
+		"WooshpaySecretKey": strings.TrimSpace(req.SecretKey),
+		"WooshpayApiBase":   strings.TrimSpace(req.ApiBase),
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "option.update", map[string]any{"keys": []string{"WooshpaySecretKey", "WooshpayApiBase"}})
+	common.ApiSuccess(c, nil)
+}
+
 func WooshpayWebhook(c *gin.Context) {
-	ctx := c.Request.Context()
+	// WooshPay may drop the connection before the re-query and the database
+	// work finish; they must still complete, so they do not inherit the
+	// request's cancellation.
+	ctx := context.WithoutCancel(c.Request.Context())
 	callerIp := c.ClientIP()
 	if !isWooshpayWebhookEnabled() {
 		logger.LogWarn(ctx, common.LogText("WooshPay webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, callerIp))
@@ -261,7 +289,7 @@ func WooshpayWebhook(c *gin.Context) {
 		return
 	}
 
-	if err := verifyWooshpaySignature(payload, c.GetHeader("Signature"), setting.WooshpayWebhookSecret); err != nil {
+	if err := verifyWooshpaySignature(payload, c.GetHeader("Signature"), strings.TrimSpace(setting.WooshpayWebhookSecret)); err != nil {
 		logger.LogWarn(ctx, common.LogText("WooshPay webhook signature verification failed path=%q client_ip=%s error=%q", c.Request.RequestURI, callerIp, err.Error()))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
@@ -363,38 +391,43 @@ func wooshpayFulfill(ctx context.Context, object json.RawMessage, callerIp strin
 	}
 
 	tradeNo := intent.Metadata[wooshpayTradeNoMetadataKey]
+	if tradeNo == "" {
+		logger.LogWarn(ctx, common.LogText("WooshPay PaymentIntent was not created by this site, ignored payment_intent=%s status=%s client_ip=%s", eventIntent.ID, intent.Status, callerIp))
+		return nil
+	}
+	// A PaymentIntent that is not conclusively paid yet (still processing,
+	// or missing the received amount or mode) is redelivered until it is.
+	if intent.Status != "succeeded" || intent.AmountReceived == nil || intent.Livemode == nil {
+		logger.LogWarn(ctx, common.LogText("WooshPay PaymentIntent is not conclusively paid yet, retry requested payment_intent=%s trade_no=%s status=%s client_ip=%s", eventIntent.ID, tradeNo, intent.Status, callerIp))
+		return errWooshpayRetry
+	}
+	amountReceived, livemode := *intent.AmountReceived, *intent.Livemode
 	expectedCharged, chargedErr := strconv.ParseInt(intent.Metadata[wooshpayAmountChargedMetadataKey], 10, 64)
 	mismatch := ""
 	switch {
 	case intent.ID != eventIntent.ID:
 		mismatch = "payment_intent_id"
-	case intent.Status != "succeeded":
-		mismatch = "status"
-	case tradeNo == "" || tradeNo != intent.MerchantOrderID:
+	case tradeNo != intent.MerchantOrderID:
 		mismatch = "trade_no"
 	case !strings.EqualFold(intent.Currency, intent.Metadata[wooshpayCurrencyMetadataKey]):
 		mismatch = "currency"
-	case chargedErr != nil || intent.AmountReceived != expectedCharged:
+	case chargedErr != nil || amountReceived != expectedCharged:
 		mismatch = "amount"
-	case intent.Livemode == setting.IsWooshpayTestKey():
+	case livemode == setting.IsWooshpayTestKey():
 		mismatch = "livemode"
 	}
 	if mismatch != "" {
-		if intent.Status == "succeeded" {
-			logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded but does not match the order, paid but not credited, needs manual handling payment_intent=%s trade_no=%s mismatch=%s client_ip=%s", eventIntent.ID, tradeNo, mismatch, callerIp))
-			return nil
-		}
-		logger.LogWarn(ctx, common.LogText("WooshPay PaymentIntent does not match the order, not credited payment_intent=%s trade_no=%s mismatch=%s status=%s client_ip=%s", eventIntent.ID, tradeNo, mismatch, intent.Status, callerIp))
+		logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded but does not match the order, paid but not credited, needs manual handling payment_intent=%s trade_no=%s mismatch=%s client_ip=%s", eventIntent.ID, tradeNo, mismatch, callerIp))
 		return nil
 	}
 
 	// The checkout amount was priced by this server and the received amount
 	// equals it, so the order's paid snapshot already holds what was paid;
 	// only a test-mode payment changes it.
-	charge := model.GatewayCharge{Listed: expectedCharged, Charged: intent.AmountReceived, Test: !intent.Livemode}
+	charge := model.GatewayCharge{Listed: expectedCharged, Charged: amountReceived, Test: !livemode}
 	currency := strings.ToUpper(intent.Currency)
 	digits := setting.WooshpayCurrencyMinorDigits[currency]
-	paymentAmount := decimal.New(intent.AmountReceived, -digits).StringFixed(digits) + " " + currency
+	paymentAmount := decimal.New(amountReceived, -digits).StringFixed(digits) + " " + currency
 
 	LockOrder(tradeNo)
 	defer UnlockOrder(tradeNo)
@@ -406,7 +439,9 @@ func wooshpayFulfill(ctx context.Context, object json.RawMessage, callerIp strin
 	case errors.Is(err, model.ErrTopUpStatusInvalid):
 		logger.LogInfo(ctx, common.LogText("WooshPay order already completed, duplicate notification ignored trade_no=%s payment_intent=%s client_ip=%s", tradeNo, intent.ID, callerIp))
 		return nil
-	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch):
+	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch), errors.Is(err, gorm.ErrRecordNotFound):
+		// gorm.ErrRecordNotFound here means the order's user no longer
+		// exists; a redelivery cannot change that.
 		logger.LogError(ctx, common.LogText("WooshPay order cannot be completed, paid but not credited, needs manual handling trade_no=%s payment_intent=%s client_ip=%s error=%q", tradeNo, intent.ID, callerIp, err.Error()))
 		return nil
 	case errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
@@ -495,20 +530,23 @@ func wooshpayRequest(ctx context.Context, method string, path string, idempotenc
 	return common.Unmarshal(respBody, out)
 }
 
-// wooshpayMaxTopUpUnits bounds the purchased units of one WooshPay order.
-const wooshpayMaxTopUpUnits = 10000
-
 // checkWooshpayTopUpAmount bounds the requested amount, which is in display
 // units (tokens with the Tokens quota display), by the purchased units it buys.
 func checkWooshpayTopUpAmount(amount int64) error {
+	tokensDisplay := operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens
+	quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+	// Tokens buy whole units only; a remainder would be paid for nothing.
+	if tokensDisplay && quotaPerUnit.IsPositive() && !decimal.NewFromInt(amount).Mod(quotaPerUnit).IsZero() {
+		return common.NewMessage("With the Tokens display the top-up amount must be a multiple of {{unit}} tokens", map[string]any{"unit": quotaPerUnit.String()})
+	}
 	units := wooshpayPurchasedUnits(amount)
 	if amount < getWooshpayMinTopup() || units < int64(setting.WooshpayMinTopUp) {
 		return common.NewMessage("Top-up amount cannot be less than {{min}}", map[string]any{"min": getWooshpayMinTopup()})
 	}
-	if units > wooshpayMaxTopUpUnits {
-		maxAmount := decimal.NewFromInt(wooshpayMaxTopUpUnits)
-		if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-			maxAmount = maxAmount.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Floor()
+	if units > setting.WooshpayMaxTopUpUnits {
+		maxAmount := decimal.NewFromInt(setting.WooshpayMaxTopUpUnits)
+		if tokensDisplay {
+			maxAmount = maxAmount.Mul(quotaPerUnit).Floor()
 		}
 		return common.NewMessage("Top-up amount cannot exceed {{max}}", map[string]any{"max": maxAmount.IntPart()})
 	}
@@ -517,7 +555,7 @@ func checkWooshpayTopUpAmount(amount int64) error {
 
 // wooshpayPurchasedUnits converts the requested amount into the whole
 // currency units the order buys and credits. With the Tokens quota display
-// the amount is in tokens and, as for epay, is rounded down to whole units.
+// the amount is in tokens; checkWooshpayTopUpAmount only accepts whole units.
 func wooshpayPurchasedUnits(amount int64) int64 {
 	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeTokens {
 		return amount

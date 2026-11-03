@@ -45,6 +45,7 @@ import {
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
+  getWooshpayPresetPricing,
   dispatchSelectedPayment,
   isWooshpayPayment,
 } from './lib'
@@ -271,6 +272,17 @@ export function Wallet(props: WalletProps) {
     }
   }
 
+  const wooshpayPresetPricing = getWooshpayPresetPricing({
+    selectedPaymentType: selectedPaymentMethod?.type,
+    payMethods: topupInfo?.pay_methods ?? [],
+    unitPrice: status?.wooshpay_unit_price,
+    currency: status?.wooshpay_currency,
+    tokensPerUnit:
+      currency?.quotaDisplayType === 'TOKENS'
+        ? currency.quotaPerUnit
+        : undefined,
+  })
+
   // Get discount rate for current topup amount
   const getDiscountRate = useCallback(() => {
     return topupInfo?.discount?.[topupAmount] || DEFAULT_DISCOUNT_RATE
@@ -329,6 +341,7 @@ export function Wallet(props: WalletProps) {
                   enableWaffoPancakeTopup={
                     topupInfo?.enable_waffo_pancake_topup
                   }
+                  gatewayPricing={wooshpayPresetPricing}
                 />
               </div>
 

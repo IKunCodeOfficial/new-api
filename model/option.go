@@ -309,6 +309,9 @@ func UpdateOption(key string, value string) error {
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
+	if err := validateWooshpayEnvironment(map[string]string{key: value}); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -328,6 +331,25 @@ func UpdateOption(key string, value string) error {
 	}
 	// Update OptionMap
 	return updateOptionMap(key, value)
+}
+
+// validateWooshpayEnvironment rejects a save that would leave the WooshPay
+// secret key paired with the API base of the other environment. The two are
+// saved as separate options, so a value not being saved is the stored one;
+// switching environments saves both together through UpdateOptionsBulk.
+func validateWooshpayEnvironment(values map[string]string) error {
+	secretKey, keySaved := values["WooshpaySecretKey"]
+	apiBase, baseSaved := values["WooshpayApiBase"]
+	if !keySaved && !baseSaved {
+		return nil
+	}
+	if !keySaved {
+		secretKey = setting.WooshpaySecretKey
+	}
+	if !baseSaved {
+		apiBase = setting.WooshpayApiBase
+	}
+	return setting.ValidateWooshpayKeyBase(secretKey, apiBase)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
@@ -353,6 +375,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
+	}
+	if err := validateWooshpayEnvironment(values); err != nil {
+		return err
 	}
 	var policySnapshot *RequestPolicySnapshot
 	for key := range values {
@@ -585,7 +610,7 @@ func updateOptionMap(key string, value string) (err error) {
 	case "WooshpaySecretKey":
 		setting.WooshpaySecretKey = value
 	case "WooshpayWebhookSecret":
-		setting.WooshpayWebhookSecret = value
+		setting.WooshpayWebhookSecret = strings.TrimSpace(value)
 	case "WooshpayApiBase":
 		setting.WooshpayApiBase = setting.NormalizeWooshpayApiBase(value)
 	case "WooshpayCurrency":

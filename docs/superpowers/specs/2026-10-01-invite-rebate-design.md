@@ -48,11 +48,11 @@ settled_base += delta
 
 历史在线订单正常情况下可能没有 `complete_time`（NULL 或 0）。2026-10-08 经业务备份验证并确认，采用完成时间优先、创建时间兜底；有完成时间的订单不得按创建时间提前计入。兜底订单跨午夜支付时可能归入下单日，仍受活动起点与成功状态约束，不回填或修改原始订单。MySQL 历史 `top_ups` 与新建 `rebate_topup_paid` 可能使用不同排序规则，读取实付记录时按订单号分批参数查询，避免跨表字符串 JOIN 的排序规则冲突。
 
-在线充值到账额度（与 `model/topup.go` 入账一致；渠道按 `payment_provider` 判定，为空的旧行按 `payment_method` 推断：`stripe`/`creem`/`waffo`/`waffo_pancake` 同名，其余视为 `epay`）：
+在线充值到账额度（与 `model/topup.go` 入账一致；渠道按 `payment_provider` 判定，为空的旧行按 `payment_method` 推断：`stripe`/`creem`/`waffo`/`waffo_pancake`/`wooshpay` 同名，其余视为 `epay`）：
 
 | 渠道 | 到账额度 |
 |---|---|
-| epay / waffo / waffo_pancake | `amount × QuotaPerUnit` |
+| epay / waffo / waffo_pancake / wooshpay | `amount × QuotaPerUnit` |
 | stripe | `money × QuotaPerUnit`（Decimal，半远离零取整） |
 | creem | `amount`（本身已是 quota） |
 
@@ -79,13 +79,14 @@ settled_base += delta
   | epay | `Money ÷ operation_setting.Price × QuotaPerUnit` |
   | waffo | `Money ÷ setting.WaffoUnitPrice × QuotaPerUnit` |
   | waffo_pancake | `Money ÷ setting.WaffoPancakeUnitPrice × QuotaPerUnit` |
+  | wooshpay | `Money ÷ setting.WooshpayUnitPrice × QuotaPerUnit`（`Money` 是按币种小数位取整后实际发给 WooshPay 的金额；`sk_test_` 密钥下单时写 0） |
   | stripe | `Amount × QuotaPerUnit`（Checkout 按 `Quantity=Amount` × 固定 Stripe 价格收款，分组倍率只放大到账额度 `Money = Amount × 倍率`，所以实付按购买数量计；优惠码折扣在支付完成时按 `amount_total / amount_subtotal` 下调快照） |
   | creem | `Amount`（下单时按商品额度；折扣码在支付完成时按 `(amount_paid − tax_amount) / sub_total` 下调） |
 
   单价 ≤ 0 或结果非正时不写行（结算侧回落为到账额度）。换算使用 `common.QuotaFromDecimal` 等 `common/quota_math.go` 助手，不做裸 `int` 转换。
-  支付完成时网关报告的折扣只会下调快照，不会上调：Stripe 按 `amount_total / amount_subtotal`、Creem 按 `(amount_paid − tax_amount) / sub_total` 向下取整；沙箱/测试环境的支付（Waffo 沙箱、Creem 测试模式下单或测试事件，Stripe `livemode=false`、Waffo Pancake `test` webhook）照常到账，但快照写为 `paid_quota = 0`，结算侧 `min` 后不计入 R。
-  管理员补单（`POST /api/user/topup/complete`）可带 `paid_money`：网关实际收款金额，币种与订单标价一致。服务端按 `实收 ÷ 标价` 下调快照（只降不升，同 webhook 折扣规则），标价为订单 `money`，Stripe 为 `amount × StripeUnitPrice`（`money` 是到账口径，不是收款额，实收填 Stripe 价格币种的 Checkout 合计）；Creem 按 webhook 规则填不含税实收；标价不为正时拒绝补单。实收金额写进补单的充值日志。Stripe、Creem、Waffo Pancake 的实收只有网关完成事件才知道，未填写时快照写 0，不计入 R；epay、Waffo 保留下单时快照。
-  分组倍率造成的偏差由结算侧 `min` 封顶：epay、Waffo、Waffo Pancake 在倍率 > 1 时 `paid_quota` 超过到账额度；Stripe 的快照按购买数量计，倍率 < 1 时 `paid_quota` 超过到账额度。
+  支付完成时网关报告的折扣只会下调快照，不会上调：Stripe 按 `amount_total / amount_subtotal`、Creem 按 `(amount_paid − tax_amount) / sub_total` 向下取整；沙箱/测试环境的支付（Waffo 沙箱、Creem 测试模式下单或测试事件，Stripe `livemode=false`、Waffo Pancake `test` webhook、WooshPay `livemode=false`）照常到账，但快照写为 `paid_quota = 0`，结算侧 `min` 后不计入 R。
+  管理员补单（`POST /api/user/topup/complete`）可带 `paid_money`：网关实际收款金额，币种与订单标价一致。服务端按 `实收 ÷ 标价` 下调快照（只降不升，同 webhook 折扣规则），标价为订单 `money`，Stripe 为 `amount × StripeUnitPrice`（`money` 是到账口径，不是收款额，实收填 Stripe 价格币种的 Checkout 合计）；Creem 按 webhook 规则填不含税实收；标价不为正时拒绝补单。实收金额写进补单的充值日志。Stripe、Creem、Waffo Pancake 的实收只有网关完成事件才知道，未填写时快照写 0，不计入 R；epay、Waffo、WooshPay 保留下单时快照（WooshPay 的 `Money` 就是本站定价后实际发给网关的金额；`sk_test_` 订单的快照本来就是 0）。WooshPay 订单在 `pending`、`expired`、`failed` 状态下都可补单。
+  分组倍率造成的偏差由结算侧 `min` 封顶：epay、Waffo、Waffo Pancake、WooshPay 在倍率 > 1 时 `paid_quota` 超过到账额度；Stripe 的快照按购买数量计，倍率 < 1 时 `paid_quota` 超过到账额度。
 - **管理员充值**：管理员在弹窗填写，约束 `0 < paid_quota ≤ value`，违反时按仓库约定返回参数错误（HTTP 200 + `success:false`），额度不变。
 
 ### 2.3 排除与失效
@@ -416,7 +417,7 @@ rebate/
 | `relay/channel/openai/relay_realtime.go`、`relay/common/relay_info.go` | 上游 | 实时会话：最终结算前关闭上游并等待两个读协程退出（超时后仍由结算锁等待在途的按轮扣费完成），结算后读协程不再扣费也不再转发；按轮扣费时传入含本轮的会话累计用量；累计时保留图片与分模态缓存明细；`response.done` 缺 `total_tokens` 时按输入加输出计；按轮已扣额记在 `WssChargedQuota`，结算失败的差额记在 `UnsettledQuota` |
 | `common/log_text.zh-CN.json` | 上游 | 新增服务端日志行的中文 |
 
-`AfterCreate` 注意：钩子在 `model` 包，读取 `setting`/`operation_setting` 的单价（`model` 已依赖这些包，无循环）。只对 5 个已知 `PaymentProvider` 写行。
+`AfterCreate` 注意：钩子在 `model` 包，读取 `setting`/`operation_setting` 的单价（`model` 已依赖这些包，无循环）。只对 6 个已知 `PaymentProvider`（epay、stripe、creem、waffo、waffo_pancake、wooshpay）写行。
 
 ### 8.2 前端
 

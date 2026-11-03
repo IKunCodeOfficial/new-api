@@ -928,4 +928,5 @@ export const STATIC_I18N_KEYS = [
   'Enter a 3-letter ISO 4217 currency code',
   'Unit price must be greater than 0',
   'Minimum top-up must be a whole number of at least 1',
+  'Minimum top-up cannot exceed 10000',
 ] as const

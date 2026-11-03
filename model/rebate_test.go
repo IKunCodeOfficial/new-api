@@ -386,7 +386,9 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 // settler counts: Creem amounts are already quota, Stripe uses Money. Without
 // the gateway's completion event the collected amount of Stripe, Creem and
 // Pancake orders is unknown, so it counts toward rebates only when the
-// administrator states it; epay keeps its creation-time snapshot. A stated
+// administrator states it; epay and WooshPay, priced by this server, keep
+// their creation-time snapshot. A WooshPay order closed as expired or failed
+// may still have been paid, so it can be completed too. A stated
 // amount is in the currency the gateway charged and scales the snapshot by
 // collected ÷ list price, where Stripe lists quantity × Checkout unit price.
 func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
@@ -405,7 +407,8 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		paid             *float64
 		credited         int
 		snapshot         int64
-		noSnapshot       bool // order created before snapshots existed
+		noSnapshot       bool   // order created before snapshots existed
+		status           string // pending when empty
 	}{
 		{tradeNo: "manual-creem", provider: PaymentProviderCreem, method: PaymentMethodCreem, amount: 2_500_000, money: 10, credited: 2_500_000, snapshot: 0},
 		{tradeNo: "manual-creem-half", provider: PaymentProviderCreem, method: PaymentMethodCreem, amount: 2_500_000, money: 10, paid: paid(5), credited: 2_500_000, snapshot: 1_250_000},
@@ -415,8 +418,11 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		{tradeNo: "manual-stripe-full", provider: PaymentProviderStripe, method: PaymentMethodStripe, amount: 10, money: 20, paid: paid(80), credited: 10_000_000, snapshot: 5_000_000},
 		{tradeNo: "manual-legacy-stripe", method: PaymentMethodStripe, amount: 10, money: 20, credited: 10_000_000, snapshot: 0},
 		// Like Waffo Pancake: 10 units credit Amount × QPU, and the list price is
-		// Money (10 × 7.3 × group ratio 2), the amount WooshPay charged.
-		{tradeNo: "manual-wooshpay", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, credited: 5_000_000, snapshot: 0},
+		// Money (10 × 7.3 × group ratio 2), the amount WooshPay charged. Without
+		// a stated amount the creation-time snapshot Money ÷ 7.3 × QPU stays.
+		{tradeNo: "manual-wooshpay", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, credited: 5_000_000, snapshot: 10_000_000},
+		{tradeNo: "manual-wooshpay-expired", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 73, credited: 5_000_000, snapshot: 5_000_000, status: common.TopUpStatusExpired},
+		{tradeNo: "manual-wooshpay-failed", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 73, paid: paid(36.5), credited: 5_000_000, snapshot: 2_500_000, status: common.TopUpStatusFailed},
 		{tradeNo: "manual-wooshpay-half", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(73), credited: 5_000_000, snapshot: 5_000_000},
 		{tradeNo: "manual-wooshpay-full", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(146), credited: 5_000_000, snapshot: 10_000_000},
 		{tradeNo: "manual-epay", provider: PaymentProviderEpay, method: "alipay", amount: 10, money: 73, credited: 5_000_000, snapshot: 5_000_000},
@@ -430,9 +436,13 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		t.Run(tc.tradeNo, func(t *testing.T) {
 			user := &User{Id: 100 + i, Username: tc.tradeNo, Password: "12345678", Status: common.UserStatusEnabled, AffCode: fmt.Sprintf("mc%02d", i)}
 			require.NoError(t, DB.Create(user).Error)
+			status := tc.status
+			if status == "" {
+				status = common.TopUpStatusPending
+			}
 			order := &TopUp{
 				UserId: user.Id, Amount: tc.amount, Money: tc.money, TradeNo: tc.tradeNo,
-				PaymentMethod: tc.method, PaymentProvider: tc.provider, Status: common.TopUpStatusPending,
+				PaymentMethod: tc.method, PaymentProvider: tc.provider, Status: status,
 			}
 			require.NoError(t, order.Insert())
 			if tc.noSnapshot {
@@ -459,6 +469,22 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 			}
 		})
 	}
+
+	// Other gateways complete pending orders only, and a completed order is
+	// never credited twice.
+	closed := &User{Id: 201, Username: "manual-closed", Password: "12345678", Status: common.UserStatusEnabled, AffCode: "mccl"}
+	require.NoError(t, DB.Create(closed).Error)
+	for _, order := range []*TopUp{
+		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-epay-expired", PaymentMethod: "alipay", PaymentProvider: PaymentProviderEpay, Status: common.TopUpStatusExpired},
+		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-pancake-failed", PaymentMethod: PaymentMethodWaffoPancake, PaymentProvider: PaymentProviderWaffoPancake, Status: common.TopUpStatusFailed},
+	} {
+		require.NoError(t, order.Insert())
+		require.Error(t, ManualCompleteTopUp(order.TradeNo, "127.0.0.1", nil), order.TradeNo)
+	}
+	require.NoError(t, ManualCompleteTopUp("manual-wooshpay-expired", "127.0.0.1", nil))
+	var closedUser User
+	require.NoError(t, DB.First(&closedUser, closed.Id).Error)
+	assert.Zero(t, closedUser.Quota)
 
 	// Without a list price the stated amount cannot be scaled, so the order
 	// is left pending instead of being completed with a guessed snapshot.

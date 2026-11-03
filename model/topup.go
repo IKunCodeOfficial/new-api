@@ -531,8 +531,10 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 // ManualCompleteTopUp 管理员手动完成订单并给用户充值。
 // paidMoney（可选）是管理员核对网关后填写的实收金额，币种与订单标价一致：
 // Stripe 的标价为 Amount×StripeUnitPrice，Creem 填不含税金额，其余渠道的标价为 Money。
-// 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake、WooshPay 的实收
+// 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake 的实收
 // （优惠码、测试模式）只有网关完成事件才知道，未填写时这些订单不计入返利充值。
+// WooshPay 由本站定价，Money 就是发给网关的金额，未填写时保留下单时的快照
+// （sk_test_ 密钥下的订单快照本来就是 0）。WooshPay 的 expired / failed 订单也可补单。
 func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) error {
 	if tradeNo == "" {
 		return common.NewMessage("Order number not provided")
@@ -560,7 +562,13 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 			return nil
 		}
 
-		if topUp.Status != common.TopUpStatusPending {
+		// WooshPay 只有会话过期才关单，已关闭的订单仍可能已付款（回调最多重投 72 小时），
+		// 所以 WooshPay 的 expired / failed 订单也允许补单；其他渠道只处理 pending。
+		completable := topUp.Status == common.TopUpStatusPending
+		if resolveTopUpProvider(topUp) == PaymentProviderWooshpay {
+			completable = completable || topUp.Status == common.TopUpStatusExpired || topUp.Status == common.TopUpStatusFailed
+		}
+		if !completable {
 			return common.NewMessage("Order is not pending payment and cannot be completed")
 		}
 
@@ -597,8 +605,9 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// price, the rule the gateways' own discount reports follow. Stripe
 		// charges the purchased quantity at the Checkout unit price (its Money
 		// is the credited value); every other gateway charges Money. Without a
-		// stated amount, Stripe, Creem, Waffo Pancake and WooshPay orders, whose
-		// discounts only the gateway knows, count nothing.
+		// stated amount, Stripe, Creem and Waffo Pancake orders, whose
+		// discounts only the gateway knows, count nothing; WooshPay, priced by
+		// this server, keeps its creation-time snapshot like epay.
 		provider := resolveTopUpProvider(topUp)
 		var charge GatewayCharge
 		switch {
@@ -613,7 +622,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 			// Parts per million of the list price, at most the full price.
 			share := decimal.NewFromFloat(max(*paidMoney, 0)).Div(listed)
 			charge = GatewayCharge{Listed: 1_000_000, Charged: decimal.Min(share, decimal.NewFromInt(1)).Shift(6).Floor().IntPart()}
-		case provider == PaymentProviderStripe || provider == PaymentProviderCreem || provider == PaymentProviderWaffoPancake || provider == PaymentProviderWooshpay:
+		case provider == PaymentProviderStripe || provider == PaymentProviderCreem || provider == PaymentProviderWaffoPancake:
 			charge = GatewayCharge{Listed: 1, Charged: 0}
 		}
 		if err := applyGatewayCharge(tx, topUp, charge); err != nil {

@@ -208,3 +208,58 @@ test('a failed completion keeps the confirmation open with the amount', async ()
   expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   expect(screen.getByLabelText('Amount collected')).toHaveValue('40')
 })
+
+function mockOrders(
+  orders: Array<{ status: string; payment_method: string }>
+): void {
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        total: orders.length,
+        items: orders.map((order, index) => ({
+          id: index + 1,
+          user_id: 7,
+          amount: 10,
+          money: 80,
+          trade_no: `ref_${order.payment_method}_${order.status}`,
+          create_time: 1,
+          ...order,
+        })),
+      },
+    },
+  })
+}
+
+test.each(['expired', 'failed'])(
+  'a %s WooshPay order can still be completed by an administrator',
+  async (status) => {
+    mockOrders([{ status, payment_method: 'wooshpay' }])
+    const post = vi
+      .spyOn(api, 'post')
+      .mockResolvedValue({ data: { success: true } })
+    const user = await openConfirm()
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(post.mock.calls[0][1]).toEqual({
+      trade_no: `ref_wooshpay_${status}`,
+    })
+  }
+)
+
+test('closed orders of other gateways and completed orders offer no completion', async () => {
+  mockOrders([
+    { status: 'expired', payment_method: 'stripe' },
+    { status: 'failed', payment_method: 'waffo_pancake' },
+    { status: 'success', payment_method: 'wooshpay' },
+  ])
+  render(
+    <I18nextProvider i18n={i18n}>
+      <BillingHistoryDialog open onOpenChange={vi.fn()} />
+    </I18nextProvider>
+  )
+
+  expect(await screen.findByText('ref_wooshpay_success')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Complete Order' })).toBeNull()
+})

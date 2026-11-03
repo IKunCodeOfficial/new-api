@@ -7549,7 +7549,11 @@
     "Payment amount is too high": "決済金額が高すぎます",
     "WooshPay currency must be an uppercase ISO 4217 code supported by WooshPay, such as USD": "WooshPay の通貨は、WooshPay がサポートする大文字の ISO 4217 コード（例：USD）である必要があります",
     "WooshPay unit price must be a number greater than 0": "WooshPay の単価は 0 より大きい数値である必要があります",
-    "WooshPay minimum top-up must be a positive integer": "WooshPay の最小チャージ数量は正の整数である必要があります",
-    "WooshPay API base must start with https://": "WooshPay API ベースは https:// で始まる必要があります"
+    "WooshPay minimum top-up must be an integer from 1 to {{max}}": "WooshPay の最小チャージ数量は 1 から {{max}} までの整数である必要があります",
+    "WooshPay API base must start with https://": "WooshPay API ベースは https:// で始まる必要があります",
+    "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "WooshPay のテスト用シークレットキー（sk_test_）には API ベース https://apitest.wooshpay.com、本番用シークレットキー（sk_live_）には https://api.wooshpay.com が必要です",
+    "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Tokens 表示では、チャージ数量は {{unit}} トークンの倍数である必要があります",
+    "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "シークレットキーと API ベースが同じ環境のものになるまで、WooshPay は無効のままです。sk_test_ キーには https://apitest.wooshpay.com、sk_live_ キーには https://api.wooshpay.com が必要です。",
+    "Minimum top-up cannot exceed 10000": "最小チャージ数量は 10000 を超えることはできません"
   }
 }

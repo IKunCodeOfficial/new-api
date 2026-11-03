@@ -35,13 +35,19 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function saveOption(key: string) {
+async function saveOption(
+  key: string,
+  queryKey: readonly unknown[] = SYSTEM_BANNER_QUERY_KEY
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  client.setQueryData(SYSTEM_BANNER_QUERY_KEY, null)
+  client.setQueryData(queryKey, null)
   vi.spyOn(toast, 'success').mockReturnValue('saved')
-  vi.mocked(updateSystemOption).mockResolvedValue({ success: true, message: '' })
+  vi.mocked(updateSystemOption).mockResolvedValue({
+    success: true,
+    message: '',
+  })
   const { result, unmount } = renderHook(() => useUpdateOption(), {
     wrapper: (props: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, props.children),
@@ -49,9 +55,7 @@ async function saveOption(key: string) {
   await act(async () => {
     await result.current.mutateAsync({ key, value: 'x' })
   })
-  const invalidated = client.getQueryState(
-    SYSTEM_BANNER_QUERY_KEY
-  )?.isInvalidated
+  const invalidated = client.getQueryState(queryKey)?.isInvalidated
   unmount()
   client.clear()
   return invalidated
@@ -64,3 +68,10 @@ test('saving a system banner setting refreshes the banner right away', async () 
 test('saving an unrelated setting leaves the banner query alone', async () => {
   expect(await saveOption('QuotaPerUnit')).toBe(false)
 })
+
+test.each(['WooshpayCurrency', 'WooshpayUnitPrice'])(
+  'saving %s refreshes the status the wallet prices WooshPay with',
+  async (key) => {
+    expect(await saveOption(key, ['status'])).toBe(true)
+  }
+)

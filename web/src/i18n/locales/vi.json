@@ -7549,7 +7549,11 @@
     "Payment amount is too high": "Số tiền thanh toán quá cao",
     "WooshPay currency must be an uppercase ISO 4217 code supported by WooshPay, such as USD": "Loại tiền WooshPay phải là mã ISO 4217 viết hoa được WooshPay hỗ trợ, ví dụ USD",
     "WooshPay unit price must be a number greater than 0": "Đơn giá WooshPay phải là số lớn hơn 0",
-    "WooshPay minimum top-up must be a positive integer": "Mức nạp tối thiểu WooshPay phải là số nguyên dương",
-    "WooshPay API base must start with https://": "Địa chỉ cơ sở API WooshPay phải bắt đầu bằng https://"
+    "WooshPay minimum top-up must be an integer from 1 to {{max}}": "Mức nạp tối thiểu WooshPay phải là số nguyên từ 1 đến {{max}}",
+    "WooshPay API base must start with https://": "Địa chỉ cơ sở API WooshPay phải bắt đầu bằng https://",
+    "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "Khóa bí mật thử nghiệm WooshPay (sk_test_) cần API base https://apitest.wooshpay.com, còn khóa bí mật chính thức (sk_live_) cần https://api.wooshpay.com",
+    "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Khi hiển thị theo Tokens, số lượng nạp phải là bội số của {{unit}} tokens",
+    "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay vẫn bị tắt cho đến khi khóa bí mật và API base thuộc cùng một môi trường: khóa sk_test_ cần https://apitest.wooshpay.com và khóa sk_live_ cần https://api.wooshpay.com.",
+    "Minimum top-up cannot exceed 10000": "Mức nạp tối thiểu không được vượt quá 10000"
   }
 }

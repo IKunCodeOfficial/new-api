@@ -24,6 +24,7 @@ import {
   dispatchSelectedPayment,
   getDefaultPaymentType,
   getMinTopupAmount,
+  getWooshpayPresetPricing,
   isStripePayment,
   isWooshpayPayment,
   isWaffoPayment,
@@ -68,6 +69,26 @@ describe('WooshPay top-up defaults', () => {
   test('uses the WooshPay minimum top-up when it is the only enabled gateway', () => {
     expect(getMinTopupAmount(wooshpayOnlyTopupInfo)).toBe(5)
   })
+
+  test.each([
+    ['Waffo', { enable_waffo_topup: true, waffo_min_topup: 2 }, 2],
+    [
+      'Waffo Pancake',
+      { enable_waffo_pancake_topup: true, waffo_pancake_min_topup: 3 },
+      3,
+    ],
+  ])(
+    'keeps the %s minimum top-up when WooshPay is also enabled',
+    (_gateway, gateway, expected) => {
+      const topupInfo: TopupInfo = {
+        ...wooshpayOnlyTopupInfo,
+        wooshpay_min_topup: 50,
+        ...gateway,
+      }
+      expect(getMinTopupAmount(topupInfo)).toBe(expected)
+      expect(getDefaultPaymentType(topupInfo)).not.toBe(PAYMENT_TYPES.WOOSHPAY)
+    }
+  )
 })
 
 describe('payment dispatch', () => {
@@ -115,5 +136,67 @@ describe('payment dispatch', () => {
 
     expect(success).toBe(false)
     expect(called).toBe(false)
+  })
+})
+
+describe('WooshPay preset pricing', () => {
+  const wooshpay = { name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY }
+  const alipay = { name: 'Alipay', type: 'alipay' }
+  const status = { unitPrice: 8, currency: 'JPY' }
+
+  test('prices presets in the WooshPay currency when it is the only method', () => {
+    expect(
+      getWooshpayPresetPricing({ payMethods: [wooshpay], ...status })
+    ).toEqual({ currency: 'JPY', pricePerAmount: 8 })
+  })
+
+  test('prices presets in the WooshPay currency when it is selected', () => {
+    expect(
+      getWooshpayPresetPricing({
+        selectedPaymentType: PAYMENT_TYPES.WOOSHPAY,
+        payMethods: [alipay, wooshpay],
+        ...status,
+      })
+    ).toEqual({ currency: 'JPY', pricePerAmount: 8 })
+  })
+
+  test('keeps the regular price while another method is selected or available', () => {
+    expect(
+      getWooshpayPresetPricing({ payMethods: [wooshpay, alipay], ...status })
+    ).toBeUndefined()
+    expect(
+      getWooshpayPresetPricing({
+        selectedPaymentType: 'alipay',
+        payMethods: [wooshpay],
+        ...status,
+      })
+    ).toBeUndefined()
+  })
+
+  test('keeps the regular price without a usable WooshPay price', () => {
+    expect(
+      getWooshpayPresetPricing({
+        payMethods: [wooshpay],
+        unitPrice: undefined,
+        currency: 'JPY',
+      })
+    ).toBeUndefined()
+    expect(
+      getWooshpayPresetPricing({
+        payMethods: [wooshpay],
+        unitPrice: 8,
+        currency: '',
+      })
+    ).toBeUndefined()
+  })
+
+  test('prices each token with the Tokens display', () => {
+    expect(
+      getWooshpayPresetPricing({
+        payMethods: [wooshpay],
+        ...status,
+        tokensPerUnit: 500000,
+      })
+    ).toEqual({ currency: 'JPY', pricePerAmount: 8 / 500000 })
   })
 })

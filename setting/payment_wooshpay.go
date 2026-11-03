@@ -27,23 +27,49 @@ func IsWooshpayTestKey() bool {
 	return strings.HasPrefix(strings.TrimSpace(WooshpaySecretKey), "sk_test_")
 }
 
+// WooshpayMaxTopUpUnits bounds the purchased units of one WooshPay order and
+// the configurable minimum top-up.
+const WooshpayMaxTopUpUnits = 10000
+
+// wooshpayKeyHost returns the API host the secret key belongs to: sk_test_
+// keys only work against apitest.wooshpay.com and sk_live_ keys against
+// api.wooshpay.com. ok is false for a key of neither kind.
+func wooshpayKeyHost(secretKey string) (host string, ok bool) {
+	secretKey = strings.TrimSpace(secretKey)
+	switch {
+	case strings.HasPrefix(secretKey, "sk_test_"):
+		return "apitest.wooshpay.com", true
+	case strings.HasPrefix(secretKey, "sk_live_"):
+		return "api.wooshpay.com", true
+	default:
+		return "", false
+	}
+}
+
 // WooshpayApiBaseMatchesKey reports whether the API base points at the
-// WooshPay environment of the secret key: sk_test_ keys only work against
-// apitest.wooshpay.com and sk_live_ keys against api.wooshpay.com.
+// WooshPay environment of the secret key.
 func WooshpayApiBaseMatchesKey() bool {
 	base, err := url.Parse(NormalizeWooshpayApiBase(WooshpayApiBase))
 	if err != nil || base.Scheme != "https" {
 		return false
 	}
-	secretKey := strings.TrimSpace(WooshpaySecretKey)
-	switch {
-	case strings.HasPrefix(secretKey, "sk_test_"):
-		return base.Host == "apitest.wooshpay.com"
-	case strings.HasPrefix(secretKey, "sk_live_"):
-		return base.Host == "api.wooshpay.com"
-	default:
-		return false
+	host, ok := wooshpayKeyHost(WooshpaySecretKey)
+	return ok && base.Host == host
+}
+
+// ValidateWooshpayKeyBase rejects a secret key paired with the API base of
+// the other WooshPay environment. A key of unknown kind or an unset key is
+// not a known mismatch; WooshPay simply stays disabled until both match.
+func ValidateWooshpayKeyBase(secretKey string, apiBase string) error {
+	host, ok := wooshpayKeyHost(secretKey)
+	if !ok {
+		return nil
 	}
+	base, err := url.Parse(NormalizeWooshpayApiBase(apiBase))
+	if err == nil && base.Host == host {
+		return nil
+	}
+	return common.NewMessage("WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com")
 }
 
 // NormalizeWooshpayApiBase trims spaces and trailing slashes so API paths can
@@ -90,8 +116,8 @@ func ValidateWooshpayOption(key string, value string) error {
 		}
 	case "WooshpayMinTopUp":
 		minTopUp, err := strconv.Atoi(value)
-		if err != nil || minTopUp < 1 {
-			return common.NewMessage("WooshPay minimum top-up must be a positive integer")
+		if err != nil || minTopUp < 1 || minTopUp > WooshpayMaxTopUpUnits {
+			return common.NewMessage("WooshPay minimum top-up must be an integer from 1 to {{max}}", map[string]any{"max": WooshpayMaxTopUpUnits})
 		}
 	case "WooshpayApiBase":
 		if !strings.HasPrefix(value, "https://") {
