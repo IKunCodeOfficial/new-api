@@ -59,7 +59,11 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { confirmPaymentCompliance, updateWooshpayEnvironment } from '../api'
+import {
+  confirmPaymentCompliance,
+  updateWooshpaySettings,
+  type WooshpaySettingsUpdate,
+} from '../api'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -158,6 +162,7 @@ const paymentSchema = z.object({
   StripeUnitPrice: z.coerce.number().min(0),
   StripeMinTopUp: z.coerce.number().min(0),
   StripePromotionCodesEnabled: z.boolean(),
+  WooshpayEnabled: z.boolean(),
   WooshpaySecretKey: z.string(),
   WooshpayWebhookSecret: z.string(),
   WooshpayApiBase: z.string(),
@@ -469,6 +474,7 @@ export function PaymentSettingsSection({
       StripeUnitPrice: values.StripeUnitPrice,
       StripeMinTopUp: values.StripeMinTopUp,
       StripePromotionCodesEnabled: values.StripePromotionCodesEnabled,
+      WooshpayEnabled: values.WooshpayEnabled,
       WooshpaySecretKey: values.WooshpaySecretKey.trim(),
       WooshpayWebhookSecret: values.WooshpayWebhookSecret.trim(),
       WooshpayApiBase: values.WooshpayApiBase.trim(),
@@ -520,6 +526,7 @@ export function PaymentSettingsSection({
       StripeMinTopUp: initialRef.current.StripeMinTopUp,
       StripePromotionCodesEnabled:
         initialRef.current.StripePromotionCodesEnabled,
+      WooshpayEnabled: initialRef.current.WooshpayEnabled,
       WooshpaySecretKey: initialRef.current.WooshpaySecretKey.trim(),
       WooshpayWebhookSecret: initialRef.current.WooshpayWebhookSecret.trim(),
       WooshpayApiBase: initialRef.current.WooshpayApiBase.trim(),
@@ -650,50 +657,39 @@ export function PaymentSettingsSection({
       })
     }
 
-    // A new secret key is saved together with the API base of the form, so
-    // switching between the test and live environments is one save; the
-    // server refuses a key paired with the other environment's API base.
-    const savesWooshpayEnvironment =
-      sanitized.WooshpaySecretKey !== '' &&
+    // Every changed WooshPay setting is saved in one request: the server
+    // checks the resulting combination (the key and API base of one
+    // environment, the keys needed to enable it) and writes all or nothing.
+    // Blank secrets keep their stored values.
+    const wooshpayChanges: WooshpaySettingsUpdate = {}
+    if (sanitized.WooshpayEnabled !== initial.WooshpayEnabled) {
+      wooshpayChanges.enabled = sanitized.WooshpayEnabled
+    }
+    if (
+      sanitized.WooshpaySecretKey &&
       sanitized.WooshpaySecretKey !== initial.WooshpaySecretKey
-
+    ) {
+      wooshpayChanges.secret_key = sanitized.WooshpaySecretKey
+    }
     if (
       sanitized.WooshpayWebhookSecret &&
       sanitized.WooshpayWebhookSecret !== initial.WooshpayWebhookSecret
     ) {
-      updates.push({
-        key: 'WooshpayWebhookSecret',
-        value: sanitized.WooshpayWebhookSecret,
-      })
+      wooshpayChanges.webhook_secret = sanitized.WooshpayWebhookSecret
     }
-
-    if (
-      !savesWooshpayEnvironment &&
-      sanitized.WooshpayApiBase !== initial.WooshpayApiBase
-    ) {
-      updates.push({ key: 'WooshpayApiBase', value: sanitized.WooshpayApiBase })
+    if (sanitized.WooshpayApiBase !== initial.WooshpayApiBase) {
+      wooshpayChanges.api_base = sanitized.WooshpayApiBase
     }
-
     if (sanitized.WooshpayCurrency !== initial.WooshpayCurrency) {
-      updates.push({
-        key: 'WooshpayCurrency',
-        value: sanitized.WooshpayCurrency,
-      })
+      wooshpayChanges.currency = sanitized.WooshpayCurrency
     }
-
     if (sanitized.WooshpayUnitPrice !== initial.WooshpayUnitPrice) {
-      updates.push({
-        key: 'WooshpayUnitPrice',
-        value: sanitized.WooshpayUnitPrice,
-      })
+      wooshpayChanges.unit_price = sanitized.WooshpayUnitPrice
     }
-
     if (sanitized.WooshpayMinTopUp !== initial.WooshpayMinTopUp) {
-      updates.push({
-        key: 'WooshpayMinTopUp',
-        value: sanitized.WooshpayMinTopUp,
-      })
+      wooshpayChanges.min_topup = sanitized.WooshpayMinTopUp
     }
+    const savesWooshpay = Object.keys(wooshpayChanges).length > 0
 
     if (
       sanitized.CreemApiKey &&
@@ -802,32 +798,28 @@ export function PaymentSettingsSection({
       waffoPancakeSelection.storeID !== waffoPancakeSavedBinding.storeID ||
       waffoPancakeSelection.productID !== waffoPancakeSavedBinding.productID
 
-    if (
-      updates.length === 0 &&
-      !savesWooshpayEnvironment &&
-      !hasWaffoPancakeChanges
-    ) {
+    if (updates.length === 0 && !savesWooshpay && !hasWaffoPancakeChanges) {
       toast.info(t('No changes to save'))
       return
     }
 
+    // Each save stands on its own: a refused setting is reported where it
+    // fails and does not keep the other settings or gateways from saving.
     for (const update of updates) {
-      await updateOption.mutateAsync(update)
+      try {
+        await updateOption.mutateAsync(update)
+      } catch {
+        // useUpdateOption has already reported the failure.
+      }
     }
 
-    if (savesWooshpayEnvironment) {
+    if (savesWooshpay) {
       try {
-        requireServerSuccess(
-          await updateWooshpayEnvironment({
-            secret_key: sanitized.WooshpaySecretKey,
-            api_base: sanitized.WooshpayApiBase,
-          })
-        )
+        requireServerSuccess(await updateWooshpaySettings(wooshpayChanges))
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
-        toast.success(t('Setting updated successfully'))
+        toast.success(t('WooshPay settings saved'))
       } catch (error) {
-        handleServerError(error, t('Failed to update setting'))
-        return
+        handleServerError(error, t('WooshPay settings were not saved'))
       }
     }
 
@@ -1618,6 +1610,29 @@ export function PaymentSettingsSection({
                     )}
                   </AlertDescription>
                 </Alert>
+
+                <FormField
+                  control={form.control}
+                  name='WooshpayEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Enable WooshPay')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Offer WooshPay top-ups in the wallet. Payments on checkouts already opened are still credited while it is off.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
 
                 <div className='grid gap-6 md:grid-cols-3'>
                   <FormField

@@ -35,6 +35,30 @@ export interface ApiResponse<T = unknown> {
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
 export type AmountResponse = ApiResponse<string>
+/** WooshPay quote: the amount it charges, in its own currency */
+export type WooshpayAmountResponse = ApiResponse<{
+  /** Amount in major units, with minor_digits decimals */
+  amount: string
+  /** ISO 4217 code */
+  currency: string
+  /** Decimal places of the currency's minor unit (0 for JPY, 3 for KWD) */
+  minor_digits: number
+}>
+
+/** A currency a payment gateway charges in, with its minor-unit digits */
+export interface GatewayCurrency {
+  currency: string
+  minorDigits: number
+}
+
+/**
+ * A quoted payment amount. currency is set when the gateway charges in its
+ * own currency (WooshPay) rather than the display currency.
+ */
+export interface PaymentQuote {
+  amount: number
+  currency?: GatewayCurrency
+}
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
@@ -135,6 +159,12 @@ export interface TopupInfo {
   enable_wooshpay_topup?: boolean
   /** Minimum topup amount for WooshPay */
   wooshpay_min_topup?: number
+  /** WooshPay price of one unit for this user (group ratio included) */
+  wooshpay_unit_price?: number
+  /** ISO 4217 code WooshPay charges in */
+  wooshpay_currency?: string
+  /** Decimal places of the WooshPay currency's minor unit */
+  wooshpay_minor_digits?: number
   /** Preset amount options */
   amount_options: number[]
   /** Discount rates by amount */
@@ -293,4 +323,6 @@ export interface CompleteOrderRequest {
   trade_no: string
   /** Amount the gateway actually collected, in the currency of the order's list price (invite-rebate paid snapshot) */
   paid_money?: number
+  /** WooshPay PaymentIntent that paid an expired or failed WooshPay order */
+  payment_intent_id?: string
 }

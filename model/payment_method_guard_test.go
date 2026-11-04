@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -403,4 +405,22 @@ func TestRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
 		})
 	}
+}
+
+// A WooshPay currency stored in lower case still names the currency: it is
+// loaded in upper case, which the checkout amounts and the admin form use.
+func TestWooshpayCurrencyIsNormalizedWhenLoaded(t *testing.T) {
+	previousCurrency := setting.WooshpayCurrency
+	common.OptionMapRWMutex.Lock()
+	previousOptionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		setting.WooshpayCurrency = previousCurrency
+		common.OptionMap = previousOptionMap
+	})
+
+	require.NoError(t, updateOptionMap("WooshpayCurrency", " jpy "))
+	assert.Equal(t, "JPY", setting.WooshpayCurrency)
+	assert.Equal(t, "JPY", common.OptionMap["WooshpayCurrency"])
 }

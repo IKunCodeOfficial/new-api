@@ -6,7 +6,9 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,8 +28,8 @@ import (
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
-	// 获取支付方式
-	payMethods := operation_setting.PayMethods
+	// 获取支付方式。复制一份再追加网关，避免写进全局 PayMethods 的底层数组
+	payMethods := slices.Clone(operation_setting.PayMethods)
 	if !complianceConfirmed {
 		payMethods = []map[string]string{}
 	}
@@ -117,6 +119,22 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	// WooshPay is priced by this server, so the preset cards need the price
+	// this user pays: the unit price scaled by the user's top-up group ratio.
+	var wooshpayUnitPrice float64
+	if enableWooshpay {
+		group, err := model.GetUserGroup(c.GetInt("id"), true)
+		if err != nil {
+			common.ApiErrorT(c, "Failed to get the user group")
+			return
+		}
+		topUpGroupRatio := common.GetTopupGroupRatio(group)
+		if topUpGroupRatio == 0 {
+			topUpGroupRatio = 1
+		}
+		wooshpayUnitPrice = decimal.NewFromFloat(setting.WooshpayUnitPrice).Mul(decimal.NewFromFloat(topUpGroupRatio)).InexactFloat64()
+	}
+
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
@@ -140,11 +158,27 @@ func GetTopUpInfo(c *gin.Context) {
 		"waffo_min_topup":         setting.WaffoMinTopUp,
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
 		"wooshpay_min_topup":      getWooshpayMinTopup(),
+		"wooshpay_unit_price":     wooshpayUnitPrice,
+		"wooshpay_currency":       setting.WooshpayCurrency,
+		"wooshpay_minor_digits":   setting.WooshpayCurrencyMinorDigits[setting.WooshpayCurrency],
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
 	}
 	common.ApiSuccess(c, data)
+}
+
+// isEpayPayMethod reports whether paymentMethod is an epay pay type.
+// PayMethods also lists the types of the gateways with their own checkout
+// (stripe, wooshpay, ...) to show their buttons; epay must never be asked to
+// charge those.
+func isEpayPayMethod(paymentMethod string) bool {
+	switch paymentMethod {
+	case model.PaymentMethodStripe, model.PaymentMethodCreem, model.PaymentMethodWaffo,
+		model.PaymentMethodWaffoPancake, model.PaymentMethodWooshpay, model.PaymentMethodBalance:
+		return false
+	}
+	return operation_setting.ContainsPayMethod(paymentMethod)
 }
 
 type EpayRequest struct {
@@ -332,7 +366,7 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 
-	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
+	if !isEpayPayMethod(req.PaymentMethod) {
 		paymentError(c, common.NewMessage("Payment method does not exist"))
 		return
 	}
@@ -609,6 +643,10 @@ type AdminCompleteTopupRequest struct {
 	// PaidMoney is what the gateway actually collected, in the currency it
 	// charged (fork, ikun: invite-rebate paid snapshot). Optional.
 	PaidMoney *float64 `json:"paid_money"`
+	// PaymentIntentID proves the payment of a WooshPay order: the PaymentIntent
+	// is re-queried and must have paid this order. Required for a WooshPay
+	// order closed as expired or failed.
+	PaymentIntentID string `json:"payment_intent_id"`
 }
 
 // AdminCompleteTopUp 管理员补单接口
@@ -622,6 +660,29 @@ func AdminCompleteTopUp(c *gin.Context) {
 	// 订单级互斥，防止并发补单
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
+
+	// WooshPay closes an order when its Checkout Session expires, yet the
+	// payment may still have arrived after its webhook stopped retrying. Such
+	// an order is only completed against a PaymentIntent the gateway confirms.
+	order := model.GetTopUpByTradeNo(req.TradeNo)
+	isWooshpay := order != nil && (order.PaymentProvider == model.PaymentProviderWooshpay ||
+		order.PaymentProvider == "" && order.PaymentMethod == model.PaymentMethodWooshpay)
+	if strings.TrimSpace(req.PaymentIntentID) != "" {
+		if !isWooshpay || req.PaidMoney != nil {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		if err := completeWooshpayOrderByIntent(c.Request.Context(), order, req.PaymentIntentID, c.ClientIP()); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, nil)
+		return
+	}
+	if isWooshpay && (order.Status == common.TopUpStatusExpired || order.Status == common.TopUpStatusFailed) {
+		common.ApiErrorT(c, "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent")
+		return
+	}
 
 	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP(), req.PaidMoney); err != nil {
 		common.ApiError(c, err)

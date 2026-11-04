@@ -82,6 +82,13 @@ export function BillingHistoryDialog({
   const paidInputId = useId()
   const paidHintId = useId()
   const paidErrorId = useId()
+  // A WooshPay order closed as expired or failed is only completed against
+  // the PaymentIntent that paid it; the server re-queries it with WooshPay.
+  const [confirmNeedsIntent, setConfirmNeedsIntent] = useState(false)
+  const [paymentIntentId, setPaymentIntentId] = useState('')
+  const intentInputId = useId()
+  const intentHintId = useId()
+  const intentErrorId = useId()
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
@@ -89,18 +96,25 @@ export function BillingHistoryDialog({
   // report it as '' and the order would be completed without an amount.
   const paidMoney = parseDecimalInput(paidAmount)
   const paidInvalid = paidAmount.trim() !== '' && paidMoney === null
+  const trimmedIntentId = paymentIntentId.trim()
+  const intentInvalid =
+    trimmedIntentId !== '' && !trimmedIntentId.startsWith('pi_')
+  const confirmBlocked = confirmNeedsIntent
+    ? trimmedIntentId === '' || intentInvalid
+    : paidInvalid
 
   const closeConfirm = () => {
     setConfirmTradeNo(null)
     setPaidAmount('')
+    setConfirmNeedsIntent(false)
+    setPaymentIntentId('')
   }
 
   const handleConfirmComplete = async () => {
-    if (!confirmTradeNo || paidInvalid) return
-    const success = await handleCompleteOrder(
-      confirmTradeNo,
-      paidMoney ?? undefined
-    )
+    if (!confirmTradeNo || confirmBlocked) return
+    const success = confirmNeedsIntent
+      ? await handleCompleteOrder(confirmTradeNo, undefined, trimmedIntentId)
+      : await handleCompleteOrder(confirmTradeNo, paidMoney ?? undefined)
     if (success) {
       closeConfirm()
     }
@@ -280,7 +294,7 @@ export function BillingHistoryDialog({
                       {/* Admin Actions: WooshPay closes an order when its
                           session expires, yet a payment may still have
                           arrived, so its expired and failed orders can be
-                          completed too. */}
+                          completed too, against their PaymentIntent. */}
                       {isAdmin &&
                         (record.status === 'pending' ||
                           (record.payment_method === 'wooshpay' &&
@@ -290,7 +304,12 @@ export function BillingHistoryDialog({
                             <Button
                               size='sm'
                               variant='outline'
-                              onClick={() => setConfirmTradeNo(record.trade_no)}
+                              onClick={() => {
+                                setConfirmTradeNo(record.trade_no)
+                                setConfirmNeedsIntent(
+                                  record.status !== 'pending'
+                                )
+                              }}
                               disabled={completing}
                             >
                               {t('Complete Order')}
@@ -354,34 +373,65 @@ export function BillingHistoryDialog({
         confirmText={completing ? t('Processing...') : t('Confirm')}
         handleConfirm={() => void handleConfirmComplete()}
         isLoading={completing}
-        disabled={paidInvalid}
+        disabled={confirmBlocked}
       >
-        <div className='space-y-1.5'>
-          <Label htmlFor={paidInputId}>{t('Amount collected')}</Label>
-          <Input
-            id={paidInputId}
-            type='text'
-            inputMode='decimal'
-            autoComplete='off'
-            placeholder={t('Optional')}
-            value={paidAmount}
-            onChange={(e) => setPaidAmount(e.target.value)}
-            aria-invalid={paidInvalid}
-            aria-describedby={
-              paidInvalid ? `${paidHintId} ${paidErrorId}` : paidHintId
-            }
-          />
-          {paidInvalid && (
-            <FieldError id={paidErrorId} className='text-xs'>
-              {t('Enter an amount such as 40 or 40.5')}
-            </FieldError>
-          )}
-          <p id={paidHintId} className='text-muted-foreground text-xs'>
-            {t(
-              'What the payment gateway actually collected for this order, in the currency of its list price (for Stripe, the Checkout total in the Stripe price currency; for Creem, excluding tax). Only this counts toward invite rebates; left empty, Stripe, Creem and Waffo Pancake orders do not count.'
+        {confirmNeedsIntent ? (
+          <div className='space-y-1.5'>
+            <Label htmlFor={intentInputId}>{t('PaymentIntent ID')}</Label>
+            <Input
+              id={intentInputId}
+              type='text'
+              autoComplete='off'
+              placeholder='pi_...'
+              value={paymentIntentId}
+              onChange={(e) => setPaymentIntentId(e.target.value)}
+              aria-required
+              aria-invalid={intentInvalid}
+              aria-describedby={
+                intentInvalid
+                  ? `${intentHintId} ${intentErrorId}`
+                  : intentHintId
+              }
+            />
+            {intentInvalid && (
+              <FieldError id={intentErrorId} className='text-xs'>
+                {t('A PaymentIntent ID starts with pi_')}
+              </FieldError>
             )}
-          </p>
-        </div>
+            <p id={intentHintId} className='text-muted-foreground text-xs'>
+              {t(
+                'This WooshPay order was closed. Enter the ID of the succeeded PaymentIntent from the WooshPay dashboard; the order is completed only if WooshPay confirms it paid this order in full.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className='space-y-1.5'>
+            <Label htmlFor={paidInputId}>{t('Amount collected')}</Label>
+            <Input
+              id={paidInputId}
+              type='text'
+              inputMode='decimal'
+              autoComplete='off'
+              placeholder={t('Optional')}
+              value={paidAmount}
+              onChange={(e) => setPaidAmount(e.target.value)}
+              aria-invalid={paidInvalid}
+              aria-describedby={
+                paidInvalid ? `${paidHintId} ${paidErrorId}` : paidHintId
+              }
+            />
+            {paidInvalid && (
+              <FieldError id={paidErrorId} className='text-xs'>
+                {t('Enter an amount such as 40 or 40.5')}
+              </FieldError>
+            )}
+            <p id={paidHintId} className='text-muted-foreground text-xs'>
+              {t(
+                'What the payment gateway actually collected for this order, in the currency of its list price (for Stripe, the Checkout total in the Stripe price currency; for Creem, excluding tax). Only this counts toward invite rebates; left empty, Stripe, Creem and Waffo Pancake orders do not count.'
+              )}
+            </p>
+          </div>
+        )}
       </ConfirmDialog>
     </>
   )

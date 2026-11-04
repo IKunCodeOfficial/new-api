@@ -92,8 +92,12 @@ export function Wallet(props: WalletProps) {
       ? 1
       : currency?.usdExchangeRate || 1
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
+  // WooshPay amounts are whole units, entered in tokens with the Tokens display.
+  const tokensPerUnit =
+    currency?.quotaDisplayType === 'TOKENS' ? currency.quotaPerUnit : undefined
   const {
     amount: paymentAmount,
+    paymentCurrency,
     calculating,
     processing,
     calculatePaymentAmount,
@@ -148,9 +152,9 @@ export function Wallet(props: WalletProps) {
 
       // Calculate initial payment amount with default payment type
       const defaultPaymentType = getDefaultPaymentType(topupInfo)
-      calculatePaymentAmount(minTopup, defaultPaymentType)
+      calculatePaymentAmount(minTopup, defaultPaymentType, { tokensPerUnit })
     }
-  }, [topupInfo, calculatePaymentAmount])
+  }, [topupInfo, calculatePaymentAmount, tokensPerUnit])
 
   // Get current payment type (selected or default)
   const getCurrentPaymentType = useCallback(() => {
@@ -161,14 +165,16 @@ export function Wallet(props: WalletProps) {
   const handleSelectPreset = (preset: PresetAmount) => {
     setTopupAmount(preset.value)
     setSelectedPreset(preset.value)
-    calculatePaymentAmount(preset.value, getCurrentPaymentType())
+    calculatePaymentAmount(preset.value, getCurrentPaymentType(), {
+      tokensPerUnit,
+    })
   }
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
     setTopupAmount(amount)
     setSelectedPreset(null)
-    calculatePaymentAmount(amount, getCurrentPaymentType())
+    calculatePaymentAmount(amount, getCurrentPaymentType(), { tokensPerUnit })
   }
 
   // Handle payment method selection
@@ -184,8 +190,17 @@ export function Wallet(props: WalletProps) {
         return
       }
 
-      // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
+      // Calculate payment amount and show confirmation dialog. A WooshPay
+      // amount that cannot be quoted is explained instead of being
+      // confirmed at a price of 0.
+      const isWooshpay = isWooshpayPayment(method.type)
+      const quote = await calculatePaymentAmount(topupAmount, method.type, {
+        tokensPerUnit,
+        notifyFailure: isWooshpay,
+      })
+      if (!quote && isWooshpay) {
+        return
+      }
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -272,16 +287,13 @@ export function Wallet(props: WalletProps) {
     }
   }
 
-  const wooshpayPresetPricing = getWooshpayPresetPricing({
-    selectedPaymentType: selectedPaymentMethod?.type,
-    payMethods: topupInfo?.pay_methods ?? [],
-    unitPrice: status?.wooshpay_unit_price,
-    currency: status?.wooshpay_currency,
-    tokensPerUnit:
-      currency?.quotaDisplayType === 'TOKENS'
-        ? currency.quotaPerUnit
-        : undefined,
-  })
+  // The cards are priced for the payment type the amount field is quoted
+  // for, so both show WooshPay prices together.
+  const wooshpayPresetPricing = getWooshpayPresetPricing(
+    topupInfo,
+    getCurrentPaymentType(),
+    tokensPerUnit
+  )
 
   // Get discount rate for current topup amount
   const getDiscountRate = useCallback(() => {
@@ -342,6 +354,7 @@ export function Wallet(props: WalletProps) {
                     topupInfo?.enable_waffo_pancake_topup
                   }
                   gatewayPricing={wooshpayPresetPricing}
+                  paymentCurrency={paymentCurrency}
                 />
               </div>
 
@@ -377,12 +390,7 @@ export function Wallet(props: WalletProps) {
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
-        paymentCurrency={
-          isWooshpayPayment(selectedPaymentMethod?.type ?? '') &&
-          typeof status?.wooshpay_currency === 'string'
-            ? status.wooshpay_currency
-            : undefined
-        }
+        paymentCurrency={paymentCurrency}
       />
 
       <TransferDialog

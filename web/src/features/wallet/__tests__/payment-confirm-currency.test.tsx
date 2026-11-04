@@ -21,12 +21,15 @@ import { createInstance } from 'i18next'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import { beforeEach, expect, it, vi } from 'vitest'
 
+import { INTERFACE_LANGUAGE_OPTIONS, toIntlLocale } from '@/i18n/languages'
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
 
 import { PaymentConfirmDialog } from '../components/dialogs/payment-confirm-dialog'
 import { RechargeFormCard } from '../components/recharge-form-card'
 import { PAYMENT_TYPES } from '../constants'
+import { formatGatewayAmount, type GatewayPresetPricing } from '../lib'
+import type { GatewayCurrency } from '../types'
 
 const i18n = createInstance()
 
@@ -40,7 +43,10 @@ beforeEach(async () => {
   })
 })
 
-function renderDialog(paymentAmount: number, paymentCurrency?: string) {
+function renderDialog(
+  paymentAmount: number,
+  paymentCurrency?: GatewayCurrency
+) {
   render(
     <I18nextProvider i18n={i18n}>
       <PaymentConfirmDialog
@@ -59,19 +65,22 @@ function renderDialog(paymentAmount: number, paymentCurrency?: string) {
 }
 
 it.each([
-  { currency: 'USD', amount: 16, shown: /^USD\s16\.00$/ },
-  { currency: 'JPY', amount: 800, shown: /^JPY\s800$/ },
-  { currency: 'KWD', amount: 1.234, shown: /^KWD\s1\.234$/ },
+  { currency: 'USD', minorDigits: 2, amount: 16, shown: /^USD\s16\.00$/ },
+  { currency: 'JPY', minorDigits: 0, amount: 800, shown: /^JPY\s800$/ },
+  { currency: 'KWD', minorDigits: 3, amount: 1.234, shown: /^KWD\s1\.234$/ },
+  { currency: 'KWD', minorDigits: 3, amount: 16, shown: /^KWD\s16\.000$/ },
+  // WooshPay's minor unit for IQD has 3 digits; Intl's own default has 0.
+  { currency: 'IQD', minorDigits: 3, amount: 16, shown: /^IQD\s16\.000$/ },
 ])(
-  'a WooshPay payment in $currency shows the amount with its currency and minor-unit digits',
-  ({ currency, amount, shown }) => {
-    renderDialog(amount, currency)
+  'a WooshPay payment of $amount $currency shows exactly the quoted minor-unit digits',
+  ({ currency, minorDigits, amount, shown }) => {
+    renderDialog(amount, { currency, minorDigits })
     expect(screen.getByText(shown)).toBeVisible()
   }
 )
 
 it('the WooshPay currency amount follows the interface language', async () => {
-  renderDialog(1234.5, 'USD')
+  renderDialog(1234.5, { currency: 'USD', minorDigits: 2 })
   expect(screen.getByText(/^USD\s1,234\.50$/)).toBeVisible()
   await act(() => i18n.changeLanguage('zh'))
   expect(screen.getByText(/USD\s?1,234\.50/)).toBeVisible()
@@ -83,10 +92,10 @@ it('a payment without a gateway currency keeps the plain amount', () => {
   expect(screen.queryByText(/USD/)).toBeNull()
 })
 
-function renderPresets(gatewayPricing?: {
-  currency: string
-  pricePerAmount: number
-}) {
+function renderPresets(
+  gatewayPricing?: GatewayPresetPricing,
+  paymentCurrency?: GatewayCurrency
+) {
   render(
     <I18nextProvider i18n={i18n}>
       <RechargeFormCard
@@ -116,13 +125,14 @@ function renderPresets(gatewayPricing?: {
         redeeming={false}
         priceRatio={7.3}
         gatewayPricing={gatewayPricing}
+        paymentCurrency={paymentCurrency}
       />
     </I18nextProvider>
   )
 }
 
 it('WooshPay preset cards show the WooshPay price in its currency', () => {
-  renderPresets({ currency: 'USD', pricePerAmount: 8 })
+  renderPresets({ currency: 'USD', minorDigits: 2, pricePerAmount: 8 })
   expect(screen.getByText(/^Pay USD\s16\.00$/)).toBeVisible()
   expect(screen.getByText(/^Pay USD\s32\.00/)).toBeVisible()
   expect(screen.getByText(/Save USD\s8\.00/)).toBeVisible()
@@ -132,4 +142,52 @@ it('preset cards without gateway pricing keep the regular price', () => {
   renderPresets()
   expect(screen.getByText('Pay 14.6')).toBeVisible()
   expect(screen.queryByText(/USD/)).toBeNull()
+})
+
+it('the amount field shows the quoted WooshPay amount in the quoted currency', () => {
+  renderPresets(
+    { currency: 'JPY', minorDigits: 0, pricePerAmount: 800 },
+    { currency: 'JPY', minorDigits: 0 }
+  )
+  expect(screen.getByText(/^JPY\s16$/)).toBeVisible()
+})
+
+// Each interface language goes through toIntlLocale before reaching Intl;
+// the digits are always the currency's minor-unit digits.
+it.each([
+  { language: 'zhCN', shown: /^KWD\s1,234\.500$/ },
+  { language: 'zhTW', shown: /^KWD\s1,234\.500$/ },
+  { language: 'en', shown: /^KWD\s1,234\.500$/ },
+  { language: 'fr', shown: /^1\s234,500\sKWD$/ },
+  { language: 'ru', shown: /^1\s234,500\sKWD$/ },
+  { language: 'ja', shown: /^KWD\s1,234\.500$/ },
+  { language: 'vi', shown: /^1\.234,500\sKWD$/ },
+])(
+  'formats a gateway amount for the $language interface language',
+  ({ language, shown }) => {
+    expect(
+      formatGatewayAmount(1234.5, 'KWD', 3, toIntlLocale(language))
+    ).toMatch(shown)
+  }
+)
+
+it('covers every interface language', () => {
+  expect(
+    INTERFACE_LANGUAGE_OPTIONS.map((option) => option.code).sort()
+  ).toEqual(['en', 'fr', 'ja', 'ru', 'vi', 'zhCN', 'zhTW'])
+})
+
+it.each(['not a language!', 'zhCN'])(
+  'an invalid locale %s falls back to the default locale with the same digits',
+  (locale) => {
+    expect(toIntlLocale('not a language!')).toBeUndefined()
+    expect(formatGatewayAmount(1234.5, 'JPY', 0, locale)).toMatch(/1.?235/)
+    expect(formatGatewayAmount(1234.5, 'JPY', 0, locale)).toMatch(/JPY/)
+  }
+)
+
+it('an unknown currency code falls back to the plain amount and the code', () => {
+  expect(formatGatewayAmount(16, 'NOT-A-CODE', 2, 'en')).toBe(
+    '16.00 NOT-A-CODE'
+  )
 })

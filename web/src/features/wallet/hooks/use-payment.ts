@@ -21,6 +21,7 @@ import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
+import { createServerError } from '@/lib/server-error-message'
 
 import {
   calculateAmount,
@@ -34,13 +35,19 @@ import {
   isApiSuccess,
 } from '../api'
 import {
+  getWooshpayAmountError,
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
   isWooshpayPayment,
   submitPaymentForm,
 } from '../lib'
-import type { AmountRequest, AmountResponse } from '../types'
+import type {
+  AmountRequest,
+  AmountResponse,
+  PaymentQuote,
+  WooshpayAmountResponse,
+} from '../types'
 
 // ============================================================================
 // Payment Hook
@@ -51,10 +58,12 @@ type AmountCalculator = (request: AmountRequest) => Promise<AmountResponse>
 export interface PaymentAmountCalculators {
   regular: AmountCalculator
   stripe: AmountCalculator
-  wooshpay: AmountCalculator
+  wooshpay: (request: AmountRequest) => Promise<WooshpayAmountResponse>
   waffo: AmountCalculator
   waffoPancake: AmountCalculator
 }
+
+const EMPTY_QUOTE: PaymentQuote = { amount: 0 }
 
 const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   regular: calculateAmount,
@@ -64,16 +73,35 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   waffoPancake: calculateWaffoPancakeAmount,
 }
 
+/**
+ * Asks the server what paymentType charges for topupAmount. WooshPay answers
+ * with the amount in its own currency and that currency's minor digits. A
+ * failed request throws the server's error; it is never a zero amount.
+ */
 export async function requestPaymentAmount(
   topupAmount: number,
   paymentType: string,
   calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
-): Promise<number> {
+): Promise<PaymentQuote> {
+  const fallback = i18next.t('Failed to calculate the payment amount')
+  if (isWooshpayPayment(paymentType)) {
+    const response = await calculators.wooshpay({ amount: topupAmount })
+    const amount = Number.parseFloat(response.data?.amount ?? '')
+    if (!isApiSuccess(response) || !response.data || !Number.isFinite(amount)) {
+      throw createServerError(response, fallback)
+    }
+    return {
+      amount,
+      currency: {
+        currency: response.data.currency,
+        minorDigits: response.data.minor_digits,
+      },
+    }
+  }
+
   let calculator = calculators.regular
   if (isStripePayment(paymentType)) {
     calculator = calculators.stripe
-  } else if (isWooshpayPayment(paymentType)) {
-    calculator = calculators.wooshpay
   } else if (isWaffoPayment(paymentType)) {
     calculator = calculators.waffo
   } else if (isWaffoPancakePayment(paymentType)) {
@@ -82,31 +110,60 @@ export async function requestPaymentAmount(
 
   const response = await calculator({ amount: topupAmount })
   if (!isApiSuccess(response) || !response.data) {
-    return 0
+    throw createServerError(response, fallback)
   }
+  return { amount: Number.parseFloat(response.data) }
+}
 
-  return Number.parseFloat(response.data)
+export interface CalculatePaymentAmountOptions {
+  /** Units of the Tokens display, which WooshPay amounts must be multiples of */
+  tokensPerUnit?: number
+  /** Show why the amount cannot be paid (on choosing a payment method) */
+  notifyFailure?: boolean
 }
 
 export function usePayment() {
-  const [amount, setAmount] = useState<number>(0)
+  const [quote, setQuote] = useState<PaymentQuote>(EMPTY_QUOTE)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
 
-  // Calculate payment amount
+  // Calculate payment amount. Resolves to null when the amount cannot be
+  // paid with paymentType; the shown amount then falls back to 0.
   const calculatePaymentAmount = useCallback(
-    async (topupAmount: number, paymentType: string) => {
+    async (
+      topupAmount: number,
+      paymentType: string,
+      options: CalculatePaymentAmountOptions = {}
+    ): Promise<PaymentQuote | null> => {
+      if (isWooshpayPayment(paymentType)) {
+        // The server gives the same answers; checking first spares the
+        // request and explains the refusal right away.
+        const amountError = getWooshpayAmountError(
+          topupAmount,
+          options.tokensPerUnit
+        )
+        if (amountError) {
+          setQuote(EMPTY_QUOTE)
+          if (options.notifyFailure) {
+            toast.error(i18next.t(amountError.key, amountError.params))
+          }
+          return null
+        }
+      }
       try {
         setCalculating(true)
-        const calculatedAmount = await requestPaymentAmount(
-          topupAmount,
-          paymentType
-        )
-        setAmount(calculatedAmount)
-        return calculatedAmount
-      } catch {
-        setAmount(0)
-        return 0
+        const calculated = await requestPaymentAmount(topupAmount, paymentType)
+        setQuote(calculated)
+        return calculated
+      } catch (error) {
+        setQuote(EMPTY_QUOTE)
+        if (options.notifyFailure) {
+          handleServerError(
+            error,
+            i18next.t('Failed to calculate the payment amount')
+          )
+        }
+        return null
       } finally {
         setCalculating(false)
       }
@@ -183,11 +240,11 @@ export function usePayment() {
   )
 
   return {
-    amount,
+    amount: quote.amount,
+    paymentCurrency: quote.currency,
     calculating,
     processing,
     calculatePaymentAmount,
     processPayment,
-    setAmount,
   }
 }

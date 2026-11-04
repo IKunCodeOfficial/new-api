@@ -109,7 +109,16 @@ func isEpayWebhookEnabled() bool {
 	return isEpayTopUpEnabled()
 }
 
+// isWooshpayTopUpEnabled reports whether new WooshPay top-ups are offered:
+// the administrator switched WooshPay on and its account is configured.
 func isWooshpayTopUpEnabled() bool {
+	return setting.WooshpayEnabled && isWooshpayWebhookEnabled()
+}
+
+// isWooshpayWebhookEnabled reports whether WooshPay payments are accepted.
+// It does not need the WooshpayEnabled switch: switching top-ups off must not
+// leave the checkouts already opened paid but never credited.
+func isWooshpayWebhookEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
@@ -118,8 +127,4 @@ func isWooshpayTopUpEnabled() bool {
 		setting.WooshpayUnitPrice > 0 &&
 		setting.ValidateWooshpayOption("WooshpayCurrency", setting.WooshpayCurrency) == nil &&
 		setting.WooshpayApiBaseMatchesKey()
-}
-
-func isWooshpayWebhookEnabled() bool {
-	return isWooshpayTopUpEnabled()
 }

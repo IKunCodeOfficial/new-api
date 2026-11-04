@@ -104,8 +104,9 @@ func (RebateExclusion) TableName() string { return "rebate_exclusions" }
 // Creem and Stripe are the two channels whose stored value is not a discountable
 // price, so they are valued by the purchased quantity; the rest recover the
 // list-price value of the order by dividing the charged money by the unit price
-// in effect.
-func paidQuotaFromCharge(provider string, amount int64, money float64) (int, bool) {
+// in effect. pricedUnitPrice is the unit price the order was priced with when
+// it is known (TopUp.Pricing); zero uses the current setting.
+func paidQuotaFromCharge(provider string, amount int64, money float64, pricedUnitPrice float64) (int, bool) {
 	// Online-paid subscriptions (upsertSubscriptionTopUpTx) and unpaid test orders
 	// reach here with a zero amount; they must not leave a paid-amount row behind.
 	if amount <= 0 || money <= 0 {
@@ -157,6 +158,9 @@ func paidQuotaFromCharge(provider string, amount int64, money float64) (int, boo
 		// guessing a paid amount.
 		return 0, false
 	}
+	if pricedUnitPrice > 0 {
+		unitPrice = pricedUnitPrice
+	}
 	if unitPrice <= 0 {
 		return 0, false
 	}
@@ -195,12 +199,17 @@ func resolveTopUpProvider(topUp *TopUp) string {
 // counts min(credited, paid) and must not pay rebates on them.
 func (topUp *TopUp) AfterCreate(tx *gorm.DB) error {
 	provider := resolveTopUpProvider(topUp)
-	paid, ok := paidQuotaFromCharge(provider, topUp.Amount, topUp.Money)
+	var pricedUnitPrice float64
+	testMode := provider == PaymentProviderWaffo && setting.WaffoSandbox || provider == PaymentProviderCreem && setting.CreemTestMode ||
+		provider == PaymentProviderWooshpay && setting.IsWooshpayTestKey()
+	if topUp.Pricing != nil {
+		pricedUnitPrice, testMode = topUp.Pricing.UnitPrice, topUp.Pricing.TestMode
+	}
+	paid, ok := paidQuotaFromCharge(provider, topUp.Amount, topUp.Money, pricedUnitPrice)
 	if !ok {
 		return nil
 	}
-	if provider == PaymentProviderWaffo && setting.WaffoSandbox || provider == PaymentProviderCreem && setting.CreemTestMode ||
-		provider == PaymentProviderWooshpay && setting.IsWooshpayTestKey() {
+	if testMode {
 		paid = 0
 	}
 	return tx.Create(&RebateTopupPaid{
@@ -242,7 +251,7 @@ func applyGatewayCharge(tx *gorm.DB, topUp *TopUp, charge GatewayCharge) error {
 	if row.Id == 0 {
 		// Orders created before the snapshot existed fall back to the
 		// creation-time conversion so the discount is still recorded.
-		paid, ok := paidQuotaFromCharge(resolveTopUpProvider(topUp), topUp.Amount, topUp.Money)
+		paid, ok := paidQuotaFromCharge(resolveTopUpProvider(topUp), topUp.Amount, topUp.Money, 0)
 		if !ok {
 			return nil
 		}

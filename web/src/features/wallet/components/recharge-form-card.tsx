@@ -48,6 +48,7 @@ import {
   type GatewayPresetPricing,
 } from '../lib'
 import type {
+  GatewayCurrency,
   PaymentMethod,
   PresetAmount,
   TopupInfo,
@@ -84,8 +85,10 @@ interface RechargeFormCardProps {
   waffoMinTopup?: number
   onWaffoMethodSelect?: (method: WaffoPayMethod, index: number) => void
   enableWaffoPancakeTopup?: boolean
-  /** Prices the amounts in a gateway's own currency (WooshPay). */
+  /** Prices the preset cards in a gateway's own currency (WooshPay). */
   gatewayPricing?: GatewayPresetPricing
+  /** Currency the quoted payment amount is in, for a gateway that charges in its own (WooshPay). */
+  paymentCurrency?: GatewayCurrency
 }
 
 export function RechargeFormCard({
@@ -117,12 +120,18 @@ export function RechargeFormCard({
   onWaffoMethodSelect,
   enableWaffoPancakeTopup,
   gatewayPricing,
+  paymentCurrency,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  const formatPayment = (amount: number) =>
-    gatewayPricing
-      ? formatGatewayAmount(amount, gatewayPricing.currency, locale)
+  const formatIn = (amount: number, currency?: GatewayCurrency) =>
+    currency
+      ? formatGatewayAmount(
+          amount,
+          currency.currency,
+          currency.minorDigits,
+          locale
+        )
       : formatCurrency(amount)
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
 
@@ -283,8 +292,8 @@ export function RechargeFormCard({
                                 t={t}
                                 i18nKey='Pay {{amount}} <savings>• Save {{saved}}</savings>'
                                 values={{
-                                  amount: formatPayment(actualPrice),
-                                  saved: formatPayment(savedAmount),
+                                  amount: formatIn(actualPrice, gatewayPricing),
+                                  saved: formatIn(savedAmount, gatewayPricing),
                                 }}
                                 components={{
                                   savings: <span className='text-green-600' />,
@@ -292,7 +301,7 @@ export function RechargeFormCard({
                               />
                             ) : (
                               t('Pay {{amount}}', {
-                                amount: formatPayment(actualPrice),
+                                amount: formatIn(actualPrice, gatewayPricing),
                               })
                             )}
                           </div>
@@ -328,7 +337,7 @@ export function RechargeFormCard({
                       <Skeleton className='h-5 w-16' />
                     ) : (
                       <span className='text-sm font-semibold'>
-                        {formatPayment(paymentAmount)}
+                        {formatIn(paymentAmount, paymentCurrency)}
                       </span>
                     )}
                   </div>

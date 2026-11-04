@@ -232,21 +232,54 @@ function mockOrders(
 }
 
 test.each(['expired', 'failed'])(
-  'a %s WooshPay order can still be completed by an administrator',
+  'a %s WooshPay order is completed with the PaymentIntent that paid it',
   async (status) => {
     mockOrders([{ status, payment_method: 'wooshpay' }])
     const post = vi
       .spyOn(api, 'post')
       .mockResolvedValue({ data: { success: true } })
     const user = await openConfirm()
+    expect(screen.queryByLabelText('Amount collected')).toBeNull()
+    await user.type(screen.getByLabelText('PaymentIntent ID'), ' pi_123 ')
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
     expect(post.mock.calls[0][1]).toEqual({
       trade_no: `ref_wooshpay_${status}`,
+      payment_intent_id: 'pi_123',
     })
   }
 )
+
+test('a closed WooshPay order cannot be confirmed without a PaymentIntent ID', async () => {
+  mockOrders([{ status: 'expired', payment_method: 'wooshpay' }])
+  const post = vi.spyOn(api, 'post')
+  const user = await openConfirm()
+  const input = screen.getByLabelText('PaymentIntent ID')
+  const confirm = screen.getByRole('button', { name: 'Confirm' })
+  expect(input).toHaveAttribute('aria-required', 'true')
+  expect(confirm).toBeDisabled()
+
+  await user.type(input, 'cs_123')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(input).toHaveAccessibleDescription(/starts with pi_/)
+  expect(confirm).toBeDisabled()
+  await user.click(confirm)
+  expect(post).not.toHaveBeenCalled()
+})
+
+test('a pending WooshPay order is completed without a PaymentIntent ID', async () => {
+  mockOrders([{ status: 'pending', payment_method: 'wooshpay' }])
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true } })
+  const user = await openConfirm()
+  expect(screen.queryByLabelText('PaymentIntent ID')).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+  expect(post.mock.calls[0][1]).toEqual({ trade_no: 'ref_wooshpay_pending' })
+})
 
 test('closed orders of other gateways and completed orders offer no completion', async () => {
   mockOrders([

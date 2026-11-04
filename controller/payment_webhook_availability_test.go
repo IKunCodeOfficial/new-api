@@ -59,7 +59,9 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	originalUnitPrice := setting.WooshpayUnitPrice
 	originalApiBase := setting.WooshpayApiBase
 	originalCurrency := setting.WooshpayCurrency
+	originalEnabled := setting.WooshpayEnabled
 	t.Cleanup(func() {
+		setting.WooshpayEnabled = originalEnabled
 		setting.WooshpayCurrency = originalCurrency
 		setting.WooshpaySecretKey = originalSecretKey
 		setting.WooshpayWebhookSecret = originalWebhookSecret
@@ -101,6 +103,14 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 			setting.WooshpayUnitPrice = tc.unitPrice
 			setting.WooshpayApiBase = tc.apiBase
 			setting.WooshpayCurrency = tc.currency
+			setting.WooshpayEnabled = true
+			assert.Equal(t, tc.enabled, isWooshpayWebhookEnabled())
+			assert.Equal(t, tc.enabled, isWooshpayTopUpEnabled())
+
+			// Switched off, WooshPay offers no new top-ups but still credits
+			// the checkouts already opened.
+			setting.WooshpayEnabled = false
+			assert.False(t, isWooshpayTopUpEnabled())
 			assert.Equal(t, tc.enabled, isWooshpayWebhookEnabled())
 		})
 	}

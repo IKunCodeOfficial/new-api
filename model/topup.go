@@ -26,6 +26,18 @@ type TopUp struct {
 	CreateTime      int64   `json:"create_time"`
 	CompleteTime    int64   `json:"complete_time"`
 	Status          string  `json:"status"`
+	// Pricing is what a self-priced gateway order was priced with when it is
+	// created; it is not stored. The rebate paid snapshot taken in
+	// AfterCreate uses it rather than the live settings, which an
+	// administrator may change while the order is being created.
+	Pricing *TopUpPricing `json:"-" gorm:"-"`
+}
+
+// TopUpPricing is the unit price and the gateway mode an order was priced
+// with.
+type TopUpPricing struct {
+	UnitPrice float64
+	TestMode  bool
 }
 
 const (
@@ -534,7 +546,9 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 // 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake 的实收
 // （优惠码、测试模式）只有网关完成事件才知道，未填写时这些订单不计入返利充值。
 // WooshPay 由本站定价，Money 就是发给网关的金额，未填写时保留下单时的快照
-// （sk_test_ 密钥下的订单快照本来就是 0）。WooshPay 的 expired / failed 订单也可补单。
+// （sk_test_ 密钥下的订单快照本来就是 0）。这里只处理 pending 订单；WooshPay 的
+// expired / failed 订单必须由管理员提供已成功的 PaymentIntent，经网关回查后走
+// RechargeWooshpay 入账（见 controller.AdminCompleteTopUp）。
 func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) error {
 	if tradeNo == "" {
 		return common.NewMessage("Order number not provided")
@@ -562,13 +576,9 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 			return nil
 		}
 
-		// WooshPay 只有会话过期才关单，已关闭的订单仍可能已付款（回调最多重投 72 小时），
-		// 所以 WooshPay 的 expired / failed 订单也允许补单；其他渠道只处理 pending。
-		completable := topUp.Status == common.TopUpStatusPending
-		if resolveTopUpProvider(topUp) == PaymentProviderWooshpay {
-			completable = completable || topUp.Status == common.TopUpStatusExpired || topUp.Status == common.TopUpStatusFailed
-		}
-		if !completable {
+		// 已关闭（expired / failed）的 WooshPay 订单只能凭网关回查过的付款证明完成，
+		// 不走这里。
+		if topUp.Status != common.TopUpStatusPending {
 			return common.NewMessage("Order is not pending payment and cannot be completed")
 		}
 

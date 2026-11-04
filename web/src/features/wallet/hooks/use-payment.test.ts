@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { act, renderHook } from '@testing-library/react'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -38,7 +39,10 @@ describe('payment amount routing', () => {
       },
       wooshpay: async () => {
         calls.push('wooshpay')
-        return { success: true, data: '3' }
+        return {
+          success: true,
+          data: { amount: '3', currency: 'USD', minor_digits: 2 },
+        }
       },
       waffo: async (request) => {
         calls.push(`waffo:${request.amount}`)
@@ -50,7 +54,7 @@ describe('payment amount routing', () => {
       },
     })
 
-    expect(amount).toBe(18.75)
+    expect(amount).toEqual({ amount: 18.75 })
     expect(calls).toEqual(['waffo:120'])
   })
 
@@ -67,7 +71,10 @@ describe('payment amount routing', () => {
       },
       wooshpay: async (request) => {
         calls.push(`wooshpay:${request.amount}`)
-        return { success: true, data: '80.00' }
+        return {
+          success: true,
+          data: { amount: '800', currency: 'JPY', minor_digits: 0 },
+        }
       },
       waffo: async () => {
         calls.push('waffo')
@@ -79,8 +86,89 @@ describe('payment amount routing', () => {
       },
     })
 
-    expect(amount).toBe(80)
+    expect(amount).toEqual({
+      amount: 800,
+      currency: { currency: 'JPY', minorDigits: 0 },
+    })
     expect(calls).toEqual(['wooshpay:10'])
+  })
+})
+
+describe('payment amount failures', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function renderPayment() {
+    return renderHook(() => usePayment())
+  }
+
+  test('a refused WooshPay quote resolves to null with the server message, never to 0', async () => {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        message: 'error',
+        data: 'Payment amount is too high',
+        message_key: 'Payment amount is too high',
+      },
+    })
+    const error = vi.spyOn(toast, 'error').mockReturnValue('shown')
+    const { result } = renderPayment()
+    let quote: unknown = 'unset'
+    await act(async () => {
+      quote = await result.current.calculatePaymentAmount(
+        10,
+        PAYMENT_TYPES.WOOSHPAY,
+        { notifyFailure: true }
+      )
+    })
+
+    expect(quote).toBeNull()
+    expect(result.current.amount).toBe(0)
+    expect(result.current.paymentCurrency).toBeUndefined()
+    expect(error).toHaveBeenCalledWith('Payment amount is too high')
+  })
+
+  test.each([
+    { amount: 10001, tokensPerUnit: undefined },
+    { amount: 1_250_000, tokensPerUnit: 500000 },
+  ])(
+    'a WooshPay amount of $amount is refused before asking the server',
+    async ({ amount, tokensPerUnit }) => {
+      const post = vi.spyOn(api, 'post')
+      const error = vi.spyOn(toast, 'error').mockReturnValue('shown')
+      const { result } = renderPayment()
+      let quote: unknown = 'unset'
+      await act(async () => {
+        quote = await result.current.calculatePaymentAmount(
+          amount,
+          PAYMENT_TYPES.WOOSHPAY,
+          { tokensPerUnit, notifyFailure: true }
+        )
+      })
+
+      expect(quote).toBeNull()
+      expect(post).not.toHaveBeenCalled()
+      expect(error).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  test('a WooshPay quote keeps the currency and digits it was quoted in', async () => {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        message: 'success',
+        data: { amount: '1.234', currency: 'KWD', minor_digits: 3 },
+      },
+    })
+    const { result } = renderPayment()
+    await act(async () => {
+      await result.current.calculatePaymentAmount(1, PAYMENT_TYPES.WOOSHPAY)
+    })
+
+    expect(result.current.amount).toBe(1.234)
+    expect(result.current.paymentCurrency).toEqual({
+      currency: 'KWD',
+      minorDigits: 3,
+    })
   })
 })
 

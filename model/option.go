@@ -102,6 +102,7 @@ func InitOptionMap() {
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["WooshpayEnabled"] = strconv.FormatBool(setting.WooshpayEnabled)
 	common.OptionMap["WooshpaySecretKey"] = setting.WooshpaySecretKey
 	common.OptionMap["WooshpayWebhookSecret"] = setting.WooshpayWebhookSecret
 	common.OptionMap["WooshpayApiBase"] = setting.WooshpayApiBase
@@ -333,14 +334,17 @@ func UpdateOption(key string, value string) error {
 	return updateOptionMap(key, value)
 }
 
-// validateWooshpayEnvironment rejects a save that would leave the WooshPay
-// secret key paired with the API base of the other environment. The two are
-// saved as separate options, so a value not being saved is the stored one;
-// switching environments saves both together through UpdateOptionsBulk.
+// validateWooshpayEnvironment checks the WooshPay settings a save would leave
+// in place; a setting not being saved keeps its stored value. A secret key
+// must not be paired with the API base of the other environment, and WooshPay
+// can only be on while the keys of one environment are set. The admin page
+// saves every changed WooshPay setting together through UpdateOptionsBulk.
 func validateWooshpayEnvironment(values map[string]string) error {
 	secretKey, keySaved := values["WooshpaySecretKey"]
 	apiBase, baseSaved := values["WooshpayApiBase"]
-	if !keySaved && !baseSaved {
+	webhookSecret, secretSaved := values["WooshpayWebhookSecret"]
+	enabled, enabledSaved := values["WooshpayEnabled"]
+	if !keySaved && !baseSaved && !secretSaved && !enabledSaved {
 		return nil
 	}
 	if !keySaved {
@@ -349,7 +353,19 @@ func validateWooshpayEnvironment(values map[string]string) error {
 	if !baseSaved {
 		apiBase = setting.WooshpayApiBase
 	}
-	return setting.ValidateWooshpayKeyBase(secretKey, apiBase)
+	if !secretSaved {
+		webhookSecret = setting.WooshpayWebhookSecret
+	}
+	if !enabledSaved {
+		enabled = strconv.FormatBool(setting.WooshpayEnabled)
+	}
+	if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
+		return err
+	}
+	if enabled != "true" {
+		return nil
+	}
+	return setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
@@ -607,14 +623,20 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "WooshpayEnabled":
+		setting.WooshpayEnabled = value == "true"
 	case "WooshpaySecretKey":
 		setting.WooshpaySecretKey = value
 	case "WooshpayWebhookSecret":
 		setting.WooshpayWebhookSecret = strings.TrimSpace(value)
 	case "WooshpayApiBase":
 		setting.WooshpayApiBase = setting.NormalizeWooshpayApiBase(value)
+		common.OptionMap[key] = setting.WooshpayApiBase
 	case "WooshpayCurrency":
-		setting.WooshpayCurrency = value
+		// A code stored in lower case still names the currency; the
+		// checkout amounts and the admin form use the upper-case code.
+		setting.WooshpayCurrency = setting.NormalizeWooshpayCurrency(value)
+		common.OptionMap[key] = setting.WooshpayCurrency
 	case "WooshpayUnitPrice":
 		setting.WooshpayUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WooshpayMinTopUp":

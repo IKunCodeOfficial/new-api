@@ -55,9 +55,6 @@ const STATUS_RELATED_KEYS = new Set([
   'passkey.origins',
   'QuotaRemindEnabled',
   'QuotaRemindThreshold',
-  // /api/status carries the WooshPay checkout price shown in the wallet
-  'WooshpayCurrency',
-  'WooshpayUnitPrice',
 ])
 
 export function useUpdateOption() {

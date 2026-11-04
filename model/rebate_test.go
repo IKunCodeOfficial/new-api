@@ -70,7 +70,7 @@ func TestPaidQuotaFromCharge(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := paidQuotaFromCharge(tc.provider, tc.amount, tc.money)
+			got, ok := paidQuotaFromCharge(tc.provider, tc.amount, tc.money, 0)
 			assert.Equal(t, tc.ok, ok)
 			assert.Equal(t, tc.want, got)
 		})
@@ -91,7 +91,7 @@ func TestPaidQuotaFromChargeZeroUnitPrice(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withRebatePrices(t)
 			tc.zero()
-			paid, ok := paidQuotaFromCharge(tc.provider, 100, 730)
+			paid, ok := paidQuotaFromCharge(tc.provider, 100, 730, 0)
 			assert.False(t, ok)
 			assert.Zero(t, paid)
 		})
@@ -379,6 +379,24 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 		require.NoError(t, DB.Where("trade_no = ?", tradeNo).First(&wooshpayRow).Error)
 		assert.Equal(t, want, wooshpayRow.PaidQuota, "orders created with a WooshPay test key are not a recharge")
 	}
+
+	// An order carries the unit price and mode it was priced with; the
+	// snapshot uses them even if the settings changed in the meantime.
+	setting.WooshpaySecretKey = "sk_live_abc"
+	for tradeNo, tc := range map[string]struct {
+		pricing TopUpPricing
+		want    int64
+	}{
+		"wooshpay-priced-live": {TopUpPricing{UnitPrice: 14.6}, 5_000_000},
+		"wooshpay-priced-test": {TopUpPricing{UnitPrice: 14.6, TestMode: true}, 0},
+	} {
+		order := &TopUp{UserId: 7, Amount: 10, Money: 146, TradeNo: tradeNo, PaymentMethod: PaymentMethodWooshpay,
+			PaymentProvider: PaymentProviderWooshpay, Status: common.TopUpStatusPending, Pricing: &tc.pricing}
+		require.NoError(t, order.Insert())
+		var pricedRow RebateTopupPaid
+		require.NoError(t, DB.Where("trade_no = ?", tradeNo).First(&pricedRow).Error)
+		assert.Equal(t, tc.want, pricedRow.PaidQuota, tradeNo)
+	}
 }
 
 // An administrator completing a stuck order must credit exactly what the
@@ -387,8 +405,9 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 // the gateway's completion event the collected amount of Stripe, Creem and
 // Pancake orders is unknown, so it counts toward rebates only when the
 // administrator states it; epay and WooshPay, priced by this server, keep
-// their creation-time snapshot. A WooshPay order closed as expired or failed
-// may still have been paid, so it can be completed too. A stated
+// their creation-time snapshot. Only pending orders are completed here: a
+// WooshPay order closed as expired or failed needs a verified PaymentIntent
+// (controller.AdminCompleteTopUp). A stated
 // amount is in the currency the gateway charged and scales the snapshot by
 // collected ÷ list price, where Stripe lists quantity × Checkout unit price.
 func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
@@ -421,8 +440,6 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		// Money (10 × 7.3 × group ratio 2), the amount WooshPay charged. Without
 		// a stated amount the creation-time snapshot Money ÷ 7.3 × QPU stays.
 		{tradeNo: "manual-wooshpay", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, credited: 5_000_000, snapshot: 10_000_000},
-		{tradeNo: "manual-wooshpay-expired", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 73, credited: 5_000_000, snapshot: 5_000_000, status: common.TopUpStatusExpired},
-		{tradeNo: "manual-wooshpay-failed", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 73, paid: paid(36.5), credited: 5_000_000, snapshot: 2_500_000, status: common.TopUpStatusFailed},
 		{tradeNo: "manual-wooshpay-half", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(73), credited: 5_000_000, snapshot: 5_000_000},
 		{tradeNo: "manual-wooshpay-full", provider: PaymentProviderWooshpay, method: PaymentMethodWooshpay, amount: 10, money: 146, paid: paid(146), credited: 5_000_000, snapshot: 10_000_000},
 		{tradeNo: "manual-epay", provider: PaymentProviderEpay, method: "alipay", amount: 10, money: 73, credited: 5_000_000, snapshot: 5_000_000},
@@ -470,21 +487,30 @@ func TestManualCompleteTopUpCreditsLikeGatewayCallback(t *testing.T) {
 		})
 	}
 
-	// Other gateways complete pending orders only, and a completed order is
-	// never credited twice.
+	// Closed orders of every gateway, WooshPay included, are not completed
+	// here.
 	closed := &User{Id: 201, Username: "manual-closed", Password: "12345678", Status: common.UserStatusEnabled, AffCode: "mccl"}
 	require.NoError(t, DB.Create(closed).Error)
 	for _, order := range []*TopUp{
 		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-epay-expired", PaymentMethod: "alipay", PaymentProvider: PaymentProviderEpay, Status: common.TopUpStatusExpired},
 		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-pancake-failed", PaymentMethod: PaymentMethodWaffoPancake, PaymentProvider: PaymentProviderWaffoPancake, Status: common.TopUpStatusFailed},
+		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-wooshpay-expired", PaymentMethod: PaymentMethodWooshpay, PaymentProvider: PaymentProviderWooshpay, Status: common.TopUpStatusExpired},
+		{UserId: closed.Id, Amount: 10, Money: 73, TradeNo: "manual-wooshpay-failed", PaymentMethod: PaymentMethodWooshpay, PaymentProvider: PaymentProviderWooshpay, Status: common.TopUpStatusFailed},
 	} {
 		require.NoError(t, order.Insert())
 		require.Error(t, ManualCompleteTopUp(order.TradeNo, "127.0.0.1", nil), order.TradeNo)
 	}
-	require.NoError(t, ManualCompleteTopUp("manual-wooshpay-expired", "127.0.0.1", nil))
 	var closedUser User
 	require.NoError(t, DB.First(&closedUser, closed.Id).Error)
 	assert.Zero(t, closedUser.Quota)
+
+	// Completing an order again succeeds without crediting its user twice.
+	require.NoError(t, ManualCompleteTopUp("manual-wooshpay", "127.0.0.1", nil))
+	var completedOrder TopUp
+	require.NoError(t, DB.Where("trade_no = ?", "manual-wooshpay").First(&completedOrder).Error)
+	var completedUser User
+	require.NoError(t, DB.First(&completedUser, completedOrder.UserId).Error)
+	assert.Equal(t, 5_000_000, completedUser.Quota, "a completed order is not credited twice")
 
 	// Without a list price the stated amount cannot be scaled, so the order
 	// is left pending instead of being completed with a guessed snapshot.

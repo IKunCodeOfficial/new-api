@@ -24,7 +24,12 @@ import {
   DEFAULT_PAYMENT_TYPE,
   DEFAULT_MIN_TOPUP,
 } from '../constants'
-import type { PaymentMethod, PresetAmount, TopupInfo } from '../types'
+import type {
+  GatewayCurrency,
+  PaymentMethod,
+  PresetAmount,
+  TopupInfo,
+} from '../types'
 
 // ============================================================================
 // Payment Processing Functions
@@ -216,49 +221,70 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
  * pricePerAmount is the price of one unit of the entered amount (one token
  * with the Tokens display).
  */
-export interface GatewayPresetPricing {
-  currency: string
+export interface GatewayPresetPricing extends GatewayCurrency {
   pricePerAmount: number
 }
 
 /**
- * WooshPay charges WooshpayUnitPrice per unit in WooshpayCurrency (from
- * /api/status), not the epay price. The preset cards show that price when
- * WooshPay is the selected payment method, or the only one when none is
- * selected yet; otherwise they keep the regular price.
+ * WooshPay charges its unit price, scaled by the user's top-up group ratio,
+ * in its own currency; the top-up info states both for the current user. The
+ * preset cards use that price whenever WooshPay is the payment type the
+ * amount field is quoted for: the selected method, or the default one (the
+ * first pay method) before any is selected.
  */
-export function getWooshpayPresetPricing(options: {
-  selectedPaymentType?: string
-  payMethods: PaymentMethod[]
-  unitPrice: unknown
-  currency: unknown
+export function getWooshpayPresetPricing(
+  topupInfo: TopupInfo | null,
+  paymentType: string,
   tokensPerUnit?: number
-}): GatewayPresetPricing | undefined {
-  let wooshpayChosen = false
-  if (options.selectedPaymentType) {
-    wooshpayChosen = isWooshpayPayment(options.selectedPaymentType)
-  } else {
-    wooshpayChosen =
-      options.payMethods.length > 0 &&
-      options.payMethods.every((method) => isWooshpayPayment(method.type))
-  }
-  const unitPrice = Number(options.unitPrice)
+): GatewayPresetPricing | undefined {
+  const unitPrice = Number(topupInfo?.wooshpay_unit_price)
+  const currency = topupInfo?.wooshpay_currency
+  const minorDigits = topupInfo?.wooshpay_minor_digits
   if (
-    !wooshpayChosen ||
+    !isWooshpayPayment(paymentType) ||
     !(unitPrice > 0) ||
-    typeof options.currency !== 'string' ||
-    !options.currency
+    !currency ||
+    typeof minorDigits !== 'number'
   ) {
     return undefined
   }
-  const tokensPerUnit =
-    options.tokensPerUnit && options.tokensPerUnit > 0
-      ? options.tokensPerUnit
-      : 1
-  return {
-    currency: options.currency,
-    pricePerAmount: unitPrice / tokensPerUnit,
+  const perUnit = tokensPerUnit && tokensPerUnit > 0 ? tokensPerUnit : 1
+  return { currency, minorDigits, pricePerAmount: unitPrice / perUnit }
+}
+
+/** Most units one WooshPay order may buy (setting.WooshpayMaxTopUpUnits). */
+export const WOOSHPAY_MAX_TOPUP_UNITS = 10000
+
+/**
+ * Checks a WooshPay amount before asking the server, with the server's own
+ * messages: with the Tokens display (tokensPerUnit set) the amount must buy
+ * whole units, and an order buys at most 10000 units. Returns the message key
+ * and its parameters, or null when the amount is acceptable.
+ */
+export function getWooshpayAmountError(
+  amount: number,
+  tokensPerUnit?: number
+): { key: string; params: Record<string, number> } | null {
+  const perUnit = tokensPerUnit && tokensPerUnit > 0 ? tokensPerUnit : 0
+  if (perUnit > 0 && amount % perUnit !== 0) {
+    return {
+      key: 'With the Tokens display the top-up amount must be a multiple of {{unit}} tokens',
+      params: { unit: perUnit },
+    }
   }
+  const units = perUnit > 0 ? amount / perUnit : amount
+  if (units > WOOSHPAY_MAX_TOPUP_UNITS) {
+    return {
+      key: 'Top-up amount cannot exceed {{max}}',
+      params: {
+        max:
+          perUnit > 0
+            ? Math.floor(WOOSHPAY_MAX_TOPUP_UNITS * perUnit)
+            : WOOSHPAY_MAX_TOPUP_UNITS,
+      },
+    }
+  }
+  return null
 }
 
 /**

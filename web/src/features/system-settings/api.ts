@@ -45,14 +45,26 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
 }
 
 /**
- * Save the WooshPay secret key together with the API base of its
- * environment; saved one at a time, a switch between the test and live
- * environments would be refused as a mismatched pair.
+ * Changed WooshPay settings; absent fields keep their stored values, and so
+ * do empty secrets.
  */
-export async function updateWooshpayEnvironment(request: {
-  secret_key: string
-  api_base: string
-}) {
+export interface WooshpaySettingsUpdate {
+  enabled?: boolean
+  secret_key?: string
+  webhook_secret?: string
+  api_base?: string
+  currency?: string
+  unit_price?: number
+  min_topup?: number
+}
+
+/**
+ * Save every changed WooshPay setting in one request. The server validates
+ * the resulting combination (the key and API base of one environment, the
+ * keys needed to enable it) and writes it in one transaction, so a refused
+ * save changes nothing.
+ */
+export async function updateWooshpaySettings(request: WooshpaySettingsUpdate) {
   const res = await api.put<UpdateOptionResponse>(
     '/api/option/wooshpay/environment',
     request

@@ -24,6 +24,7 @@ import {
   dispatchSelectedPayment,
   getDefaultPaymentType,
   getMinTopupAmount,
+  getWooshpayAmountError,
   getWooshpayPresetPricing,
   isStripePayment,
   isWooshpayPayment,
@@ -140,63 +141,88 @@ describe('payment dispatch', () => {
 })
 
 describe('WooshPay preset pricing', () => {
-  const wooshpay = { name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY }
-  const alipay = { name: 'Alipay', type: 'alipay' }
-  const status = { unitPrice: 8, currency: 'JPY' }
+  // The top-up info carries this user's WooshPay price (group ratio
+  // included), its currency and minor digits.
+  const topupInfo: TopupInfo = {
+    enable_online_topup: true,
+    enable_stripe_topup: false,
+    enable_wooshpay_topup: true,
+    pay_methods: [
+      { name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY },
+      { name: 'Alipay', type: 'alipay' },
+    ],
+    min_topup: 1,
+    stripe_min_topup: 1,
+    amount_options: [],
+    discount: {},
+    wooshpay_unit_price: 16,
+    wooshpay_currency: 'JPY',
+    wooshpay_minor_digits: 0,
+  }
 
-  test('prices presets in the WooshPay currency when it is the only method', () => {
-    expect(
-      getWooshpayPresetPricing({ payMethods: [wooshpay], ...status })
-    ).toEqual({ currency: 'JPY', pricePerAmount: 8 })
+  test('prices presets with the per-user WooshPay price when WooshPay is the quoted type', () => {
+    expect(getWooshpayPresetPricing(topupInfo, PAYMENT_TYPES.WOOSHPAY)).toEqual(
+      { currency: 'JPY', minorDigits: 0, pricePerAmount: 16 }
+    )
   })
 
-  test('prices presets in the WooshPay currency when it is selected', () => {
+  test('uses WooshPay pricing before any selection when WooshPay is the first pay method', () => {
+    // The amount field is quoted for the default type, the first pay method,
+    // so the cards must be priced for the same gateway.
     expect(
-      getWooshpayPresetPricing({
-        selectedPaymentType: PAYMENT_TYPES.WOOSHPAY,
-        payMethods: [alipay, wooshpay],
-        ...status,
-      })
-    ).toEqual({ currency: 'JPY', pricePerAmount: 8 })
+      getWooshpayPresetPricing(topupInfo, getDefaultPaymentType(topupInfo))
+    ).toEqual({ currency: 'JPY', minorDigits: 0, pricePerAmount: 16 })
   })
 
-  test('keeps the regular price while another method is selected or available', () => {
-    expect(
-      getWooshpayPresetPricing({ payMethods: [wooshpay, alipay], ...status })
-    ).toBeUndefined()
-    expect(
-      getWooshpayPresetPricing({
-        selectedPaymentType: 'alipay',
-        payMethods: [wooshpay],
-        ...status,
-      })
-    ).toBeUndefined()
+  test('keeps the regular price while another method is quoted', () => {
+    expect(getWooshpayPresetPricing(topupInfo, 'alipay')).toBeUndefined()
   })
 
   test('keeps the regular price without a usable WooshPay price', () => {
-    expect(
-      getWooshpayPresetPricing({
-        payMethods: [wooshpay],
-        unitPrice: undefined,
-        currency: 'JPY',
-      })
-    ).toBeUndefined()
-    expect(
-      getWooshpayPresetPricing({
-        payMethods: [wooshpay],
-        unitPrice: 8,
-        currency: '',
-      })
-    ).toBeUndefined()
+    for (const info of [
+      { ...topupInfo, wooshpay_unit_price: undefined },
+      { ...topupInfo, wooshpay_unit_price: 0 },
+      { ...topupInfo, wooshpay_currency: '' },
+      { ...topupInfo, wooshpay_minor_digits: undefined },
+      null,
+    ]) {
+      expect(
+        getWooshpayPresetPricing(info, PAYMENT_TYPES.WOOSHPAY)
+      ).toBeUndefined()
+    }
   })
 
   test('prices each token with the Tokens display', () => {
     expect(
-      getWooshpayPresetPricing({
-        payMethods: [wooshpay],
-        ...status,
-        tokensPerUnit: 500000,
-      })
-    ).toEqual({ currency: 'JPY', pricePerAmount: 8 / 500000 })
+      getWooshpayPresetPricing(topupInfo, PAYMENT_TYPES.WOOSHPAY, 500000)
+    ).toEqual({ currency: 'JPY', minorDigits: 0, pricePerAmount: 16 / 500000 })
+  })
+})
+
+describe('WooshPay amount checks', () => {
+  test.each([1, 10000])('accepts %s units', (amount) => {
+    expect(getWooshpayAmountError(amount)).toBeNull()
+  })
+
+  test('refuses more than 10000 units with the server message', () => {
+    expect(getWooshpayAmountError(10001)).toEqual({
+      key: 'Top-up amount cannot exceed {{max}}',
+      params: { max: 10000 },
+    })
+  })
+
+  test('refuses tokens that do not buy whole units with the server message', () => {
+    expect(getWooshpayAmountError(1_250_000, 500000)).toEqual({
+      key: 'With the Tokens display the top-up amount must be a multiple of {{unit}} tokens',
+      params: { unit: 500000 },
+    })
+  })
+
+  test('bounds the units bought with the Tokens display', () => {
+    expect(getWooshpayAmountError(10000 * 500000, 500000)).toBeNull()
+    expect(getWooshpayAmountError(10001 * 500000, 500000)).toEqual({
+      key: 'Top-up amount cannot exceed {{max}}',
+      params: { max: 10000 * 500000 },
+    })
   })
 })

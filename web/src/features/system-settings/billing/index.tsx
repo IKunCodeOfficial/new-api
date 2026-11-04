@@ -81,6 +81,7 @@ const defaultBillingSettings: BillingSettings = {
   StripeUnitPrice: 8.0,
   StripeMinTopUp: 1,
   StripePromotionCodesEnabled: false,
+  WooshpayEnabled: false,
   WooshpaySecretKey: '',
   WooshpayWebhookSecret: '',
   WooshpayApiBase: 'https://api.wooshpay.com',

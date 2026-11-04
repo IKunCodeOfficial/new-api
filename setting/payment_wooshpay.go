@@ -9,10 +9,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 )
 
-// WooshPay hosted checkout configuration. The gateway is enabled once the
-// secret key, webhook secret and a positive unit price are set; test mode
-// follows the secret key prefix, so a live key can never run in test mode.
+// WooshPay hosted checkout configuration. Top-ups are offered once
+// WooshpayEnabled is on and the secret key, webhook secret and a positive unit
+// price are set; test mode follows the secret key prefix, so a live key can
+// never run in test mode.
 var (
+	WooshpayEnabled       = false
 	WooshpaySecretKey     = ""
 	WooshpayWebhookSecret = ""
 	WooshpayApiBase       = "https://api.wooshpay.com"
@@ -24,12 +26,22 @@ var (
 // IsWooshpayTestKey reports whether the configured secret key belongs to the
 // WooshPay test environment, where payments move no real money.
 func IsWooshpayTestKey() bool {
-	return strings.HasPrefix(strings.TrimSpace(WooshpaySecretKey), "sk_test_")
+	return IsWooshpayTestSecretKey(WooshpaySecretKey)
+}
+
+// IsWooshpayTestSecretKey reports whether secretKey belongs to the WooshPay
+// test environment.
+func IsWooshpayTestSecretKey(secretKey string) bool {
+	return strings.HasPrefix(strings.TrimSpace(secretKey), "sk_test_")
 }
 
 // WooshpayMaxTopUpUnits bounds the purchased units of one WooshPay order and
 // the configurable minimum top-up.
 const WooshpayMaxTopUpUnits = 10000
+
+// WooshpayMaxMinorAmount is the largest PaymentIntent amount WooshPay accepts:
+// at most 8 digits in the currency's minor unit.
+const WooshpayMaxMinorAmount = 99_999_999
 
 // wooshpayKeyHost returns the API host the secret key belongs to: sk_test_
 // keys only work against apitest.wooshpay.com and sk_live_ keys against
@@ -49,12 +61,27 @@ func wooshpayKeyHost(secretKey string) (host string, ok bool) {
 // WooshpayApiBaseMatchesKey reports whether the API base points at the
 // WooshPay environment of the secret key.
 func WooshpayApiBaseMatchesKey() bool {
-	base, err := url.Parse(NormalizeWooshpayApiBase(WooshpayApiBase))
+	return WooshpayKeyMatchesApiBase(WooshpaySecretKey, WooshpayApiBase)
+}
+
+// WooshpayKeyMatchesApiBase reports whether apiBase is the https origin of
+// the WooshPay environment secretKey belongs to.
+func WooshpayKeyMatchesApiBase(secretKey string, apiBase string) bool {
+	base, err := url.Parse(NormalizeWooshpayApiBase(apiBase))
 	if err != nil || base.Scheme != "https" {
 		return false
 	}
-	host, ok := wooshpayKeyHost(WooshpaySecretKey)
+	host, ok := wooshpayKeyHost(secretKey)
 	return ok && base.Host == host
+}
+
+// ValidateWooshpayEnabled refuses to switch WooshPay on before the secret
+// key, the webhook secret and the API base of one environment are set.
+func ValidateWooshpayEnabled(secretKey string, webhookSecret string, apiBase string) error {
+	if strings.TrimSpace(secretKey) == "" || strings.TrimSpace(webhookSecret) == "" || !WooshpayKeyMatchesApiBase(secretKey, apiBase) {
+		return common.NewMessage("WooshPay can only be enabled once the secret key, the webhook secret and the API base of one environment are set")
+	}
+	return nil
 }
 
 // ValidateWooshpayKeyBase rejects a secret key paired with the API base of
@@ -120,9 +147,22 @@ func ValidateWooshpayOption(key string, value string) error {
 			return common.NewMessage("WooshPay minimum top-up must be an integer from 1 to {{max}}", map[string]any{"max": WooshpayMaxTopUpUnits})
 		}
 	case "WooshpayApiBase":
-		if !strings.HasPrefix(value, "https://") {
-			return common.NewMessage("WooshPay API base must start with https://")
+		// Only an origin: API paths are appended to it, so a path, query or
+		// credentials would change every request.
+		base, err := url.Parse(NormalizeWooshpayApiBase(value))
+		if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil ||
+			base.Path != "" || base.RawQuery != "" || base.ForceQuery || base.Fragment != "" || base.Opaque != "" {
+			return common.NewMessage("WooshPay API base must be an https:// origin without a path, such as https://api.wooshpay.com")
+		}
+	case "WooshpayEnabled":
+		if value != "true" && value != "false" {
+			return common.NewMessage("WooshPay enabled must be true or false")
 		}
 	}
 	return nil
+}
+
+// NormalizeWooshpayCurrency trims and upper-cases an ISO 4217 currency code.
+func NormalizeWooshpayCurrency(value string) string {
+	return strings.ToUpper(strings.TrimSpace(value))
 }

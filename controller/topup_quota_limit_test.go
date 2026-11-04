@@ -228,7 +228,7 @@ func TestWooshpayGroupRatioScalesPriceNotCredit(t *testing.T) {
 	})
 
 	assert.True(t, decimal.NewFromInt(500000).Equal(getWooshpayCreditedQuota(1)))
-	listed, charged := getWooshpayPayMoney(1, "vip")
+	listed, charged := getWooshpayPayMoney(1, "vip", setting.WooshpayUnitPrice)
 	assert.True(t, decimal.NewFromInt(16).Equal(listed), listed.String())
 	assert.True(t, decimal.NewFromInt(16).Equal(charged), charged.String())
 	_, err := validateCreditedQuota(getWooshpayCreditedQuota(int64(common.MaxWalletQuota)))
@@ -345,6 +345,20 @@ func TestTopUpPaidSnapshotMatchesGatewayAmount(t *testing.T) {
 				assert.Equal(t, fmt.Sprintf("%.2f", tc.money), response["data"].(map[string]any)["money"])
 			}
 		})
+	}
+
+	// PayMethods also lists the types of gateways with their own checkout to
+	// show their buttons; epay must refuse to charge them.
+	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}, {"type": "wooshpay"}, {"type": "stripe"}}
+	for _, paymentMethod := range []string{"wooshpay", "stripe"} {
+		var before int64
+		require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&before).Error)
+		response := postJSON(t, RequestEpay, http.MethodPost, "/", `{"amount":1,"payment_method":"`+paymentMethod+`"}`, userID)
+		assert.Equal(t, "error", response["message"], paymentMethod)
+		assert.Equal(t, "Payment method does not exist", response["data"], paymentMethod)
+		var after int64
+		require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&after).Error)
+		assert.Equal(t, before, after, paymentMethod)
 	}
 }
 

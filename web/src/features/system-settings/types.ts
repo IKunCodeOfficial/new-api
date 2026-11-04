@@ -332,6 +332,7 @@ export type BillingSettings = {
   StripeUnitPrice: number
   StripeMinTopUp: number
   StripePromotionCodesEnabled: boolean
+  WooshpayEnabled: boolean
   WooshpaySecretKey: string
   WooshpayWebhookSecret: string
   WooshpayApiBase: string

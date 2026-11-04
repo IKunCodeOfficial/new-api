@@ -29,6 +29,7 @@ import type {
   AmountResponse,
   PaymentResponse,
   StripePaymentResponse,
+  WooshpayAmountResponse,
   WooshpayPaymentResponse,
   AffiliateCodeResponse,
   AffiliateTransferResponse,
@@ -100,7 +101,7 @@ export async function calculateStripeAmount(
  */
 export async function calculateWooshpayAmount(
   request: AmountRequest
-): Promise<AmountResponse> {
+): Promise<WooshpayAmountResponse> {
   const res = await api.post('/api/user/wooshpay/amount', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)

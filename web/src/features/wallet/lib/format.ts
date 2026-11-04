@@ -65,24 +65,37 @@ export function formatCurrency(amount: number | string): string {
 
 /**
  * Format money a payment gateway charges in its own ISO 4217 currency (such
- * as WooshPay), with that currency's minor-unit digits: 0 for JPY, 2 for USD,
- * 3 for KWD. A code Intl rejects falls back to the plain amount and the code.
+ * as WooshPay) with exactly the minor-unit digits the gateway uses: 0 for JPY,
+ * 2 for USD, 3 for KWD. locale must already be an Intl locale (toIntlLocale);
+ * one Intl rejects falls back to the runtime default, and a currency code it
+ * rejects to the plain amount followed by the code.
  */
 export function formatGatewayAmount(
   amount: number,
   currency: string,
+  minorDigits: number,
   locale?: string
 ): string {
   if (!Number.isFinite(amount)) return '-'
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency,
-      currencyDisplay: 'code',
-    }).format(amount)
-  } catch {
-    return `${formatCurrency(amount)} ${currency}`
+  const digits =
+    Number.isInteger(minorDigits) && minorDigits >= 0 && minorDigits <= 20
+      ? minorDigits
+      : 2
+  const options: Intl.NumberFormatOptions = {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'code',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }
+  for (const candidate of [locale, undefined]) {
+    try {
+      return new Intl.NumberFormat(candidate, options).format(amount)
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return `${amount.toFixed(digits)} ${currency}`
 }
 
 /**

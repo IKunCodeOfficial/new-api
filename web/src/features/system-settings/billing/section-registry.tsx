@@ -163,6 +163,7 @@ const BILLING_SECTIONS = [
           StripeUnitPrice: settings.StripeUnitPrice,
           StripeMinTopUp: settings.StripeMinTopUp,
           StripePromotionCodesEnabled: settings.StripePromotionCodesEnabled,
+          WooshpayEnabled: settings.WooshpayEnabled ?? false,
           WooshpaySecretKey: settings.WooshpaySecretKey,
           WooshpayWebhookSecret: settings.WooshpayWebhookSecret,
           WooshpayApiBase: settings.WooshpayApiBase,

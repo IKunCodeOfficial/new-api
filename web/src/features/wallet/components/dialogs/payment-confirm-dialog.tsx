@@ -35,7 +35,7 @@ import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import { formatCurrency, formatGatewayAmount, getPaymentIcon } from '../../lib'
-import type { PaymentMethod } from '../../types'
+import type { GatewayCurrency, PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -48,8 +48,8 @@ interface PaymentConfirmDialogProps {
   processing: boolean
   discountRate?: number
   usdExchangeRate?: number
-  /** ISO 4217 code of a gateway that charges in its own currency (WooshPay). */
-  paymentCurrency?: string
+  /** Currency of a gateway that charges in its own currency (WooshPay), as quoted with the amount. */
+  paymentCurrency?: GatewayCurrency
 }
 
 export function PaymentConfirmDialog({
@@ -69,7 +69,12 @@ export function PaymentConfirmDialog({
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const formatPayment = (amount: number) =>
     paymentCurrency
-      ? formatGatewayAmount(amount, paymentCurrency, locale)
+      ? formatGatewayAmount(
+          amount,
+          paymentCurrency.currency,
+          paymentCurrency.minorDigits,
+          locale
+        )
       : formatCurrency(amount)
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
