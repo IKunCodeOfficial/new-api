@@ -64,38 +64,24 @@ export function formatCurrency(amount: number | string): string {
 }
 
 /**
- * Format money a payment gateway charges in its own ISO 4217 currency (such
- * as WooshPay) with exactly the minor-unit digits the gateway uses: 0 for JPY,
- * 2 for USD, 3 for KWD. locale must already be an Intl locale (toIntlLocale);
- * one Intl rejects falls back to the runtime default, and a currency code it
- * rejects to the plain amount followed by the code.
+ * Format money a payment gateway charges in CNY (WooshPay) with exactly 2
+ * decimals, whatever the display currency is. locale must already be an Intl
+ * locale (toIntlLocale); one Intl rejects falls back to the runtime default.
  */
-export function formatGatewayAmount(
-  amount: number,
-  currency: string,
-  minorDigits: number,
-  locale?: string
-): string {
+export function formatCnyAmount(amount: number, locale?: string): string {
   if (!Number.isFinite(amount)) return '-'
-  const digits =
-    Number.isInteger(minorDigits) && minorDigits >= 0 && minorDigits <= 20
-      ? minorDigits
-      : 2
   const options: Intl.NumberFormatOptions = {
     style: 'currency',
-    currency,
+    currency: 'CNY',
     currencyDisplay: 'code',
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }
-  for (const candidate of [locale, undefined]) {
-    try {
-      return new Intl.NumberFormat(candidate, options).format(amount)
-    } catch {
-      // Try the next candidate.
-    }
+  try {
+    return new Intl.NumberFormat(locale, options).format(amount)
+  } catch {
+    return new Intl.NumberFormat(undefined, options).format(amount)
   }
-  return `${amount.toFixed(digits)} ${currency}`
 }
 
 /**

@@ -296,7 +296,7 @@
   "WooshPay paid order needs manual completion trade_no=%s payment_intent=%s client_ip=%s error=%q": "WooshPay 已付款订单需要人工补单 trade_no=%s payment_intent=%s client_ip=%s error=%q",
   "WooshPay payment attempt did not succeed, order left pending event_id=%s event_type=%s client_ip=%s": "WooshPay 支付尝试未成功，订单保持待支付 event_id=%s event_type=%s client_ip=%s",
   "WooshPay succeeded event has no PaymentIntent id, ignored client_ip=%s": "WooshPay 支付成功事件缺少 PaymentIntent ID，忽略处理 client_ip=%s",
-  "WooshPay top-up order created user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s currency=%s": "WooshPay 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s currency=%s",
+  "WooshPay top-up order created user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s": "WooshPay 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s",
   "WooshPay top-up order expired trade_no=%s session_id=%s": "WooshPay 充值订单已过期 trade_no=%s session_id=%s",
   "WooshPay top-up processing failed trade_no=%s payment_intent=%s client_ip=%s error=%q": "WooshPay 充值处理失败 trade_no=%s payment_intent=%s client_ip=%s error=%q",
   "WooshPay top-up succeeded trade_no=%s payment_intent=%s amount_received=%s client_ip=%s": "WooshPay 充值成功 trade_no=%s payment_intent=%s amount_received=%s client_ip=%s",

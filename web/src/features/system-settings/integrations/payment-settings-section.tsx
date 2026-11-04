@@ -166,10 +166,6 @@ const paymentSchema = z.object({
   WooshpaySecretKey: z.string(),
   WooshpayWebhookSecret: z.string(),
   WooshpayApiBase: z.string(),
-  WooshpayCurrency: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z]{3}$/, 'Enter a 3-letter ISO 4217 currency code'),
   WooshpayUnitPrice: z.coerce
     .number()
     .positive('Unit price must be greater than 0'),
@@ -478,7 +474,6 @@ export function PaymentSettingsSection({
       WooshpaySecretKey: values.WooshpaySecretKey.trim(),
       WooshpayWebhookSecret: values.WooshpayWebhookSecret.trim(),
       WooshpayApiBase: values.WooshpayApiBase.trim(),
-      WooshpayCurrency: values.WooshpayCurrency.trim().toUpperCase(),
       WooshpayUnitPrice: values.WooshpayUnitPrice,
       WooshpayMinTopUp: values.WooshpayMinTopUp,
       CreemApiKey: values.CreemApiKey.trim(),
@@ -530,8 +525,6 @@ export function PaymentSettingsSection({
       WooshpaySecretKey: initialRef.current.WooshpaySecretKey.trim(),
       WooshpayWebhookSecret: initialRef.current.WooshpayWebhookSecret.trim(),
       WooshpayApiBase: initialRef.current.WooshpayApiBase.trim(),
-      WooshpayCurrency:
-        initialRef.current.WooshpayCurrency.trim().toUpperCase(),
       WooshpayUnitPrice: initialRef.current.WooshpayUnitPrice,
       WooshpayMinTopUp: initialRef.current.WooshpayMinTopUp,
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
@@ -679,9 +672,6 @@ export function PaymentSettingsSection({
     }
     if (sanitized.WooshpayApiBase !== initial.WooshpayApiBase) {
       wooshpayChanges.api_base = sanitized.WooshpayApiBase
-    }
-    if (sanitized.WooshpayCurrency !== initial.WooshpayCurrency) {
-      wooshpayChanges.currency = sanitized.WooshpayCurrency
     }
     if (sanitized.WooshpayUnitPrice !== initial.WooshpayUnitPrice) {
       wooshpayChanges.unit_price = sanitized.WooshpayUnitPrice
@@ -1729,33 +1719,7 @@ export function PaymentSettingsSection({
                   />
                 </div>
 
-                <div className='grid gap-6 md:grid-cols-3'>
-                  <FormField
-                    control={form.control}
-                    name='WooshpayCurrency'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Currency')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='USD'
-                            maxLength={3}
-                            {...field}
-                            onChange={(event) =>
-                              field.onChange(event.target.value)
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'ISO 4217 code of the checkout currency, e.g. USD'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
+                <div className='grid gap-6 md:grid-cols-2'>
                   <FormField
                     control={form.control}
                     name='WooshpayUnitPrice'
@@ -1771,9 +1735,7 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                         <FormDescription>
-                          {t(
-                            'Price in the checkout currency for each 1 unit of top-up'
-                          )}
+                          {t('Price in CNY for each 1 unit of top-up')}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

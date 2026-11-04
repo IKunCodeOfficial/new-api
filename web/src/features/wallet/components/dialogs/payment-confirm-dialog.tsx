@@ -34,8 +34,8 @@ import { toIntlLocale } from '@/i18n/languages'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
-import { formatCurrency, formatGatewayAmount, getPaymentIcon } from '../../lib'
-import type { GatewayCurrency, PaymentMethod } from '../../types'
+import { formatCnyAmount, formatCurrency, getPaymentIcon } from '../../lib'
+import type { PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -48,8 +48,8 @@ interface PaymentConfirmDialogProps {
   processing: boolean
   discountRate?: number
   usdExchangeRate?: number
-  /** Currency of a gateway that charges in its own currency (WooshPay), as quoted with the amount. */
-  paymentCurrency?: GatewayCurrency
+  /** Whether the quoted amount is in CNY, for a gateway that charges in CNY (WooshPay). */
+  paymentInCny?: boolean
 }
 
 export function PaymentConfirmDialog({
@@ -63,19 +63,12 @@ export function PaymentConfirmDialog({
   processing,
   discountRate = DEFAULT_DISCOUNT_RATE,
   usdExchangeRate = 1,
-  paymentCurrency,
+  paymentInCny,
 }: PaymentConfirmDialogProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const formatPayment = (amount: number) =>
-    paymentCurrency
-      ? formatGatewayAmount(
-          amount,
-          paymentCurrency.currency,
-          paymentCurrency.minorDigits,
-          locale
-        )
-      : formatCurrency(amount)
+    paymentInCny ? formatCnyAmount(amount, locale) : formatCurrency(amount)
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0

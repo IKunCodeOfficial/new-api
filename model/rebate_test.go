@@ -345,7 +345,7 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 			case PaymentProviderCreem:
 				require.NoError(t, RechargeCreem(tradeNo, "", "", "127.0.0.1", tc.charge))
 			case PaymentProviderWooshpay:
-				require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "73.00 USD", tc.charge))
+				require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "73.00 CNY", tc.charge))
 			default:
 				require.NoError(t, RechargeWaffoPancake(tradeNo, tc.charge))
 			}

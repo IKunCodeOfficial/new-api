@@ -12,14 +12,14 @@ import (
 // WooshPay hosted checkout configuration. Top-ups are offered once
 // WooshpayEnabled is on and the secret key, webhook secret and a positive unit
 // price are set; test mode follows the secret key prefix, so a live key can
-// never run in test mode.
+// never run in test mode. Checkouts are always charged in CNY, and
+// WooshpayUnitPrice is the CNY price of one top-up unit.
 var (
 	WooshpayEnabled       = false
 	WooshpaySecretKey     = ""
 	WooshpayWebhookSecret = ""
 	WooshpayApiBase       = "https://api.wooshpay.com"
-	WooshpayCurrency      = "USD"
-	WooshpayUnitPrice     = 8.0
+	WooshpayUnitPrice     = 7.3
 	WooshpayMinTopUp      = 1
 )
 
@@ -40,7 +40,7 @@ func IsWooshpayTestSecretKey(secretKey string) bool {
 const WooshpayMaxTopUpUnits = 10000
 
 // WooshpayMaxMinorAmount is the largest PaymentIntent amount WooshPay accepts:
-// at most 8 digits in the currency's minor unit.
+// at most 8 digits in fen.
 const WooshpayMaxMinorAmount = 99_999_999
 
 // wooshpayKeyHost returns the API host the secret key belongs to: sk_test_
@@ -105,37 +105,10 @@ func NormalizeWooshpayApiBase(value string) string {
 	return strings.TrimRight(strings.TrimSpace(value), "/")
 }
 
-// WooshpayCurrencyMinorDigits lists the currencies WooshPay accepts with the
-// number of decimal places of their minor unit (unit_amount is expressed in
-// that unit), as published on the WooshPay "Supported currencies" page.
-var WooshpayCurrencyMinorDigits = map[string]int32{
-	"AED": 2, "AFN": 2, "ALL": 2, "AMD": 2, "ANG": 2, "AOA": 2, "ARS": 2, "AUD": 2, "AWG": 2,
-	"AZN": 2, "BAM": 2, "BBD": 2, "BDT": 2, "BGN": 2, "BHD": 3, "BIF": 0, "BMD": 2, "BND": 2,
-	"BOB": 2, "BRL": 2, "BSD": 2, "BTN": 2, "BWP": 2, "BYN": 2, "BZD": 2, "CAD": 2, "CDF": 2,
-	"CHF": 2, "CLP": 0, "CNY": 2, "COP": 2, "CRC": 2, "CVE": 2, "CZK": 2, "DJF": 0, "DKK": 2,
-	"DOP": 2, "DZD": 2, "EGP": 2, "ERN": 2, "ETB": 2, "EUR": 2, "FJD": 2, "FKP": 2, "GBP": 2,
-	"GEL": 2, "GHS": 2, "GIP": 2, "GMD": 2, "GNF": 0, "GTQ": 2, "GYD": 2, "HKD": 2, "HNL": 2,
-	"HRK": 2, "HTG": 2, "HUF": 2, "IDR": 2, "ILS": 2, "INR": 2, "IQD": 3, "ISK": 0, "JMD": 2,
-	"JOD": 3, "JPY": 0, "KES": 2, "KGS": 2, "KHR": 2, "KMF": 0, "KRW": 0, "KWD": 3, "KYD": 2,
-	"KZT": 2, "LAK": 2, "LBP": 2, "LKR": 2, "LRD": 2, "LSL": 2, "LTL": 2, "LYD": 3, "MAD": 2,
-	"MDL": 2, "MGA": 2, "MKD": 2, "MMK": 2, "MNT": 2, "MOP": 2, "MRU": 2, "MUR": 2, "MVR": 2,
-	"MWK": 2, "MXN": 2, "MYR": 2, "MZN": 2, "NAD": 2, "NGN": 2, "NIO": 2, "NOK": 2, "NPR": 2,
-	"NZD": 2, "OMR": 3, "PAB": 2, "PEN": 2, "PGK": 2, "PHP": 2, "PKR": 2, "PLN": 2, "PYG": 0,
-	"QAR": 2, "RON": 2, "RSD": 2, "RUB": 2, "RWF": 0, "SAR": 2, "SBD": 2, "SCR": 2, "SEK": 2,
-	"SGD": 2, "SHP": 2, "SLL": 2, "SOS": 2, "SRD": 2, "SSP": 2, "STN": 2, "SVC": 2, "SYP": 2,
-	"SZL": 2, "THB": 2, "TJS": 2, "TMT": 2, "TND": 3, "TOP": 2, "TRY": 2, "TTD": 2, "TWD": 2,
-	"TZS": 2, "UAH": 2, "UGX": 0, "USD": 2, "UYU": 2, "UZS": 2, "VND": 0, "VUV": 0, "WST": 2,
-	"XAF": 0, "XCD": 2, "XOF": 0, "XPF": 0, "YER": 2, "ZAR": 2, "ZWL": 2,
-}
-
 // ValidateWooshpayOption rejects WooshPay settings that would make checkout
 // amounts wrong or send the secret key over plain HTTP.
 func ValidateWooshpayOption(key string, value string) error {
 	switch key {
-	case "WooshpayCurrency":
-		if _, ok := WooshpayCurrencyMinorDigits[value]; !ok {
-			return common.NewMessage("WooshPay currency must be an uppercase ISO 4217 code supported by WooshPay, such as USD")
-		}
 	case "WooshpayUnitPrice":
 		price, err := strconv.ParseFloat(value, 64)
 		if err != nil || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
@@ -160,9 +133,4 @@ func ValidateWooshpayOption(key string, value string) error {
 		}
 	}
 	return nil
-}
-
-// NormalizeWooshpayCurrency trims and upper-cases an ISO 4217 currency code.
-func NormalizeWooshpayCurrency(value string) string {
-	return strings.ToUpper(strings.TrimSpace(value))
 }

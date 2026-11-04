@@ -141,8 +141,8 @@ describe('payment dispatch', () => {
 })
 
 describe('WooshPay preset pricing', () => {
-  // The top-up info carries this user's WooshPay price (group ratio
-  // included), its currency and minor digits.
+  // The top-up info carries this user's WooshPay CNY price (group ratio
+  // included).
   const topupInfo: TopupInfo = {
     enable_online_topup: true,
     enable_stripe_topup: false,
@@ -156,13 +156,11 @@ describe('WooshPay preset pricing', () => {
     amount_options: [],
     discount: {},
     wooshpay_unit_price: 16,
-    wooshpay_currency: 'JPY',
-    wooshpay_minor_digits: 0,
   }
 
   test('prices presets with the per-user WooshPay price when WooshPay is the quoted type', () => {
     expect(getWooshpayPresetPricing(topupInfo, PAYMENT_TYPES.WOOSHPAY)).toEqual(
-      { currency: 'JPY', minorDigits: 0, pricePerAmount: 16 }
+      { pricePerAmount: 16 }
     )
   })
 
@@ -171,7 +169,7 @@ describe('WooshPay preset pricing', () => {
     // so the cards must be priced for the same gateway.
     expect(
       getWooshpayPresetPricing(topupInfo, getDefaultPaymentType(topupInfo))
-    ).toEqual({ currency: 'JPY', minorDigits: 0, pricePerAmount: 16 })
+    ).toEqual({ pricePerAmount: 16 })
   })
 
   test('keeps the regular price while another method is quoted', () => {
@@ -182,8 +180,6 @@ describe('WooshPay preset pricing', () => {
     for (const info of [
       { ...topupInfo, wooshpay_unit_price: undefined },
       { ...topupInfo, wooshpay_unit_price: 0 },
-      { ...topupInfo, wooshpay_currency: '' },
-      { ...topupInfo, wooshpay_minor_digits: undefined },
       null,
     ]) {
       expect(
@@ -195,7 +191,7 @@ describe('WooshPay preset pricing', () => {
   test('prices each token with the Tokens display', () => {
     expect(
       getWooshpayPresetPricing(topupInfo, PAYMENT_TYPES.WOOSHPAY, 500000)
-    ).toEqual({ currency: 'JPY', minorDigits: 0, pricePerAmount: 16 / 500000 })
+    ).toEqual({ pricePerAmount: 16 / 500000 })
   })
 })
 

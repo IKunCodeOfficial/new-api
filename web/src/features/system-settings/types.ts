@@ -336,7 +336,6 @@ export type BillingSettings = {
   WooshpaySecretKey: string
   WooshpayWebhookSecret: string
   WooshpayApiBase: string
-  WooshpayCurrency: string
   WooshpayUnitPrice: number
   WooshpayMinTopUp: number
   CreemApiKey: string

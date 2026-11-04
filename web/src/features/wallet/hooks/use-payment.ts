@@ -75,8 +75,8 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
 
 /**
  * Asks the server what paymentType charges for topupAmount. WooshPay answers
- * with the amount in its own currency and that currency's minor digits. A
- * failed request throws the server's error; it is never a zero amount.
+ * with the amount in CNY. A failed request throws the server's error; it is
+ * never a zero amount.
  */
 export async function requestPaymentAmount(
   topupAmount: number,
@@ -90,13 +90,7 @@ export async function requestPaymentAmount(
     if (!isApiSuccess(response) || !response.data || !Number.isFinite(amount)) {
       throw createServerError(response, fallback)
     }
-    return {
-      amount,
-      currency: {
-        currency: response.data.currency,
-        minorDigits: response.data.minor_digits,
-      },
-    }
+    return { amount, inCny: true }
   }
 
   let calculator = calculators.regular
@@ -241,7 +235,7 @@ export function usePayment() {
 
   return {
     amount: quote.amount,
-    paymentCurrency: quote.currency,
+    paymentInCny: quote.inCny === true,
     calculating,
     processing,
     calculatePaymentAmount,

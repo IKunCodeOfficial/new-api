@@ -41,7 +41,7 @@ describe('payment amount routing', () => {
         calls.push('wooshpay')
         return {
           success: true,
-          data: { amount: '3', currency: 'USD', minor_digits: 2 },
+          data: { amount: '3.00' },
         }
       },
       waffo: async (request) => {
@@ -73,7 +73,7 @@ describe('payment amount routing', () => {
         calls.push(`wooshpay:${request.amount}`)
         return {
           success: true,
-          data: { amount: '800', currency: 'JPY', minor_digits: 0 },
+          data: { amount: '73.00' },
         }
       },
       waffo: async () => {
@@ -86,10 +86,7 @@ describe('payment amount routing', () => {
       },
     })
 
-    expect(amount).toEqual({
-      amount: 800,
-      currency: { currency: 'JPY', minorDigits: 0 },
-    })
+    expect(amount).toEqual({ amount: 73, inCny: true })
     expect(calls).toEqual(['wooshpay:10'])
   })
 })
@@ -124,7 +121,7 @@ describe('payment amount failures', () => {
 
     expect(quote).toBeNull()
     expect(result.current.amount).toBe(0)
-    expect(result.current.paymentCurrency).toBeUndefined()
+    expect(result.current.paymentInCny).toBe(false)
     expect(error).toHaveBeenCalledWith('Payment amount is too high')
   })
 
@@ -152,11 +149,11 @@ describe('payment amount failures', () => {
     }
   )
 
-  test('a WooshPay quote keeps the currency and digits it was quoted in', async () => {
+  test('a WooshPay quote is marked as a CNY amount', async () => {
     vi.spyOn(api, 'post').mockResolvedValue({
       data: {
         message: 'success',
-        data: { amount: '1.234', currency: 'KWD', minor_digits: 3 },
+        data: { amount: '7.30' },
       },
     })
     const { result } = renderPayment()
@@ -164,11 +161,8 @@ describe('payment amount failures', () => {
       await result.current.calculatePaymentAmount(1, PAYMENT_TYPES.WOOSHPAY)
     })
 
-    expect(result.current.amount).toBe(1.234)
-    expect(result.current.paymentCurrency).toEqual({
-      currency: 'KWD',
-      minorDigits: 3,
-    })
+    expect(result.current.amount).toBe(7.3)
+    expect(result.current.paymentInCny).toBe(true)
   })
 })
 

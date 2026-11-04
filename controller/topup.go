@@ -159,8 +159,6 @@ func GetTopUpInfo(c *gin.Context) {
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
 		"wooshpay_min_topup":      getWooshpayMinTopup(),
 		"wooshpay_unit_price":     wooshpayUnitPrice,
-		"wooshpay_currency":       setting.WooshpayCurrency,
-		"wooshpay_minor_digits":   setting.WooshpayCurrencyMinorDigits[setting.WooshpayCurrency],
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,

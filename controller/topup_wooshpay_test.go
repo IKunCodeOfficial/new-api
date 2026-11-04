@@ -42,7 +42,7 @@ func (tr wooshpayTestTransport) RoundTrip(r *http.Request) (*http.Response, erro
 }
 
 // setupWooshpayTest configures a live-mode WooshPay account whose API is
-// served by api, with an in-memory database and USD pricing at 8 per unit.
+// served by api, with an in-memory database and pricing at 8 CNY per unit.
 func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	t.Helper()
 	setupRebateControllerTest(t)
@@ -58,13 +58,13 @@ func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	t.Cleanup(func() { client.Transport = transport })
 
 	enabled, secretKey, webhookSecret, apiBase := setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase
-	currency, unitPrice, minTopUp := setting.WooshpayCurrency, setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
+	unitPrice, minTopUp := setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
 	quotaPerUnit := common.QuotaPerUnit
 	displayType := operation_setting.GetGeneralSetting().QuotaDisplayType
 	discount := operation_setting.GetPaymentSetting().AmountDiscount
 	t.Cleanup(func() {
 		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
-		setting.WooshpayCurrency, setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = currency, unitPrice, minTopUp
+		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
 		common.QuotaPerUnit = quotaPerUnit
 		operation_setting.GetGeneralSetting().QuotaDisplayType = displayType
 		operation_setting.GetPaymentSetting().AmountDiscount = discount
@@ -73,7 +73,6 @@ func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	setting.WooshpaySecretKey = "sk_live_wooshpay"
 	setting.WooshpayWebhookSecret = wooshpayTestWebhookSecret
 	setting.WooshpayApiBase = "https://api.wooshpay.com"
-	setting.WooshpayCurrency = "USD"
 	setting.WooshpayUnitPrice = 8
 	setting.WooshpayMinTopUp = 1
 	common.QuotaPerUnit = 500000
@@ -89,12 +88,12 @@ func insertWooshpayTestOrder(t *testing.T, userID int, tradeNo string) {
 	}).Insert())
 }
 
-// wooshpayTestIntent is a succeeded live PaymentIntent of 80.00 USD that
+// wooshpayTestIntent is a succeeded live PaymentIntent of 80.00 CNY that
 // matches the metadata this server writes for tradeNo.
 func wooshpayTestIntent(id string, tradeNo string) string {
 	return fmt.Sprintf(`{"id":%q,"object":"payment_intent","status":"succeeded","amount":8000,"amount_received":8000,`+
-		`"currency":"usd","livemode":true,"merchant_order_id":%q,"metadata":{"new_api_trade_no":%q,`+
-		`"new_api_amount_listed":"8000","new_api_amount_charged":"8000","new_api_currency":"USD"}}`, id, tradeNo, tradeNo)
+		`"currency":"cny","livemode":true,"merchant_order_id":%q,"metadata":{"new_api_trade_no":%q,`+
+		`"new_api_amount_listed":"8000","new_api_amount_charged":"8000"}}`, id, tradeNo, tradeNo)
 }
 
 func signWooshpayTestPayload(timestamp string, payload string) string {
@@ -151,29 +150,25 @@ func TestVerifyWooshpaySignature(t *testing.T) {
 	}
 }
 
-func TestWooshpayUnitAmountMinorUnits(t *testing.T) {
+func TestWooshpayUnitAmountFen(t *testing.T) {
 	cases := []struct {
-		name     string
-		currency string
-		money    string
-		want     int64
-		err      string
+		name string
+		yuan string
+		want int64
+		err  string
 	}{
-		{"USD has two decimals", "USD", "8", 800, ""},
-		{"fractional cents round half away from zero", "USD", "8.005", 801, ""},
-		{"JPY has no decimals", "JPY", "800", 800, ""},
-		{"KWD has three decimals", "KWD", "1.234", 1234, ""},
+		{"yuan become fen", "73", 7300, ""},
+		{"fractional fen round half away from zero", "8.005", 801, ""},
+		{"fractional fen round down", "8.004", 800, ""},
 		// A PaymentIntent amount has at most 8 digits.
-		{"largest WooshPay amount", "JPY", "99999999", 99_999_999, ""},
-		{"nine digits", "JPY", "100000000", 0, "Payment amount is too high"},
-		{"nine digits after rounding", "USD", "999999.995", 0, "Payment amount is too high"},
-		{"rounds to zero", "USD", "0.004", 0, "Payment amount is too low"},
-		{"unknown currency", "XYZ", "8", 0, "Payment currency is not supported"},
-		{"lowercase code is not configured", "usd", "8", 0, "Payment currency is not supported"},
+		{"largest WooshPay amount", "999999.99", 99_999_999, ""},
+		{"nine digits", "1000000", 0, "Payment amount is too high"},
+		{"nine digits after rounding", "999999.995", 0, "Payment amount is too high"},
+		{"rounds to zero", "0.004", 0, "Payment amount is too low"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := wooshpayMinorUnits(tc.currency, decimal.RequireFromString(tc.money))
+			got, err := wooshpayFen(decimal.RequireFromString(tc.yuan))
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
 				return
@@ -229,11 +224,11 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	assert.NotContains(t, sessionBody, "expires_at", "WooshPay's 24h default applies; its timestamps are in milliseconds")
 	lineItem := sessionBody["line_items"].([]any)[0].(map[string]any)
 	priceData := lineItem["price_data"].(map[string]any)
-	assert.Equal(t, "USD", priceData["currency"])
-	assert.EqualValues(t, 1200, priceData["unit_amount"], "2 units × 8 USD with the 0.75 preset discount")
+	assert.Equal(t, "CNY", priceData["currency"])
+	assert.EqualValues(t, 1200, priceData["unit_amount"], "2 units × 8 CNY with the 0.75 preset discount, in fen")
 	metadata := map[string]any{
 		"new_api_trade_no": tradeNo, "new_api_amount_listed": "1600",
-		"new_api_amount_charged": "1200", "new_api_currency": "USD",
+		"new_api_amount_charged": "1200",
 	}
 	assert.Equal(t, metadata, sessionBody["metadata"])
 	intentData := sessionBody["payment_intent_data"].(map[string]any)
@@ -247,17 +242,16 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	assert.Equal(t, int64(2), order.Amount)
 	assert.InDelta(t, 12.0, order.Money, 1e-9)
 
-	// Only the charged amount is bounded: 100 units at 160,000 IDR list at
-	// 1,600,000,000 sen, above WooshPay's 8-digit amount limit, but the 0.05
-	// preset discount charges 80,000,000 sen. The out-of-range listed amount
+	// Only the charged amount is bounded: 100 units at 160,000 CNY list at
+	// 1,600,000,000 fen, above WooshPay's 8-digit amount limit, but the 0.05
+	// preset discount charges 80,000,000 fen. The out-of-range listed amount
 	// is left out.
-	setting.WooshpayCurrency = "IDR"
 	setting.WooshpayUnitPrice = 160_000
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{100: 0.05}
 	out = postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":100,"payment_method":"wooshpay"}`, userID)
 	require.Equal(t, "success", out["message"], out)
 	priceData = sessionBody["line_items"].([]any)[0].(map[string]any)["price_data"].(map[string]any)
-	assert.Equal(t, "IDR", priceData["currency"])
+	assert.Equal(t, "CNY", priceData["currency"])
 	assert.EqualValues(t, 80_000_000, priceData["unit_amount"])
 	assert.NotContains(t, sessionBody["metadata"], "new_api_amount_listed")
 	assert.Equal(t, "80000000", sessionBody["metadata"].(map[string]any)["new_api_amount_charged"])
@@ -276,12 +270,11 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&ordersAfter).Error)
 	assert.Equal(t, orders, ordersAfter)
 
-	// The quote states the amount with the currency and its minor digits.
-	setting.WooshpayCurrency = "JPY"
-	setting.WooshpayUnitPrice = 800
-	out = postJSON(t, RequestWooshpayAmount, http.MethodPost, "/api/user/wooshpay/amount", `{"amount":2}`, userID)
+	// The quote states the CNY amount with 2 decimals.
+	setting.WooshpayUnitPrice = 7.3
+	out = postJSON(t, RequestWooshpayAmount, http.MethodPost, "/api/user/wooshpay/amount", `{"amount":10}`, userID)
 	require.Equal(t, "success", out["message"], out)
-	assert.Equal(t, map[string]any{"amount": "1600", "currency": "JPY", "minor_digits": float64(0)}, out["data"])
+	assert.Equal(t, map[string]any{"amount": "73.00"}, out["data"])
 }
 
 // With the Tokens display the amount is entered in tokens. It is bounded and
@@ -326,7 +319,7 @@ func TestWooshpayTokensDisplayOrderCreditsRequestedTokens(t *testing.T) {
 	assert.Zero(t, orders)
 
 	_, payMoney := getWooshpayPayMoney(1_000_000, "vip", setting.WooshpayUnitPrice)
-	assert.Equal(t, "16", payMoney.String(), "2 units × 8 USD × group ratio 2 × discount 0.5")
+	assert.Equal(t, "16", payMoney.String(), "2 units × 8 CNY × group ratio 2 × discount 0.5")
 	out := postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":1000000,"payment_method":"wooshpay"}`, userID)
 	require.Equal(t, "success", out["message"], out)
 
@@ -345,7 +338,7 @@ func TestWooshpayTokensDisplayOrderCreditsRequestedTokens(t *testing.T) {
 	assert.Equal(t, 1_000_000, quota, "credits the requested tokens, not scaled by the group ratio")
 	var topupLog model.Log
 	require.NoError(t, model.LOG_DB.Where("user_id = ? AND type = ?", userID, model.LogTypeTopup).First(&topupLog).Error)
-	assert.Contains(t, topupLog.Content, "16.00 USD", "the log shows the amount actually charged")
+	assert.Contains(t, topupLog.Content, "16.00 CNY", "the log shows the amount actually charged")
 }
 
 func TestWooshpayFulfillRejectsMismatchedIntent(t *testing.T) {
@@ -357,9 +350,9 @@ func TestWooshpayFulfillRejectsMismatchedIntent(t *testing.T) {
 	acknowledged := map[string]string{
 		"pi_other_order":  strings.Replace(intent("pi_other_order"), `"merchant_order_id":"`+tradeNo, `"merchant_order_id":"wsp_other`, 1),
 		"pi_underpaid":    strings.Replace(intent("pi_underpaid"), `"amount_received":8000`, `"amount_received":7999`, 1),
-		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"usd"`, `"currency":"eur"`, 1),
+		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"cny"`, `"currency":"usd"`, 1),
 		"pi_test_mode":    strings.Replace(intent("pi_test_mode"), `"livemode":true`, `"livemode":false`, 1),
-		"pi_no_metadata":  fmt.Sprintf(`{"id":"pi_no_metadata","status":"succeeded","amount_received":8000,"currency":"usd","livemode":true,"merchant_order_id":%q}`, tradeNo),
+		"pi_no_metadata":  fmt.Sprintf(`{"id":"pi_no_metadata","status":"succeeded","amount_received":8000,"currency":"cny","livemode":true,"merchant_order_id":%q}`, tradeNo),
 		"pi_answers_else": intent("pi_someone_else"),
 		// The order's user is gone; the payment needs manual handling.
 		"pi_orphan": wooshpayTestIntent("pi_orphan", orphanTradeNo),
@@ -484,24 +477,23 @@ func TestWooshpayFulfillIsIdempotent(t *testing.T) {
 func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	setupRebateControllerTest(t)
 	enabled, secretKey, webhookSecret, apiBase := setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase
-	currency, unitPrice, minTopUp := setting.WooshpayCurrency, setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
+	unitPrice, minTopUp := setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
 	common.OptionMapRWMutex.Lock()
 	optionMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
 		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
-		setting.WooshpayCurrency, setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = currency, unitPrice, minTopUp
+		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
 		common.OptionMap = optionMap
 	})
 	setting.WooshpayEnabled = false
 	setting.WooshpaySecretKey = ""
 	setting.WooshpayWebhookSecret = ""
 	setting.WooshpayApiBase = "https://api.wooshpay.com"
-	setting.WooshpayCurrency = "USD"
+	setting.WooshpayUnitPrice = 7.3
 
 	rejected := map[string][]string{
-		"WooshpayCurrency":  {"", "usd", "US", "USDT", "XYZ"},
 		"WooshpayUnitPrice": {"", "0", "-1", "NaN", "Inf", "abc"},
 		"WooshpayMinTopUp":  {"", "0", "-1", "1.5", "10001"},
 		"WooshpayApiBase": {"", "http://api.wooshpay.com", "api.wooshpay.com", "https://api.wooshpay.com/v1",
@@ -513,16 +505,16 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 			assert.Error(t, model.UpdateOption(key, value), "%s=%q", key, value)
 		}
 	}
-	assert.Equal(t, "USD", setting.WooshpayCurrency, "a refused value does not reach the setting")
+	assert.Equal(t, 7.3, setting.WooshpayUnitPrice, "a refused value does not reach the setting")
 
 	accepted := map[string]string{
-		"WooshpayCurrency": "JPY", "WooshpayUnitPrice": "7.5", "WooshpayMinTopUp": "10000",
+		"WooshpayUnitPrice": "7.5", "WooshpayMinTopUp": "10000",
 		"WooshpayApiBase": "https://apitest.wooshpay.com/",
 	}
 	for key, value := range accepted {
 		require.NoError(t, model.UpdateOption(key, value), "%s=%q", key, value)
 	}
-	assert.Equal(t, "JPY", setting.WooshpayCurrency)
+	assert.Equal(t, 7.5, setting.WooshpayUnitPrice)
 	assert.Equal(t, 10000, setting.WooshpayMinTopUp)
 	assert.Equal(t, "https://apitest.wooshpay.com", setting.WooshpayApiBase, "a trailing slash is dropped when saved")
 
@@ -544,40 +536,39 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	save := func(body string) map[string]any {
 		return postJSON(t, UpdateWooshpayEnvironment, http.MethodPut, "/api/option/wooshpay/environment", body, adminID)
 	}
-	storedCurrency := func() string {
+	storedMinTopUp := func() string {
 		var option model.Option
-		require.NoError(t, model.DB.Where(&model.Option{Key: "WooshpayCurrency"}).First(&option).Error)
+		require.NoError(t, model.DB.Where(&model.Option{Key: "WooshpayMinTopUp"}).First(&option).Error)
 		return option.Value
 	}
-	out := save(`{"secret_key":"sk_live_x","api_base":"https://apitest.wooshpay.com","currency":"EUR","unit_price":9}`)
+	out := save(`{"secret_key":"sk_live_x","api_base":"https://apitest.wooshpay.com","min_topup":5,"unit_price":9}`)
 	assert.Equal(t, false, out["success"], "a live key with the test API base is still refused together")
-	out = save(`{"currency":"EUR","unit_price":0}`)
+	out = save(`{"min_topup":5,"unit_price":0}`)
 	assert.Equal(t, false, out["success"], "a refused unit price")
-	out = save(`{"currency":"EUR","api_base":"https://api.wooshpay.com/v1"}`)
+	out = save(`{"min_topup":5,"api_base":"https://api.wooshpay.com/v1"}`)
 	assert.Equal(t, false, out["success"], "an API base with a path")
-	assert.Equal(t, "JPY", setting.WooshpayCurrency, "a refused save changes none of its settings")
-	assert.Equal(t, "JPY", storedCurrency())
+	assert.Equal(t, 10000, setting.WooshpayMinTopUp, "a refused save changes none of its settings")
+	assert.Equal(t, "10000", storedMinTopUp())
 	assert.Equal(t, 7.5, setting.WooshpayUnitPrice)
 	assert.Equal(t, "sk_test_x", setting.WooshpaySecretKey)
 
-	// Moving to the live environment, with a new price, is one save; the
-	// currency is stored in upper case and blank secrets keep their values.
-	out = save(`{"secret_key":" sk_live_x ","webhook_secret":"","api_base":"https://api.wooshpay.com/","currency":" eur ","unit_price":9.5,"min_topup":2,"enabled":true}`)
+	// Moving to the live environment, with a new price, is one save; blank
+	// secrets keep their values.
+	out = save(`{"secret_key":" sk_live_x ","webhook_secret":"","api_base":"https://api.wooshpay.com/","unit_price":9.5,"min_topup":2,"enabled":true}`)
 	require.Equal(t, true, out["success"], out)
 	assert.Equal(t, "sk_live_x", setting.WooshpaySecretKey)
 	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)
 	assert.Equal(t, "https://api.wooshpay.com", setting.WooshpayApiBase)
-	assert.Equal(t, "EUR", setting.WooshpayCurrency)
-	assert.Equal(t, "EUR", storedCurrency())
 	assert.Equal(t, 9.5, setting.WooshpayUnitPrice)
 	assert.Equal(t, 2, setting.WooshpayMinTopUp)
+	assert.Equal(t, "2", storedMinTopUp())
 	assert.True(t, setting.WooshpayEnabled)
 	assert.True(t, setting.WooshpayApiBaseMatchesKey())
 
 	// The audit log names the changed settings, never their values.
 	var audit model.AuditLog
 	require.NoError(t, model.DB.Where("action = ?", "option.update").Order("id desc").First(&audit).Error)
-	assert.Equal(t, "Updated system setting WooshpayApiBase, WooshpayCurrency, WooshpayEnabled, WooshpayMinTopUp, WooshpaySecretKey, WooshpayUnitPrice", audit.Content)
+	assert.Equal(t, "Updated system setting WooshpayApiBase, WooshpayEnabled, WooshpayMinTopUp, WooshpaySecretKey, WooshpayUnitPrice", audit.Content)
 	assert.NotContains(t, audit.Content, "sk_live_x")
 
 	out = save(`{}`)
@@ -687,7 +678,7 @@ func TestWooshpayWebhookRetriesTransientDatabaseError(t *testing.T) {
 }
 
 // The wallet prices the preset cards with what this user pays: the unit
-// price scaled by the user's top-up group ratio, in the WooshPay currency.
+// price in CNY scaled by the user's top-up group ratio.
 // Listing WooshPay must not write into the configured PayMethods.
 func TestWooshpayTopUpInfoPricesForTheUser(t *testing.T) {
 	oldTopupGroupRatio := common.TopupGroupRatio2JSONString()
@@ -698,7 +689,6 @@ func TestWooshpayTopUpInfoPricesForTheUser(t *testing.T) {
 	t.Cleanup(func() { operation_setting.PayMethods = oldMethods })
 	// Spare capacity lets an append write into the configured array.
 	operation_setting.PayMethods = append(make([]map[string]string, 0, 4), map[string]string{"name": "Alipay", "type": "alipay"})
-	setting.WooshpayCurrency = "KWD"
 	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("group", "vip").Error)
 
@@ -707,8 +697,6 @@ func TestWooshpayTopUpInfoPricesForTheUser(t *testing.T) {
 	data := out["data"].(map[string]any)
 	assert.Equal(t, true, data["enable_wooshpay_topup"])
 	assert.Equal(t, 16.0, data["wooshpay_unit_price"], "8 per unit × group ratio 2")
-	assert.Equal(t, "KWD", data["wooshpay_currency"])
-	assert.Equal(t, 3.0, data["wooshpay_minor_digits"])
 	methods := data["pay_methods"].([]any)
 	require.Len(t, methods, 2)
 	assert.Equal(t, "wooshpay", methods[1].(map[string]any)["type"])
@@ -728,7 +716,7 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 		"pi_other_order":  wooshpayTestIntent("pi_other_order", other),
 		"pi_test_mode":    strings.Replace(intent("pi_test_mode"), `"livemode":true`, `"livemode":false`, 1),
 		"pi_wrong_amount": strings.ReplaceAll(intent("pi_wrong_amount"), "8000", "7999"),
-		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"usd"`, `"currency":"eur"`, 1),
+		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"cny"`, `"currency":"usd"`, 1),
 		"pi_merchant":     strings.Replace(intent("pi_merchant"), `"merchant_order_id":"`+closed, `"merchant_order_id":"wsp_x`, 1),
 	}
 	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {

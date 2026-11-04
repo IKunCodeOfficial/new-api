@@ -28,8 +28,7 @@ import zh from '@/i18n/locales/zh.json'
 import { PaymentConfirmDialog } from '../components/dialogs/payment-confirm-dialog'
 import { RechargeFormCard } from '../components/recharge-form-card'
 import { PAYMENT_TYPES } from '../constants'
-import { formatGatewayAmount, type GatewayPresetPricing } from '../lib'
-import type { GatewayCurrency } from '../types'
+import { formatCnyAmount, type GatewayPresetPricing } from '../lib'
 
 const i18n = createInstance()
 
@@ -43,10 +42,7 @@ beforeEach(async () => {
   })
 })
 
-function renderDialog(
-  paymentAmount: number,
-  paymentCurrency?: GatewayCurrency
-) {
+function renderDialog(paymentAmount: number, paymentInCny?: boolean) {
   render(
     <I18nextProvider i18n={i18n}>
       <PaymentConfirmDialog
@@ -58,43 +54,40 @@ function renderDialog(
         paymentMethod={{ name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY }}
         calculating={false}
         processing={false}
-        paymentCurrency={paymentCurrency}
+        paymentInCny={paymentInCny}
       />
     </I18nextProvider>
   )
 }
 
 it.each([
-  { currency: 'USD', minorDigits: 2, amount: 16, shown: /^USD\s16\.00$/ },
-  { currency: 'JPY', minorDigits: 0, amount: 800, shown: /^JPY\s800$/ },
-  { currency: 'KWD', minorDigits: 3, amount: 1.234, shown: /^KWD\s1\.234$/ },
-  { currency: 'KWD', minorDigits: 3, amount: 16, shown: /^KWD\s16\.000$/ },
-  // WooshPay's minor unit for IQD has 3 digits; Intl's own default has 0.
-  { currency: 'IQD', minorDigits: 3, amount: 16, shown: /^IQD\s16\.000$/ },
+  { amount: 16, shown: /^CNY\s16\.00$/ },
+  { amount: 73, shown: /^CNY\s73\.00$/ },
+  { amount: 1.2, shown: /^CNY\s1\.20$/ },
 ])(
-  'a WooshPay payment of $amount $currency shows exactly the quoted minor-unit digits',
-  ({ currency, minorDigits, amount, shown }) => {
-    renderDialog(amount, { currency, minorDigits })
+  'a WooshPay payment of $amount shows the CNY amount with 2 decimals',
+  ({ amount, shown }) => {
+    renderDialog(amount, true)
     expect(screen.getByText(shown)).toBeVisible()
   }
 )
 
-it('the WooshPay currency amount follows the interface language', async () => {
-  renderDialog(1234.5, { currency: 'USD', minorDigits: 2 })
-  expect(screen.getByText(/^USD\s1,234\.50$/)).toBeVisible()
+it('the WooshPay CNY amount follows the interface language', async () => {
+  renderDialog(1234.5, true)
+  expect(screen.getByText(/^CNY\s1,234\.50$/)).toBeVisible()
   await act(() => i18n.changeLanguage('zh'))
-  expect(screen.getByText(/USD\s?1,234\.50/)).toBeVisible()
+  expect(screen.getByText(/CNY\s?1,234\.50/)).toBeVisible()
 })
 
-it('a payment without a gateway currency keeps the plain amount', () => {
+it('a payment not quoted in CNY keeps the plain amount', () => {
   renderDialog(16)
   expect(screen.getByText('16')).toBeVisible()
-  expect(screen.queryByText(/USD/)).toBeNull()
+  expect(screen.queryByText(/CNY/)).toBeNull()
 })
 
 function renderPresets(
   gatewayPricing?: GatewayPresetPricing,
-  paymentCurrency?: GatewayCurrency
+  paymentInCny?: boolean
 ) {
   render(
     <I18nextProvider i18n={i18n}>
@@ -125,49 +118,44 @@ function renderPresets(
         redeeming={false}
         priceRatio={7.3}
         gatewayPricing={gatewayPricing}
-        paymentCurrency={paymentCurrency}
+        paymentInCny={paymentInCny}
       />
     </I18nextProvider>
   )
 }
 
-it('WooshPay preset cards show the WooshPay price in its currency', () => {
-  renderPresets({ currency: 'USD', minorDigits: 2, pricePerAmount: 8 })
-  expect(screen.getByText(/^Pay USD\s16\.00$/)).toBeVisible()
-  expect(screen.getByText(/^Pay USD\s32\.00/)).toBeVisible()
-  expect(screen.getByText(/Save USD\s8\.00/)).toBeVisible()
+it('WooshPay preset cards show the WooshPay price in CNY', () => {
+  renderPresets({ pricePerAmount: 8 })
+  expect(screen.getByText(/^Pay CNY\s16\.00$/)).toBeVisible()
+  expect(screen.getByText(/^Pay CNY\s32\.00/)).toBeVisible()
+  expect(screen.getByText(/Save CNY\s8\.00/)).toBeVisible()
 })
 
 it('preset cards without gateway pricing keep the regular price', () => {
   renderPresets()
   expect(screen.getByText('Pay 14.6')).toBeVisible()
-  expect(screen.queryByText(/USD/)).toBeNull()
+  expect(screen.queryByText(/CNY/)).toBeNull()
 })
 
-it('the amount field shows the quoted WooshPay amount in the quoted currency', () => {
-  renderPresets(
-    { currency: 'JPY', minorDigits: 0, pricePerAmount: 800 },
-    { currency: 'JPY', minorDigits: 0 }
-  )
-  expect(screen.getByText(/^JPY\s16$/)).toBeVisible()
+it('the amount field shows the quoted WooshPay amount in CNY', () => {
+  renderPresets({ pricePerAmount: 8 }, true)
+  expect(screen.getByText(/^CNY\s16\.00$/)).toBeVisible()
 })
 
 // Each interface language goes through toIntlLocale before reaching Intl;
-// the digits are always the currency's minor-unit digits.
+// the amount always has 2 decimals.
 it.each([
-  { language: 'zhCN', shown: /^KWD\s1,234\.500$/ },
-  { language: 'zhTW', shown: /^KWD\s1,234\.500$/ },
-  { language: 'en', shown: /^KWD\s1,234\.500$/ },
-  { language: 'fr', shown: /^1\s234,500\sKWD$/ },
-  { language: 'ru', shown: /^1\s234,500\sKWD$/ },
-  { language: 'ja', shown: /^KWD\s1,234\.500$/ },
-  { language: 'vi', shown: /^1\.234,500\sKWD$/ },
+  { language: 'zhCN', shown: /^CNY\s1,234\.50$/ },
+  { language: 'zhTW', shown: /^CNY\s1,234\.50$/ },
+  { language: 'en', shown: /^CNY\s1,234\.50$/ },
+  { language: 'fr', shown: /^1\s234,50\sCNY$/ },
+  { language: 'ru', shown: /^1\s234,50\sCNY$/ },
+  { language: 'ja', shown: /^CNY\s1,234\.50$/ },
+  { language: 'vi', shown: /^1\.234,50\sCNY$/ },
 ])(
-  'formats a gateway amount for the $language interface language',
+  'formats a CNY amount for the $language interface language',
   ({ language, shown }) => {
-    expect(
-      formatGatewayAmount(1234.5, 'KWD', 3, toIntlLocale(language))
-    ).toMatch(shown)
+    expect(formatCnyAmount(1234.5, toIntlLocale(language))).toMatch(shown)
   }
 )
 
@@ -178,16 +166,14 @@ it('covers every interface language', () => {
 })
 
 it.each(['not a language!', 'zhCN'])(
-  'an invalid locale %s falls back to the default locale with the same digits',
+  'an invalid locale %s falls back to the default locale with 2 decimals',
   (locale) => {
     expect(toIntlLocale('not a language!')).toBeUndefined()
-    expect(formatGatewayAmount(1234.5, 'JPY', 0, locale)).toMatch(/1.?235/)
-    expect(formatGatewayAmount(1234.5, 'JPY', 0, locale)).toMatch(/JPY/)
+    expect(formatCnyAmount(1234.5, locale)).toMatch(/1.?234[.,]50/)
+    expect(formatCnyAmount(1234.5, locale)).toMatch(/CNY/)
   }
 )
 
-it('an unknown currency code falls back to the plain amount and the code', () => {
-  expect(formatGatewayAmount(16, 'NOT-A-CODE', 2, 'en')).toBe(
-    '16.00 NOT-A-CODE'
-  )
+it('a non-finite amount is shown as a dash', () => {
+  expect(formatCnyAmount(Number.NaN, 'en')).toBe('-')
 })

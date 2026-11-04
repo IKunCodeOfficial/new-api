@@ -167,7 +167,6 @@ const BILLING_SECTIONS = [
           WooshpaySecretKey: settings.WooshpaySecretKey,
           WooshpayWebhookSecret: settings.WooshpayWebhookSecret,
           WooshpayApiBase: settings.WooshpayApiBase,
-          WooshpayCurrency: settings.WooshpayCurrency,
           WooshpayUnitPrice: settings.WooshpayUnitPrice,
           WooshpayMinTopUp: settings.WooshpayMinTopUp,
           CreemApiKey: settings.CreemApiKey,

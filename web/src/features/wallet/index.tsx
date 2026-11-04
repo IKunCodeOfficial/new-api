@@ -97,7 +97,7 @@ export function Wallet(props: WalletProps) {
     currency?.quotaDisplayType === 'TOKENS' ? currency.quotaPerUnit : undefined
   const {
     amount: paymentAmount,
-    paymentCurrency,
+    paymentInCny,
     calculating,
     processing,
     calculatePaymentAmount,
@@ -354,7 +354,7 @@ export function Wallet(props: WalletProps) {
                     topupInfo?.enable_waffo_pancake_topup
                   }
                   gatewayPricing={wooshpayPresetPricing}
-                  paymentCurrency={paymentCurrency}
+                  paymentInCny={paymentInCny}
                 />
               </div>
 
@@ -390,7 +390,7 @@ export function Wallet(props: WalletProps) {
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
-        paymentCurrency={paymentCurrency}
+        paymentInCny={paymentInCny}
       />
 
       <TransferDialog

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,11 +110,11 @@ func TestRechargeWooshpay_RejectsMismatchedPaymentMethod(t *testing.T) {
 	insertUserForPaymentGuardTest(t, 102, 0)
 	insertTopUpForPaymentGuardTest(t, "wooshpay-guard", 102, PaymentProviderStripe)
 
-	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 USD", GatewayCharge{})
+	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 CNY", GatewayCharge{})
 	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
 	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-guard"))
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 102))
-	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 USD", GatewayCharge{}), ErrTopUpNotFound)
+	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 CNY", GatewayCharge{}), ErrTopUpNotFound)
 }
 
 // A verified WooshPay payment completes its order even after the order was
@@ -131,13 +130,13 @@ func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 		insertTopUpForPaymentGuardTest(t, tradeNo, 103, PaymentProviderWooshpay)
 		require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", tradeNo).Update("status", status).Error)
 
-		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 USD", GatewayCharge{}), status)
+		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 CNY", GatewayCharge{}), status)
 		assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		quota := getUserQuotaForPaymentGuardTest(t, 103)
 		assert.Greater(t, quota, credited, status)
 		credited = quota
 
-		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 USD", GatewayCharge{}), ErrTopUpStatusInvalid)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 CNY", GatewayCharge{}), ErrTopUpStatusInvalid)
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103), "a completed order is not credited twice")
 	}
 }
@@ -405,22 +404,4 @@ func TestRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
 		})
 	}
-}
-
-// A WooshPay currency stored in lower case still names the currency: it is
-// loaded in upper case, which the checkout amounts and the admin form use.
-func TestWooshpayCurrencyIsNormalizedWhenLoaded(t *testing.T) {
-	previousCurrency := setting.WooshpayCurrency
-	common.OptionMapRWMutex.Lock()
-	previousOptionMap := common.OptionMap
-	common.OptionMap = map[string]string{}
-	common.OptionMapRWMutex.Unlock()
-	t.Cleanup(func() {
-		setting.WooshpayCurrency = previousCurrency
-		common.OptionMap = previousOptionMap
-	})
-
-	require.NoError(t, updateOptionMap("WooshpayCurrency", " jpy "))
-	assert.Equal(t, "JPY", setting.WooshpayCurrency)
-	assert.Equal(t, "JPY", common.OptionMap["WooshpayCurrency"])
 }

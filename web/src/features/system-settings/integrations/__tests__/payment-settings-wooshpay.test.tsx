@@ -50,7 +50,6 @@ const defaultValues: SectionProps['defaultValues'] = {
   WooshpaySecretKey: '',
   WooshpayWebhookSecret: '',
   WooshpayApiBase: 'https://api.wooshpay.com',
-  WooshpayCurrency: 'usd',
   WooshpayUnitPrice: 8,
   WooshpayMinTopUp: 1,
   CreemApiKey: '',
@@ -129,6 +128,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('WooshPay settings', () => {
+  it('the WooshPay tab has no currency field: checkouts are always in CNY', async () => {
+    const user = renderPayment()
+    await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
+    expect(screen.getByRole('spinbutton', { name: 'Unit price' })).toBeVisible()
+    expect(screen.queryByRole('textbox', { name: 'Currency' })).toBeNull()
+  })
+
   it('saves every changed WooshPay setting in one request and none one by one', async () => {
     const put = vi.spyOn(api, 'put').mockResolvedValue({
       data: { success: true, message: '' },
@@ -138,8 +144,6 @@ describe('WooshPay settings', () => {
     await user.click(screen.getByRole('button', { name: 'Save all settings' }))
 
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
-    // A currency stored in lower case is compared in upper case, so it is
-    // not sent as a change.
     expect(put).toHaveBeenCalledWith('/api/option/wooshpay/environment', {
       enabled: true,
       unit_price: 9.5,

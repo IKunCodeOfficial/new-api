@@ -24,12 +24,7 @@ import {
   DEFAULT_PAYMENT_TYPE,
   DEFAULT_MIN_TOPUP,
 } from '../constants'
-import type {
-  GatewayCurrency,
-  PaymentMethod,
-  PresetAmount,
-  TopupInfo,
-} from '../types'
+import type { PaymentMethod, PresetAmount, TopupInfo } from '../types'
 
 // ============================================================================
 // Payment Processing Functions
@@ -217,17 +212,17 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 }
 
 /**
- * Price of the preset amount cards in a gateway's own currency.
- * pricePerAmount is the price of one unit of the entered amount (one token
- * with the Tokens display).
+ * CNY price of the preset amount cards for a gateway that charges in CNY
+ * (WooshPay). pricePerAmount is the price of one unit of the entered amount
+ * (one token with the Tokens display).
  */
-export interface GatewayPresetPricing extends GatewayCurrency {
+export interface GatewayPresetPricing {
   pricePerAmount: number
 }
 
 /**
  * WooshPay charges its unit price, scaled by the user's top-up group ratio,
- * in its own currency; the top-up info states both for the current user. The
+ * in CNY; the top-up info states it for the current user. The
  * preset cards use that price whenever WooshPay is the payment type the
  * amount field is quoted for: the selected method, or the default one (the
  * first pay method) before any is selected.
@@ -238,18 +233,11 @@ export function getWooshpayPresetPricing(
   tokensPerUnit?: number
 ): GatewayPresetPricing | undefined {
   const unitPrice = Number(topupInfo?.wooshpay_unit_price)
-  const currency = topupInfo?.wooshpay_currency
-  const minorDigits = topupInfo?.wooshpay_minor_digits
-  if (
-    !isWooshpayPayment(paymentType) ||
-    !(unitPrice > 0) ||
-    !currency ||
-    typeof minorDigits !== 'number'
-  ) {
+  if (!isWooshpayPayment(paymentType) || !(unitPrice > 0)) {
     return undefined
   }
   const perUnit = tokensPerUnit && tokensPerUnit > 0 ? tokensPerUnit : 1
-  return { currency, minorDigits, pricePerAmount: unitPrice / perUnit }
+  return { pricePerAmount: unitPrice / perUnit }
 }
 
 /** Most units one WooshPay order may buy (setting.WooshpayMaxTopUpUnits). */

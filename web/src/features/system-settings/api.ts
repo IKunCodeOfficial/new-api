@@ -53,7 +53,6 @@ export interface WooshpaySettingsUpdate {
   secret_key?: string
   webhook_secret?: string
   api_base?: string
-  currency?: string
   unit_price?: number
   min_topup?: number
 }

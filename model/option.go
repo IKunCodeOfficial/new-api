@@ -106,7 +106,6 @@ func InitOptionMap() {
 	common.OptionMap["WooshpaySecretKey"] = setting.WooshpaySecretKey
 	common.OptionMap["WooshpayWebhookSecret"] = setting.WooshpayWebhookSecret
 	common.OptionMap["WooshpayApiBase"] = setting.WooshpayApiBase
-	common.OptionMap["WooshpayCurrency"] = setting.WooshpayCurrency
 	common.OptionMap["WooshpayUnitPrice"] = strconv.FormatFloat(setting.WooshpayUnitPrice, 'f', -1, 64)
 	common.OptionMap["WooshpayMinTopUp"] = strconv.Itoa(setting.WooshpayMinTopUp)
 	common.OptionMap["CreemApiKey"] = setting.CreemApiKey
@@ -632,11 +631,6 @@ func updateOptionMap(key string, value string) (err error) {
 	case "WooshpayApiBase":
 		setting.WooshpayApiBase = setting.NormalizeWooshpayApiBase(value)
 		common.OptionMap[key] = setting.WooshpayApiBase
-	case "WooshpayCurrency":
-		// A code stored in lower case still names the currency; the
-		// checkout amounts and the admin form use the upper-case code.
-		setting.WooshpayCurrency = setting.NormalizeWooshpayCurrency(value)
-		common.OptionMap[key] = setting.WooshpayCurrency
 	case "WooshpayUnitPrice":
 		setting.WooshpayUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WooshpayMinTopUp":
