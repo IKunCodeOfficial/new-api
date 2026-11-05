@@ -354,7 +354,7 @@ func WooshpayWebhook(c *gin.Context) {
 		return
 	}
 
-	if err := verifyWooshpaySignature(payload, c.GetHeader("Signature"), webhookSecret); err != nil {
+	if err := verifyWooshpaySignature(payload, wooshpaySignatureHeader(c.Request.Header), webhookSecret); err != nil {
 		logger.LogWarn(ctx, wooshpaySignatureFailureLog(c.Request, payload, webhookSecret, callerIp, err))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
@@ -436,13 +436,23 @@ func verifyWooshpaySignature(payload []byte, header string, secret string) error
 	return errors.New("no matching v1 signature")
 }
 
+// wooshpaySignatureHeader returns the webhook signature header. WooshPay sends
+// it as Wooshpay-Signature; its docs also name a plain Signature header, which
+// is read when the former is absent.
+func wooshpaySignatureHeader(header http.Header) string {
+	if signature := header.Get("Wooshpay-Signature"); signature != "" {
+		return signature
+	}
+	return header.Get("Signature")
+}
+
 // wooshpaySignatureFailureLog is the warning logged when a webhook fails
 // verification. Besides the error it records what the request looked like and
 // which candidate signing schemes would have matched, so the scheme WooshPay
-// really uses can be learned from the log. It holds the Signature header
+// really uses can be learned from the log. It holds the signature header
 // (only t and the MACs) and the secret's length and prefix, never the secret.
 func wooshpaySignatureFailureLog(request *http.Request, payload []byte, secret string, callerIp string, verifyErr error) string {
-	signature := request.Header.Get("Signature")
+	signature := wooshpaySignatureHeader(request.Header)
 	bodySum := sha256.Sum256(payload)
 	matches := strings.Join(wooshpaySignatureDiagnosis(payload, signature, secret), ",")
 	if matches == "" {

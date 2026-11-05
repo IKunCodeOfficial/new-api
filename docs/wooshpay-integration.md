@@ -105,7 +105,7 @@
 
 以下几点已与 WooshPay 确认：
 
-- 请求头：`Signature: t=<毫秒时间戳>,v1=<hex>`，只读这一个头。
+- 请求头：`Wooshpay-Signature: t=<毫秒时间戳>,v1=<hex>`（联调实测）。WooshPay 部分文档写的是 `Signature`，没有 `Wooshpay-Signature` 时才读它。
 - 算法：`hex(HMAC_SHA256(key = webhook.secret, msg = t + "." + rawBody))`。
 - 密钥：形如 `whsec_yDjRWBxxxx`，取自创建 Webhook 时返回的 `secret` 字段。**整串原样作为 key 的字节使用**，包括 `whsec_` 前缀，不做解码。
 - `t`：单位是毫秒，只作为签名的盐值参与计算，**不做时间窗口校验**。计算时用 header 里的原始字符串，不要转成数字再格式化回去。
@@ -563,7 +563,7 @@ cd web && bun run lint && bun run build && bun run test
 | # | 问题 | 结论 | 对实现的影响 |
 |---|---|---|---|
 | 1 | 请求体格式 | JSON | 所有请求都用 `Content-Type: application/json` |
-| 2 | 签名头名称 | `Signature` | 只读 `Signature` 这一个头 |
+| 2 | 签名头名称 | 实际投递用 `Wooshpay-Signature`（测试环境实测，与"已确认"的 `Signature` 不符） | 先读 `Wooshpay-Signature`，没有时读 `Signature` |
 | 3 | Webhook 密钥格式 | `whsec_yDjRWBxxxx` | 整串原样当作 HMAC key，不做解码 |
 | 4 | 签名时间戳 | 单位是毫秒，只作为盐值参与签名 | 不做时间窗口校验；防重放靠回查和幂等（§2.4） |
 | 5 | 币种和支付方式 | 测试环境按报价单，生产环境按入网结果 | 本站固定按 CNY 收款，账号必须开通 CNY；上线前按入网结果核对 |

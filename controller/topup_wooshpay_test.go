@@ -108,7 +108,7 @@ func postWooshpayTestWebhook(t *testing.T, requestCtx context.Context, payload s
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequestWithContext(requestCtx, http.MethodPost, "/api/wooshpay/webhook", strings.NewReader(payload))
-	ctx.Request.Header.Set("Signature", signature)
+	ctx.Request.Header.Set("Wooshpay-Signature", signature)
 	WooshpayWebhook(ctx)
 	return recorder.Code
 }
@@ -122,6 +122,30 @@ func TestVerifyWooshpaySignatureMatchesWooshpayExample(t *testing.T) {
 
 	require.NoError(t, verifyWooshpaySignature([]byte(body), header, secret))
 	assert.Error(t, verifyWooshpaySignature([]byte(strings.Replace(body, "TI-025686", "TI025686", 1)), header, secret))
+}
+
+// WooshPay delivers the signature in Wooshpay-Signature; a plain Signature
+// header, as some of its docs describe, is still accepted when it is absent.
+func TestWooshpaySignatureHeader(t *testing.T) {
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{"wooshpay header", map[string]string{"Wooshpay-Signature": "t=1,v1=aa"}, "t=1,v1=aa"},
+		{"plain header", map[string]string{"Signature": "t=2,v1=bb"}, "t=2,v1=bb"},
+		{"both prefer wooshpay", map[string]string{"Wooshpay-Signature": "t=1,v1=aa", "Signature": "t=2,v1=bb"}, "t=1,v1=aa"},
+		{"neither", map[string]string{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := http.Header{}
+			for name, value := range tc.headers {
+				header.Set(name, value)
+			}
+			assert.Equal(t, tc.want, wooshpaySignatureHeader(header))
+		})
+	}
 }
 
 func TestVerifyWooshpaySignature(t *testing.T) {
@@ -185,12 +209,12 @@ func TestWooshpaySignatureDiagnosis(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/api/wooshpay/webhook", strings.NewReader(body))
-			request.Header.Set("Signature", tc.header)
+			request.Header.Set("Wooshpay-Signature", tc.header)
 			request.Header.Set("Content-Type", "application/json")
 
 			line := wooshpaySignatureFailureLog(request, []byte(body), tc.secret, "127.0.0.1", errors.New("no matching v1 signature"))
 			assert.True(t, strings.HasSuffix(line, " matching_schemes="+tc.schemes), line)
-			assert.Contains(t, line, "headers=Content-Type,Signature ")
+			assert.Contains(t, line, "headers=Content-Type,Wooshpay-Signature ")
 			assert.Contains(t, line, "secret_has_whsec_prefix=true secret_length=16 ")
 			assert.NotContains(t, line, tc.secret)
 			assert.NotContains(t, line, strings.TrimPrefix(tc.secret, "whsec_"))
