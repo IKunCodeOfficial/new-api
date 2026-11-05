@@ -270,6 +270,8 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	assert.Equal(t, tradeNo, idempotencyKey)
 	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("sk_live_wooshpay:")), authorization)
 	assert.NotContains(t, sessionBody, "expires_at", "WooshPay's 24h default applies; its timestamps are in milliseconds")
+	assert.Equal(t, paymentReturnPath("/wallet"), sessionBody["success_url"], "a paid customer lands back on the wallet")
+	assert.Equal(t, paymentReturnPath("/wallet"), sessionBody["cancel_url"])
 	lineItem := sessionBody["line_items"].([]any)[0].(map[string]any)
 	priceData := lineItem["price_data"].(map[string]any)
 	assert.Equal(t, "CNY", priceData["currency"])

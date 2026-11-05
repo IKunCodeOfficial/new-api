@@ -56,7 +56,7 @@
 ```json
 {
   "mode": "payment",
-  "success_url": "https://example.com/usage-logs",
+  "success_url": "https://example.com/wallet",
   "cancel_url": "https://example.com/wallet",
   "client_reference_id": "wsp_9f2c...",
   "customer_email": "user@example.com",
@@ -315,7 +315,7 @@ fen := payMoney.Shift(2).Round(0) // ×100，四舍五入（half away from zero�
 
 1. 如果 `!isWooshpayTopUpEnabled()`，直接返回错误。
 2. 要求 `req.PaymentMethod == model.PaymentMethodWooshpay`；检查金额上下限。
-3. 用 `common.ValidateRedirectURL` 校验 SuccessURL 和 CancelURL。为空时分别默认 `paymentReturnPath("/usage-logs")` 和 `paymentReturnPath("/wallet")`。
+3. 用 `common.ValidateRedirectURL` 校验 SuccessURL 和 CancelURL。为空时都默认 `paymentReturnPath("/wallet")`，付款成功或取消都回到钱包页。
 4. 请求开始时一次性读取单价和账号（密钥、API Base），后续计价、建会话、建订单和返佣快照都用这份快照。生成 TradeNo，按 §6.1 计算 `listed`、`fen`。
 5. **先调网关，成功后再插入订单**（顺序和 Stripe 一样，避免留下没有支付链接的悬空订单）：
    - 调用 `POST /v1/checkout/sessions`，带 `Idempotency-Key: <TradeNo>`，请求体见 §2.2；不传 `expires_at`，会话按 WooshPay 默认 24h 过期（WooshPay 时间戳是毫秒级，传秒级会出错）。

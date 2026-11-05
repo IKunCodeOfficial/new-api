@@ -167,7 +167,7 @@ func RequestWooshpayPay(c *gin.Context) {
 	}
 	successURL := req.SuccessURL
 	if successURL == "" {
-		successURL = paymentReturnPath("/usage-logs")
+		successURL = paymentReturnPath("/wallet")
 	}
 	cancelURL := req.CancelURL
 	if cancelURL == "" {
