@@ -113,6 +113,17 @@ func postWooshpayTestWebhook(t *testing.T, requestCtx context.Context, payload s
 	return recorder.Code
 }
 
+// The worked example from WooshPay's "Signature Check" document: their secret,
+// header timestamp and request body must produce their published v1.
+func TestVerifyWooshpaySignatureMatchesWooshpayExample(t *testing.T) {
+	const secret = "whsec_5U6m5O2ojRra442YkKZ6emDkH0S9wpGs"
+	const header = "t=1773980648254,v1=0c900eecd785b89ab54cc878fad312275be7104cae2e8e347eadc786697fbe91"
+	const body = `{"id":"evt_2034848439350591488","object":"event","created":1773980648254,"livemode":false,"data":{"object":{"id":"pi_2034848201760047104","object":"payment_intent","created":1773980592000,"livemode":false,"currency":"SGD","amount":32700,"status":"succeeded","description":"Exam Enrollment","metadata":{"tempinvoice_id":"a0ffV000000XtiUQAS","temp_invoice":"TI-025686","customer_email":"iscatest6@gmail.com","customer_name":"Mochitest","contact_id":"003fV000005yIdZQAU"},"customer":"cus_2034848368806592512","client_secret":"pi_2034848201760047104_secret_06c8GZbhHl8rumaeScXDtFYf","payment_method_types":["9pay","googlepay","applepay","gcash","card"],"confirmation_method":"automatic","payment_method_options":{"card":{"request_three_d_secure":"any"},"truemoney":{"terminal_type":"WEB"},"akulaku":{"terminal_type":"WEB"},"kakaopay":{"terminal_type":"WEB"},"dana":{"terminal_type":"WEB"},"shopeepay":{"terminal_type":"WEB"}},"return_url":"https://jstest.wooshpay.com/v1/payment/success?redirect=https%3A%2F%2Fcheckouttest.wooshpay.com%2Fpay%2Fcs_test_2034848201541943296%3Fkey%3DcGtfdGVzdF9OVEU0TURrME16WTROelF4TXpReE16QTJPRGt4T2twSVNWcE9SVmRIVjJWd1lXZEhORkZJYzJOU2VrRkhjVEUzTWpBeU16Z3pORE16TWpB","payment_method":"pm_2034848375358095360","amount_received":32700}},"type":"payment_intent.succeeded"}`
+
+	require.NoError(t, verifyWooshpaySignature([]byte(body), header, secret))
+	assert.Error(t, verifyWooshpaySignature([]byte(strings.Replace(body, "TI-025686", "TI025686", 1)), header, secret))
+}
+
 func TestVerifyWooshpaySignature(t *testing.T) {
 	const body = `{"id":"evt_1"}`
 	// hex(HMAC_SHA256("whsec_yDjRWBtest", "1767225600123." + body)), computed independently.
