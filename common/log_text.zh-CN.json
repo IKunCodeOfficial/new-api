@@ -304,7 +304,7 @@
   "WooshPay webhook failed to read request body path=%q client_ip=%s error=%q": "WooshPay Webhook 读取请求体失败 path=%q client_ip=%s error=%q",
   "WooshPay webhook ignored event event_id=%s event_type=%s client_ip=%s": "WooshPay Webhook 忽略事件 event_id=%s event_type=%s client_ip=%s",
   "WooshPay webhook rejected reason=webhook_disabled path=%q client_ip=%s": "WooshPay Webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s",
-  "WooshPay webhook signature verification failed path=%q client_ip=%s error=%q": "WooshPay Webhook 验签失败 path=%q client_ip=%s error=%q",
+  "WooshPay webhook signature verification failed path=%q client_ip=%s error=%q signature=%q headers=%s content_type=%q content_encoding=%q body_length=%d body_sha256=%s body_head=%q secret_has_whsec_prefix=%t secret_length=%d matching_schemes=%s": "WooshPay Webhook 验签失败 path=%q client_ip=%s error=%q signature=%q headers=%s content_type=%q content_encoding=%q body_length=%d body_sha256=%s body_head=%q secret_has_whsec_prefix=%t secret_length=%d matching_schemes=%s",
   "WooshPay webhook signature verified event_id=%s event_type=%s livemode=%t client_ip=%s": "WooshPay Webhook 验签通过 event_id=%s event_type=%s livemode=%t client_ip=%s",
   "[OAuth-Discord] ExchangeToken decode error: %s": "[OAuth-Discord] ExchangeToken 解析响应失败: %s",
   "[OAuth-Discord] ExchangeToken error: %s": "[OAuth-Discord] ExchangeToken 请求失败: %s",

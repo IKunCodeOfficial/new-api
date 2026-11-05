@@ -150,6 +150,43 @@ func TestVerifyWooshpaySignature(t *testing.T) {
 	}
 }
 
+func TestWooshpaySignatureDiagnosis(t *testing.T) {
+	const body = `{"id":"evt_1"}`
+	const timestamp = "1767225600123"
+	sign := func(key string, message string) string {
+		mac := hmac.New(sha256.New, []byte(key))
+		mac.Write([]byte(message))
+		return "t=" + timestamp + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+	}
+
+	cases := []struct {
+		name    string
+		header  string
+		secret  string
+		schemes string
+	}{
+		{"current scheme", sign(wooshpayTestWebhookSecret, timestamp+"."+body), wooshpayTestWebhookSecret, "secret/t.body/hex"},
+		{"key without whsec_ prefix", sign("yDjRWBtest", timestamp+"."+body), wooshpayTestWebhookSecret, "stripped_key/t.body/hex"},
+		{"body only", sign(wooshpayTestWebhookSecret, body), wooshpayTestWebhookSecret, "secret/body/hex"},
+		{"t in seconds", sign(wooshpayTestWebhookSecret, "1767225600."+body), wooshpayTestWebhookSecret, "secret/t_seconds.body/hex"},
+		{"wrong secret", sign("whsec_other", timestamp+"."+body), wooshpayTestWebhookSecret, "none"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/wooshpay/webhook", strings.NewReader(body))
+			request.Header.Set("Signature", tc.header)
+			request.Header.Set("Content-Type", "application/json")
+
+			line := wooshpaySignatureFailureLog(request, []byte(body), tc.secret, "127.0.0.1", errors.New("no matching v1 signature"))
+			assert.True(t, strings.HasSuffix(line, " matching_schemes="+tc.schemes), line)
+			assert.Contains(t, line, "headers=Content-Type,Signature ")
+			assert.Contains(t, line, "secret_has_whsec_prefix=true secret_length=16 ")
+			assert.NotContains(t, line, tc.secret)
+			assert.NotContains(t, line, strings.TrimPrefix(tc.secret, "whsec_"))
+		})
+	}
+}
+
 func TestWooshpayUnitAmountFen(t *testing.T) {
 	cases := []struct {
 		name string

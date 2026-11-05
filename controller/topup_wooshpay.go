@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -354,7 +355,7 @@ func WooshpayWebhook(c *gin.Context) {
 	}
 
 	if err := verifyWooshpaySignature(payload, c.GetHeader("Signature"), webhookSecret); err != nil {
-		logger.LogWarn(ctx, common.LogText("WooshPay webhook signature verification failed path=%q client_ip=%s error=%q", c.Request.RequestURI, callerIp, err.Error()))
+		logger.LogWarn(ctx, wooshpaySignatureFailureLog(c.Request, payload, webhookSecret, callerIp, err))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -433,6 +434,107 @@ func verifyWooshpaySignature(payload []byte, header string, secret string) error
 		}
 	}
 	return errors.New("no matching v1 signature")
+}
+
+// wooshpaySignatureFailureLog is the warning logged when a webhook fails
+// verification. Besides the error it records what the request looked like and
+// which candidate signing schemes would have matched, so the scheme WooshPay
+// really uses can be learned from the log. It holds the Signature header
+// (only t and the MACs) and the secret's length and prefix, never the secret.
+func wooshpaySignatureFailureLog(request *http.Request, payload []byte, secret string, callerIp string, verifyErr error) string {
+	signature := request.Header.Get("Signature")
+	bodySum := sha256.Sum256(payload)
+	matches := strings.Join(wooshpaySignatureDiagnosis(payload, signature, secret), ",")
+	if matches == "" {
+		matches = "none"
+	}
+	return common.LogText("WooshPay webhook signature verification failed path=%q client_ip=%s error=%q signature=%q headers=%s content_type=%q content_encoding=%q body_length=%d body_sha256=%s body_head=%q secret_has_whsec_prefix=%t secret_length=%d matching_schemes=%s",
+		request.RequestURI, callerIp, verifyErr.Error(), signature,
+		strings.Join(slices.Sorted(maps.Keys(request.Header)), ","),
+		request.Header.Get("Content-Type"), request.Header.Get("Content-Encoding"),
+		len(payload), hex.EncodeToString(bodySum[:]), payload[:min(len(payload), 120)],
+		strings.HasPrefix(secret, "whsec_"), len(secret), matches)
+}
+
+// wooshpaySignatureDiagnosis names the candidate signing schemes, as
+// key/message/encoding, that produce one of the header's v1 values. It is only
+// logged after verification failed, to learn how WooshPay signs; it never
+// accepts a webhook.
+func wooshpaySignatureDiagnosis(payload []byte, header string, secret string) []string {
+	var timestamp string
+	var signatures []string
+	for part := range strings.SplitSeq(header, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "t":
+			timestamp = value
+		case "v1":
+			signatures = append(signatures, value)
+		}
+	}
+	if secret == "" || len(signatures) == 0 {
+		return nil
+	}
+
+	// A candidate is a key or a signed message under a scheme name.
+	type candidate struct {
+		name  string
+		bytes []byte
+	}
+	stripped := strings.TrimPrefix(secret, "whsec_")
+	keys := []candidate{
+		{"secret", []byte(secret)},
+		{"stripped_key", []byte(stripped)},
+	}
+	for _, encoding := range []struct {
+		name     string
+		encoding *base64.Encoding
+	}{
+		{"base64_std_key", base64.StdEncoding},
+		{"base64_raw_std_key", base64.RawStdEncoding},
+		{"base64_url_key", base64.URLEncoding},
+		{"base64_raw_url_key", base64.RawURLEncoding},
+	} {
+		if decoded, err := encoding.encoding.DecodeString(stripped); err == nil {
+			keys = append(keys, candidate{encoding.name, decoded})
+		}
+	}
+
+	messages := []candidate{
+		{"t.body", []byte(timestamp + "." + string(payload))},
+		{"body", payload},
+		{"tbody", []byte(timestamp + string(payload))},
+	}
+	if milliseconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
+		messages = append(messages, candidate{"t_seconds.body", []byte(strconv.FormatInt(milliseconds/1000, 10) + "." + string(payload))})
+	}
+
+	var matches []string
+	for _, key := range keys {
+		for _, message := range messages {
+			mac := hmac.New(sha256.New, key.bytes)
+			mac.Write(message.bytes)
+			sum := mac.Sum(nil)
+			hexSum := hex.EncodeToString(sum)
+			base64Sum := base64.StdEncoding.EncodeToString(sum)
+			for _, signature := range signatures {
+				name := ""
+				switch {
+				case strings.EqualFold(signature, hexSum):
+					name = key.name + "/" + message.name + "/hex"
+				case signature == base64Sum:
+					name = key.name + "/" + message.name + "/base64"
+				}
+				if name != "" && !slices.Contains(matches, name) {
+					matches = append(matches, name)
+				}
+			}
+		}
+	}
+	return matches
 }
 
 // wooshpayPaymentProof checks a succeeded PaymentIntent re-queried with
