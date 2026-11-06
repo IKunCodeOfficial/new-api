@@ -1111,3 +1111,43 @@ func TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError(t *testing.T) {
 	}
 	assert.NotContains(t, logs.String(), "return URL cannot be built")
 }
+
+// A test payment moves no real money, so the webhook credits it only to an
+// administrator's order. One for anyone else's order (the key was switched
+// to a test key after the order was created) is acknowledged without
+// crediting and raises the paid-but-not-credited alert.
+func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
+	const userOrder, adminOrder = "wsp_test_user_order", "wsp_test_admin_order"
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		tradeNo := userOrder
+		if r.URL.Path == "/v1/payment_intents/pi_admin" {
+			tradeNo = adminOrder
+		}
+		id := strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")
+		_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent(id, tradeNo), `"livemode":true`, `"livemode":false`, 1)))
+	})
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	adminID := createRebateTestUser(t, 0, common.RoleAdminUser)
+	insertWooshpayTestOrder(t, userID, userOrder)
+	insertWooshpayTestOrder(t, adminID, adminOrder)
+	logs := captureWooshpayErrorLog(t)
+	deliver := func(intentID string) int {
+		payload := `{"id":"evt_` + intentID + `","type":"payment_intent.succeeded","livemode":false,"data":{"object":{"id":"` + intentID + `"}}}`
+		return postWooshpayTestWebhook(t, t.Context(), payload, signWooshpayTestPayload("1767225600123", payload))
+	}
+
+	assert.Equal(t, http.StatusOK, deliver("pi_user"), "redelivery cannot change the outcome")
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(userOrder).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+	assert.Contains(t, logs.String(), "WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no="+userOrder)
+	assert.Contains(t, logs.String(), model.ErrTestPaymentForNonAdmin.Error())
+
+	assert.Equal(t, http.StatusOK, deliver("pi_admin"))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminOrder).Status)
+	quota, err = model.GetUserQuota(adminID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5_000_000, quota)
+}

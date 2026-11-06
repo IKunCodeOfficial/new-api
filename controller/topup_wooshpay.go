@@ -104,14 +104,21 @@ func (account wooshpayAccount) testMode() bool {
 	return setting.IsWooshpayTestSecretKey(account.secretKey)
 }
 
+// refusesTestOrder reports whether a user of role is refused a checkout with
+// the account: a test key moves no real money but still credits real quota,
+// so only administrators may place test orders.
+func (account wooshpayAccount) refusesTestOrder(role int) bool {
+	return account.testMode() && role < common.RoleAdminUser
+}
+
 // wooshpayTopUpUnavailable returns why a user of role cannot start a WooshPay
-// top-up, or nil when they can. A test key moves no real money but still
-// credits real quota, so only administrators may place test orders.
-func wooshpayTopUpUnavailable(role int) error {
+// top-up with account, or nil when they can. The caller reads account once and
+// uses it for the checkout as well, so the mode checked is the mode charged.
+func wooshpayTopUpUnavailable(account wooshpayAccount, role int) error {
 	if !isWooshpayTopUpEnabled() {
 		return common.NewMessage("WooshPay payment is not enabled")
 	}
-	if setting.IsWooshpayTestSecretKey(setting.WooshpaySecretKey) && role < common.RoleAdminUser {
+	if account.refusesTestOrder(role) {
 		return common.NewMessage("WooshPay is in test mode; only administrators can place test orders")
 	}
 	return nil
@@ -123,7 +130,8 @@ func RequestWooshpayAmount(c *gin.Context) {
 		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
-	if err := wooshpayTopUpUnavailable(c.GetInt("role")); err != nil {
+	account := currentWooshpayAccount()
+	if err := wooshpayTopUpUnavailable(account, c.GetInt("role")); err != nil {
 		paymentError(c, err)
 		return
 	}
@@ -157,17 +165,22 @@ func RequestWooshpayPay(c *gin.Context) {
 		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
+	// The price and the account are read once: the availability check, the
+	// checkout, the order and its rebate snapshot must all describe the same
+	// charge in the same mode.
+	account := currentWooshpayAccount()
+	role := c.GetInt("role")
 	// WooshPay needs return URLs a customer can reach. On a site where
 	// WooshPay is otherwise ready this is checked before the availability,
 	// which requires it as well, so the cause is named and logged.
 	if setting.WooshpayEnabled && isWooshpayWebhookEnabled() {
-		if err := setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress); err != nil {
+		if err := setting.ValidateWooshpayServerAddress(account.secretKey, system_setting.ServerAddress); err != nil {
 			logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
 			paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
 			return
 		}
 	}
-	if err := wooshpayTopUpUnavailable(c.GetInt("role")); err != nil {
+	if err := wooshpayTopUpUnavailable(account, role); err != nil {
 		paymentError(c, err)
 		return
 	}
@@ -208,9 +221,6 @@ func RequestWooshpayPay(c *gin.Context) {
 		return
 	}
 
-	// The price and the account are read once: the checkout, the order and
-	// its rebate snapshot must all describe the same charge.
-	account := currentWooshpayAccount()
 	unitPrice := setting.WooshpayUnitPrice
 	listedMoney, payMoney := getWooshpayPayMoney(req.Amount, user.Group, unitPrice)
 	charged, err := wooshpayFen(payMoney)
@@ -585,7 +595,8 @@ func wooshpayFulfill(ctx context.Context, account wooshpayAccount, object json.R
 		logger.LogInfo(ctx, common.LogText("WooshPay order already completed, duplicate notification ignored trade_no=%s payment_intent=%s client_ip=%s", tradeNo, intent.ID, callerIp))
 		return nil
 	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch), errors.Is(err, model.ErrTopUpAmountMismatch),
-		errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
+		errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded),
+		errors.Is(err, model.ErrTestPaymentForNonAdmin):
 		// gorm.ErrRecordNotFound here means the order's user no longer
 		// exists. A redelivery cannot change any of these.
 		logger.LogError(ctx, common.LogText("WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no=%s payment_intent=%s amount_received=%s client_ip=%s error=%q", tradeNo, intent.ID, paymentAmount, callerIp, err.Error()))

@@ -328,6 +328,10 @@ func TestGatewayChargeAdjustsPaidSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tradeNo := fmt.Sprintf("charge-%d", i)
 			user := &User{Id: 200 + i, Username: tradeNo, Password: "12345678", Status: common.UserStatusEnabled, AffCode: fmt.Sprintf("gc%02d", i)}
+			if tc.provider == PaymentProviderWooshpay && tc.charge.Test {
+				// Only administrators' orders take WooshPay test payments.
+				user.Role = common.RoleAdminUser
+			}
 			require.NoError(t, DB.Create(user).Error)
 			order := &TopUp{UserId: user.Id, Amount: 10, Money: 73, TradeNo: tradeNo, PaymentMethod: tc.provider,
 				PaymentProvider: tc.provider, Status: common.TopUpStatusPending}

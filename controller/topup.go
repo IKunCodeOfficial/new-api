@@ -103,7 +103,7 @@ func GetTopUpInfo(c *gin.Context) {
 	// otherwise a wooshpay entry configured in PayMethods is dropped as well.
 	// It is priced by this server, so the preset cards need the price this
 	// user pays: the unit price scaled by the user's top-up group ratio.
-	enableWooshpay := wooshpayTopUpUnavailable(c.GetInt("role")) == nil
+	enableWooshpay := wooshpayTopUpUnavailable(currentWooshpayAccount(), c.GetInt("role")) == nil
 	var wooshpayUnitPrice float64
 	if enableWooshpay {
 		group, err := model.GetUserGroup(c.GetInt("id"), true)

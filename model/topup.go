@@ -64,6 +64,10 @@ var (
 	ErrTopUpNotFound         = errors.New("topup not found")
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
 	ErrTopUpAmountMismatch   = errors.New("received amount does not match the order")
+	// ErrTestPaymentForNonAdmin refuses a test-mode payment for an order
+	// whose owner is not an administrator: test payments move no real money,
+	// so only administrators' orders may be credited with them.
+	ErrTestPaymentForNonAdmin = errors.New("test-mode payment for an order of a non-administrator")
 	// The quota errors reach the web console, so they carry message keys.
 	ErrInvalidTopUpQuota        error = common.NewMessage("Invalid top-up quota")
 	ErrTopUpQuotaLimitExceeded  error = common.NewMessage("Top-up quota limit exceeded")
@@ -331,9 +335,10 @@ func Recharge(referenceId string, customerId string, callerIp string, charge Gat
 // completed too. paymentAmount is the collected amount with its currency, as
 // shown in the top-up log. charge.Charged is the amount received in fen; it
 // must equal the order's Money, or the order is not completed. It returns
-// ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch or
-// ErrTopUpStatusInvalid (already completed, the duplicate-notification case)
-// unchanged so the caller can acknowledge them; any other error is a database
+// ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch,
+// ErrTestPaymentForNonAdmin (a webhook test payment for a non-administrator's
+// order) or ErrTopUpStatusInvalid (already completed, the
+// duplicate-notification case) unchanged so the caller can acknowledge them; any other error is a database
 // failure worth retrying. byAdmin records the completion in the top-up log as
 // an administrator's, as ManualCompleteTopUp does.
 func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge, byAdmin bool) (err error) {
@@ -369,6 +374,18 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		if !decimal.NewFromFloat(topUp.Money).Shift(2).Round(0).Equal(decimal.NewFromInt(charge.Charged)) {
 			return ErrTopUpAmountMismatch
 		}
+		// Only administrators may place test orders; a test payment for anyone
+		// else's order (the key changed after it was created, or the order was
+		// not created by the checkout) must not credit real quota.
+		if charge.Test && !byAdmin {
+			owner := User{}
+			if err := tx.Select("role").Where("id = ?", topUp.UserId).First(&owner).Error; err != nil {
+				return err
+			}
+			if owner.Role < common.RoleAdminUser {
+				return ErrTestPaymentForNonAdmin
+			}
+		}
 
 		// Money is what was charged; the top-up group ratio only scales the
 		// price, so the credit is the purchased units, as with epay and Waffo.
@@ -391,7 +408,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
 	})
 	if err != nil {
-		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) && !errors.Is(err, ErrTopUpAmountMismatch) {
+		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) && !errors.Is(err, ErrTopUpAmountMismatch) && !errors.Is(err, ErrTestPaymentForNonAdmin) {
 			common.SysError(common.LogText("wooshpay topup failed: %s", err.Error()))
 		}
 		return err
