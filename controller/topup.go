@@ -654,9 +654,8 @@ func AdminCompleteTopUp(c *gin.Context) {
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	// WooshPay closes an order when its Checkout Session expires, yet the
-	// payment may still have arrived after its webhook stopped retrying. Such
-	// an order is only completed against a PaymentIntent the gateway confirms.
+	// A WooshPay order, in any status, is only completed against a
+	// PaymentIntent the gateway confirms.
 	order := model.GetTopUpByTradeNo(req.TradeNo)
 	isWooshpay := order != nil && order.PaymentProvider == model.PaymentProviderWooshpay
 	if strings.TrimSpace(req.PaymentIntentID) != "" {
@@ -671,8 +670,8 @@ func AdminCompleteTopUp(c *gin.Context) {
 		common.ApiSuccess(c, nil)
 		return
 	}
-	if isWooshpay && (order.Status == common.TopUpStatusExpired || order.Status == common.TopUpStatusFailed) {
-		common.ApiErrorT(c, "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent")
+	if isWooshpay {
+		common.ApiErrorT(c, "A WooshPay order can only be completed with the ID of its succeeded PaymentIntent")
 		return
 	}
 

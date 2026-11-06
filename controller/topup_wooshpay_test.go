@@ -859,6 +859,7 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 		// The intent agrees with its own metadata but not with the order's
 		// Money of 80.00 CNY.
 		"pi_order_money": strings.ReplaceAll(intent("pi_order_money"), "8000", "7000"),
+		"pi_pending":     wooshpayTestIntent("pi_pending", pending),
 	}
 	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body, ok := intents[strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")]
@@ -873,7 +874,8 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 	for _, tradeNo := range []string{closed, pending, other} {
 		insertWooshpayTestOrder(t, userID, tradeNo)
 	}
-	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no IN ?", []string{closed, other}).Update("status", common.TopUpStatusExpired).Error)
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no = ?", closed).Update("status", common.TopUpStatusExpired).Error)
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no = ?", other).Update("status", common.TopUpStatusFailed).Error)
 	complete := func(body string) map[string]any {
 		return postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", body, adminID)
 	}
@@ -883,11 +885,16 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 		return quota
 	}
 
+	// A WooshPay order in any status is only completed with a PaymentIntent.
 	// Each refusal names its cause in a message the web console translates,
 	// never a raw field name.
+	const needsIntent = "A WooshPay order can only be completed with the ID of its succeeded PaymentIntent"
 	refused := map[string]string{
-		`{"trade_no":"` + closed + `"}`:                                                 "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent",
-		`{"trade_no":"` + closed + `","paid_money":80}`:                                 "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent",
+		`{"trade_no":"` + closed + `"}`:                                                 needsIntent,
+		`{"trade_no":"` + closed + `","paid_money":80}`:                                 needsIntent,
+		`{"trade_no":"` + other + `"}`:                                                  needsIntent,
+		`{"trade_no":"` + pending + `"}`:                                                needsIntent,
+		`{"trade_no":"` + pending + `","paid_money":80}`:                                needsIntent,
 		`{"trade_no":"` + closed + `","payment_intent_id":"cs_closed"}`:                 "Enter the ID of the WooshPay PaymentIntent, which starts with pi_",
 		`{"trade_no":"` + closed + `","payment_intent_id":"pi_unknown"}`:                "Failed to query the WooshPay PaymentIntent",
 		`{"trade_no":"` + closed + `","payment_intent_id":"pi_closed","paid_money":80}`: "Invalid parameters",
@@ -905,7 +912,8 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 		assert.Equal(t, message, out["message"], body)
 	}
 	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(closed).Status)
-	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(other).Status)
+	assert.Equal(t, common.TopUpStatusFailed, model.GetTopUpByTradeNo(other).Status)
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(pending).Status)
 	assert.Zero(t, userQuota())
 
 	for range 2 {
@@ -922,8 +930,8 @@ func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
 	assert.Contains(t, topupLogs[0].Content, "80.00 CNY")
 	assert.Contains(t, topupLogs[0].Other, `"callback_payment_method":"admin"`)
 
-	// A pending order is still completed without a PaymentIntent.
-	out := complete(`{"trade_no":"` + pending + `"}`)
+	// A pending order is completed with its PaymentIntent too.
+	out := complete(`{"trade_no":"` + pending + `","payment_intent_id":"pi_pending"}`)
 	require.Equal(t, true, out["success"], out)
 	assert.Equal(t, 10_000_000, userQuota())
 }

@@ -82,8 +82,8 @@ export function BillingHistoryDialog({
   const paidInputId = useId()
   const paidHintId = useId()
   const paidErrorId = useId()
-  // A WooshPay order closed as expired or failed is only completed against
-  // the PaymentIntent that paid it; the server re-queries it with WooshPay.
+  // A WooshPay order, in any status, is only completed against the
+  // PaymentIntent that paid it; the server re-queries it with WooshPay.
   const [confirmNeedsIntent, setConfirmNeedsIntent] = useState(false)
   const [paymentIntentId, setPaymentIntentId] = useState('')
   const intentInputId = useId()
@@ -307,7 +307,7 @@ export function BillingHistoryDialog({
                               onClick={() => {
                                 setConfirmTradeNo(record.trade_no)
                                 setConfirmNeedsIntent(
-                                  record.status !== 'pending'
+                                  record.payment_method === 'wooshpay'
                                 )
                               }}
                               disabled={completing}
@@ -400,7 +400,7 @@ export function BillingHistoryDialog({
             )}
             <p id={intentHintId} className='text-muted-foreground text-xs'>
               {t(
-                'This WooshPay order was closed. Enter the ID of the succeeded PaymentIntent from the WooshPay dashboard; the order is completed only if WooshPay confirms it paid this order in full.'
+                'Enter the ID of the succeeded PaymentIntent from the WooshPay dashboard; the order is completed only if WooshPay confirms it paid this order in full.'
               )}
             </p>
           </div>

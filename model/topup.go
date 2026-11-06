@@ -576,10 +576,8 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 // Stripe 的标价为 Amount×StripeUnitPrice，Creem 填不含税金额，其余渠道的标价为 Money。
 // 邀请返利的实付快照只按 实收÷标价 下调。Stripe、Creem、Waffo Pancake 的实收
 // （优惠码、测试模式）只有网关完成事件才知道，未填写时这些订单不计入返利充值。
-// WooshPay 由本站定价，Money 就是发给网关的金额，未填写时保留下单时的快照
-// （sk_test_ 密钥下的订单快照本来就是 0）。这里只处理 pending 订单；WooshPay 的
-// expired / failed 订单必须由管理员提供已成功的 PaymentIntent，经网关回查后走
-// RechargeWooshpay 入账（见 controller.AdminCompleteTopUp）。
+// WooshPay 订单不走这里：管理员只能凭已成功的 PaymentIntent 经网关回查后
+// 走 RechargeWooshpay 入账（见 controller.AdminCompleteTopUp）。
 func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) error {
 	if tradeNo == "" {
 		return common.NewMessage("Order number not provided")
@@ -607,8 +605,6 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 			return nil
 		}
 
-		// 已关闭（expired / failed）的 WooshPay 订单只能凭网关回查过的付款证明完成，
-		// 不走这里。
 		if topUp.Status != common.TopUpStatusPending {
 			return common.NewMessage("Order is not pending payment and cannot be completed")
 		}
@@ -616,7 +612,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// 计算应充值额度，与各渠道回调入账保持一致：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
 		// - Creem 订单：Amount 本身就是额度（RechargeCreem 原样入账）
-		// - 其他订单（易支付、Waffo、Waffo Pancake、WooshPay 等）：Amount 为购买数量，* QuotaPerUnit
+		// - 其他订单（易支付、Waffo 等）：Amount 为美元数量，* QuotaPerUnit
 		var quotaErr error
 		switch resolveTopUpProvider(topUp) {
 		case PaymentProviderStripe:
@@ -647,8 +643,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// charges the purchased quantity at the Checkout unit price (its Money
 		// is the credited value); every other gateway charges Money. Without a
 		// stated amount, Stripe, Creem and Waffo Pancake orders, whose
-		// discounts only the gateway knows, count nothing; WooshPay, priced by
-		// this server, keeps its creation-time snapshot like epay.
+		// discounts only the gateway knows, count nothing.
 		provider := resolveTopUpProvider(topUp)
 		var charge GatewayCharge
 		switch {

@@ -308,6 +308,6 @@ export interface CompleteOrderRequest {
   trade_no: string
   /** Amount the gateway actually collected, in the currency of the order's list price (invite-rebate paid snapshot) */
   paid_money?: number
-  /** WooshPay PaymentIntent that paid an expired or failed WooshPay order */
+  /** PaymentIntent that paid a WooshPay order, required to complete one */
   payment_intent_id?: string
 }
