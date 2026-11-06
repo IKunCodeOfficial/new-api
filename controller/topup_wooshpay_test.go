@@ -1164,3 +1164,28 @@ func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5_000_000, quota)
 }
+
+// With a test key a non-administrator is refused as test mode before the
+// server address is examined: they never see the address message, and their
+// request logs no address error. An administrator is told about the address.
+func TestRequestWooshpayPayRefusesTestOrderBeforeAddressDiagnosis(t *testing.T) {
+	gatewayCalls := 0
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		gatewayCalls++
+		w.WriteHeader(http.StatusNotFound)
+	})
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+	system_setting.ServerAddress = "http://localhost:3000"
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	adminID := createRebateTestUser(t, 0, common.RoleAdminUser)
+	logs := captureWooshpayErrorLog(t)
+
+	out := requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+	assert.Equal(t, "WooshPay is in test mode; only administrators can place test orders", out["data"])
+	assert.NotContains(t, logs.String(), "return URL cannot be built")
+
+	out = requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, adminID, common.RoleAdminUser)
+	assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"])
+	assert.Contains(t, logs.String(), "return URL cannot be built")
+	assert.Zero(t, gatewayCalls)
+}

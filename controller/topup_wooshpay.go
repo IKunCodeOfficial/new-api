@@ -172,8 +172,14 @@ func RequestWooshpayPay(c *gin.Context) {
 	role := c.GetInt("role")
 	// WooshPay needs return URLs a customer can reach. On a site where
 	// WooshPay is otherwise ready this is checked before the availability,
-	// which requires it as well, so the cause is named and logged.
+	// which requires it as well, so the cause is named and logged. A user
+	// refused a test order is told so first: the address is the
+	// administrator's concern, and their request must not log it.
 	if setting.WooshpayEnabled && isWooshpayWebhookEnabled() {
+		if account.refusesTestOrder(role) {
+			paymentError(c, common.NewMessage("WooshPay is in test mode; only administrators can place test orders"))
+			return
+		}
 		if err := setting.ValidateWooshpayServerAddress(account.secretKey, system_setting.ServerAddress); err != nil {
 			logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
 			paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
