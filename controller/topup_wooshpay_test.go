@@ -680,6 +680,11 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 			_, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, false, "")
 			return err
 		},
+		// A preview reports the refusal the save would meet.
+		"passkey domain preview": func(address string) error {
+			_, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, true, "")
+			return err
+		},
 	}
 	for name, saveAddress := range saves {
 		for address, message := range refusedAddresses {
@@ -689,13 +694,37 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 		}
 		assert.Equal(t, "https://example.com/", system_setting.ServerAddress, name)
 	}
+	change, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": "https://pay.example.com"}, true, "")
+	require.NoError(t, err, "a preview the WooshPay rules accept")
+	require.NotNil(t, change)
+	assert.Equal(t, "https://example.com/", system_setting.ServerAddress, "a preview saves nothing")
+
+	// Refused by the WooshPay rules through the generic option PUT, the save
+	// is audited as a failed setting update, not as a Passkey domain change.
+	out = postJSON(t, UpdateOption, http.MethodPut, "/api/option/", `{"key":"ServerAddress","value":"http://localhost:3000"}`, adminID)
+	assert.Equal(t, false, out["success"])
+	assert.Equal(t, localhost, out["message"])
+	var refusedAudit model.AuditLog
+	require.NoError(t, model.DB.Order("id desc").First(&refusedAudit).Error)
+	assert.Equal(t, "option.update", refusedAudit.Action)
+	assert.False(t, refusedAudit.Success)
+	assert.Equal(t, "Updated system setting ServerAddress", refusedAudit.Content)
+	var passkeyFailures int64
+	require.NoError(t, model.DB.Model(&model.AuditLog{}).Where("action = ?", "option.passkey_domains_failed").Count(&passkeyFailures).Error)
+	assert.Zero(t, passkeyFailures)
+
+	// The WooshPay saves and the server address saves share one lock; both
+	// paths still save.
 	require.NoError(t, model.UpdateOption("ServerAddress", "https://pay.example.com"))
 	assert.Equal(t, "https://pay.example.com", system_setting.ServerAddress)
 	assert.True(t, setting.WooshpayEnabled)
+	require.NoError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayMinTopUp": "3", "WooshpayEnabled": "true"}))
+	require.NoError(t, model.UpdateOption("WooshpayMinTopUp", "2"))
+	assert.Equal(t, 2, setting.WooshpayMinTopUp)
 
 	// The audit log names the changed settings, never their values.
 	var audit model.AuditLog
-	require.NoError(t, model.DB.Where("action = ?", "option.update").Order("id desc").First(&audit).Error)
+	require.NoError(t, model.DB.Where("action = ? AND success = ?", "option.update", true).Order("id desc").First(&audit).Error)
 	assert.Equal(t, "Updated system setting WooshpayApiBase, WooshpayEnabled, WooshpayMinTopUp, WooshpaySecretKey, WooshpayUnitPrice", audit.Content)
 	assert.NotContains(t, audit.Content, "sk_live_x")
 

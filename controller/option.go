@@ -413,6 +413,18 @@ func UpdateOption(c *gin.Context) {
 	}
 	if model.IsPasskeyDomainOption(option.Key) {
 		change, updateErr := model.UpdatePasskeyDomainOptions(map[string]string{option.Key: option.Value.(string)}, false, "")
+		var wooshpayErr *model.WooshpayEnvironmentError
+		if errors.As(updateErr, &wooshpayErr) {
+			// Refused by the WooshPay rules before any Passkey domain was
+			// considered: a failed setting update, not a Passkey domain change.
+			common.ApiError(c, updateErr)
+			params := map[string]any{"key": option.Key, "success": false}
+			model.RecordOperationAuditLog(c.GetInt("id"), c.GetInt("role"), auditContentEN("option.update", params), c.ClientIP(), "option.update", params, auditOperatorInfo(c), &model.AuditRequestInfo{
+				Method: c.Request.Method, Route: c.FullPath(), Path: c.FullPath(), Status: c.Writer.Status(), Success: false,
+			}, c)
+			markAuditLogged(c)
+			return
+		}
 		if updateErr != nil {
 			writePasskeyDomainSettingsError(c, updateErr)
 			recordPasskeyDomainAudit(c, change, false, updateErr)
