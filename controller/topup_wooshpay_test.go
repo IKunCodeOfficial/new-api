@@ -1000,7 +1000,8 @@ func TestWooshpayTestModeIsAdminOnly(t *testing.T) {
 
 	common.OptionMapRWMutex.Lock()
 	optionMap := common.OptionMap
-	common.OptionMap = map[string]string{"WooshpaySecretKey": "sk_test_secret_value"}
+	// A stored WooshpayTestMode row is never echoed: only the derived value is.
+	common.OptionMap = map[string]string{"WooshpaySecretKey": "sk_test_secret_value", "WooshpayTestMode": "false"}
 	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() { common.OptionMap = optionMap })
 	recorder := httptest.NewRecorder()
@@ -1008,7 +1009,19 @@ func TestWooshpayTestModeIsAdminOnly(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/option/", nil)
 	GetOptions(ctx)
 	assert.Contains(t, recorder.Body.String(), `{"key":"WooshpayTestMode","value":"true"}`)
+	assert.NotContains(t, recorder.Body.String(), `{"key":"WooshpayTestMode","value":"false"}`)
 	assert.NotContains(t, recorder.Body.String(), "sk_test_secret_value")
+
+	// The derived flag cannot be written through any option save.
+	const readOnly = "WooshPay status is derived from its settings and is read-only"
+	assert.EqualError(t, model.UpdateOption("WooshpayTestMode", "false"), readOnly)
+	assert.EqualError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayTestMode": "false"}), readOnly)
+	out = postJSON(t, UpdateOption, http.MethodPut, "/api/option/", `{"key":"WooshpayTestMode","value":false}`, adminID)
+	assert.Equal(t, false, out["success"])
+	assert.Equal(t, readOnly, out["message"])
+	var stored int64
+	require.NoError(t, model.DB.Model(&model.Option{}).Where(&model.Option{Key: "WooshpayTestMode"}).Count(&stored).Error)
+	assert.Zero(t, stored)
 }
 
 // Where WooshPay is not available to the user, its pay method is removed

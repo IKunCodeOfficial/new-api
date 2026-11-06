@@ -7578,6 +7578,7 @@
     "This order was not created by WooshPay": "This order was not created by WooshPay",
     "WooshPay is in test mode": "WooshPay is in test mode",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.",
-    "Optional events (only logged):": "Optional events (only logged):"
+    "Optional events (only logged):": "Optional events (only logged):",
+    "WooshPay status is derived from its settings and is read-only": "WooshPay status is derived from its settings and is read-only"
   }
 }

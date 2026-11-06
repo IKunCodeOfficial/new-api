@@ -7578,6 +7578,7 @@
     "This order was not created by WooshPay": "この注文は WooshPay で作成されたものではありません",
     "WooshPay is in test mode": "WooshPay はテストモードです",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "保存されているシークレットキーはテストキー（sk_test_）です。テスト決済では実際のお金は動きませんが実際のクォータがチャージされるため、本番キーを保存するまで WooshPay の注文を作成できるのは管理者のみです。",
-    "Optional events (only logged):": "任意のイベント（ログ記録のみ）："
+    "Optional events (only logged):": "任意のイベント（ログ記録のみ）：",
+    "WooshPay status is derived from its settings and is read-only": "WooshPay の状態は設定から算出されるため変更できません"
   }
 }

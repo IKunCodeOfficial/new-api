@@ -7578,6 +7578,7 @@
     "This order was not created by WooshPay": "此订单不是通过 WooshPay 创建的",
     "WooshPay is in test mode": "WooshPay 处于测试模式",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "已保存的密钥是测试密钥（sk_test_）。测试付款不会产生真实资金，但会充入真实额度，因此在保存正式密钥之前，只有管理员可以创建 WooshPay 订单。",
-    "Optional events (only logged):": "可选事件（仅记录日志）："
+    "Optional events (only logged):": "可选事件（仅记录日志）：",
+    "WooshPay status is derived from its settings and is read-only": "WooshPay 状态由其配置推导得出，不能手动修改"
   }
 }

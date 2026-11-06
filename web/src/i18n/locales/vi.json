@@ -7578,6 +7578,7 @@
     "This order was not created by WooshPay": "Đơn hàng này không được tạo bởi WooshPay",
     "WooshPay is in test mode": "WooshPay đang ở chế độ thử nghiệm",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "Khóa bí mật đã lưu là khóa thử nghiệm (sk_test_). Thanh toán thử nghiệm không chuyển tiền thật nhưng vẫn nạp hạn mức thật, vì vậy chỉ quản trị viên mới có thể tạo đơn WooshPay cho đến khi lưu khóa thật.",
-    "Optional events (only logged):": "Sự kiện tùy chọn (chỉ ghi log):"
+    "Optional events (only logged):": "Sự kiện tùy chọn (chỉ ghi log):",
+    "WooshPay status is derived from its settings and is read-only": "Trạng thái WooshPay được suy ra từ cấu hình và không thể thay đổi"
   }
 }

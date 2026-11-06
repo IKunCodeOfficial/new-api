@@ -270,6 +270,10 @@ func validateOptionValue(key string, value string) error {
 	if key == "ResendKeyConfigured" {
 		return common.NewMessage("Resend key configuration status is read-only")
 	}
+	// Derived by GetOptions from the WooshPay settings, never stored.
+	if key == "WooshpayTestMode" {
+		return common.NewMessage("WooshPay status is derived from its settings and is read-only")
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
