@@ -79,7 +79,7 @@ settled_base += delta
   | epay | `Money ÷ operation_setting.Price × QuotaPerUnit` |
   | waffo | `Money ÷ setting.WaffoUnitPrice × QuotaPerUnit` |
   | waffo_pancake | `Money ÷ setting.WaffoPancakeUnitPrice × QuotaPerUnit` |
-  | wooshpay | `Money ÷ 下单时的 WooshpayUnitPrice × QuotaPerUnit`（`Money` 是按币种小数位取整后实际发给 WooshPay 的金额；单价和测试模式取下单请求开始时的值，经不落库的 `TopUp.Pricing` 传给 `AfterCreate`；`sk_test_` 密钥下单时写 0） |
+  | wooshpay | `Money ÷ 下单时的 WooshpayUnitPrice × QuotaPerUnit`（`Money` 是四舍五入到分后实际发给 WooshPay 的人民币金额；单价和测试模式取下单请求开始时的值，经不落库的 `TopUp.Pricing` 传给 `AfterCreate`；`sk_test_` 密钥下单时写 0） |
   | stripe | `Amount × QuotaPerUnit`（Checkout 按 `Quantity=Amount` × 固定 Stripe 价格收款，分组倍率只放大到账额度 `Money = Amount × 倍率`，所以实付按购买数量计；优惠码折扣在支付完成时按 `amount_total / amount_subtotal` 下调快照） |
   | creem | `Amount`（下单时按商品额度；折扣码在支付完成时按 `(amount_paid − tax_amount) / sub_total` 下调） |
 
