@@ -64,9 +64,10 @@ func initCol() {
 }
 
 // InitColumnNames sets the reserved-word column names and boolean literals
-// for the configured main and log database types. InitDB and InitLogDB do this
-// at startup; code that sets the database types itself, such as test
-// fixtures, calls it afterwards.
+// for the configured main and log database types. It is for test fixtures:
+// InitDB and InitLogDB already do this at startup, and a fixture that sets
+// the database types itself (for example to run on MySQL or PostgreSQL)
+// calls it afterwards. Production code does not need to call it.
 func InitColumnNames() {
 	initCol()
 }
