@@ -59,7 +59,9 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	originalUnitPrice := setting.WooshpayUnitPrice
 	originalApiBase := setting.WooshpayApiBase
 	originalEnabled := setting.WooshpayEnabled
+	originalServerAddress := system_setting.ServerAddress
 	t.Cleanup(func() {
+		system_setting.ServerAddress = originalServerAddress
 		setting.WooshpayEnabled = originalEnabled
 		setting.WooshpaySecretKey = originalSecretKey
 		setting.WooshpayWebhookSecret = originalWebhookSecret
@@ -88,6 +90,7 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		{"other host", "sk_live_123", "whsec_test", 8, "https://api.example.com", false, false},
 		{"compliance not confirmed", "sk_test_123", "whsec_test", 8, "https://apitest.wooshpay.com", true, false},
 	}
+	system_setting.ServerAddress = "https://example.com"
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			confirmPaymentComplianceForTest(t)
@@ -108,6 +111,29 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 			assert.False(t, isWooshpayTopUpEnabled())
 			assert.Equal(t, tc.enabled, isWooshpayWebhookEnabled())
 		})
+	}
+
+	// New top-ups also need a server address that builds absolute return
+	// URLs; payments on checkouts already opened are still accepted.
+	addresses := []struct {
+		serverAddress string
+		topUpEnabled  bool
+	}{
+		{"https://example.com/", true},
+		{"http://localhost:3000", true},
+		{"", false},
+		{"example.com", false},
+		{"/wallet", false},
+		{"ftp://example.com", false},
+		{"https://", false},
+	}
+	confirmPaymentComplianceForTest(t)
+	setting.WooshpaySecretKey, setting.WooshpayWebhookSecret = "sk_live_123", "whsec_test"
+	setting.WooshpayUnitPrice, setting.WooshpayApiBase, setting.WooshpayEnabled = 8, "https://api.wooshpay.com", true
+	for _, tc := range addresses {
+		system_setting.ServerAddress = tc.serverAddress
+		assert.Equal(t, tc.topUpEnabled, isWooshpayTopUpEnabled(), "server address %q", tc.serverAddress)
+		assert.True(t, isWooshpayWebhookEnabled(), "server address %q", tc.serverAddress)
 	}
 }
 

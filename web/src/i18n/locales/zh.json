@@ -7566,6 +7566,8 @@
     "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "WooshPay 测试密钥（sk_test_）需要使用 API 地址 https://apitest.wooshpay.com，正式密钥（sk_live_）需要使用 https://api.wooshpay.com",
     "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Tokens 显示模式下，充值数量必须是 {{unit}} tokens 的整数倍",
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "密钥和 API 地址属于同一环境之前，WooshPay 保持停用：sk_test_ 密钥需要 https://apitest.wooshpay.com，sk_live_ 密钥需要 https://api.wooshpay.com。",
-    "Minimum top-up cannot exceed 10000": "最低充值不能超过 10000"
+    "Minimum top-up cannot exceed 10000": "最低充值不能超过 10000",
+    "Payment return address is not configured; set the server address in system settings": "未配置支付返回地址，请在系统设置中填写服务器地址",
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "只有系统设置中的服务器地址是完整的 http(s) 地址时才能启用 WooshPay"
   }
 }

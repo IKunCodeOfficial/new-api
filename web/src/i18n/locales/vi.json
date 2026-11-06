@@ -7566,6 +7566,8 @@
     "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "Khóa bí mật thử nghiệm WooshPay (sk_test_) cần API base https://apitest.wooshpay.com, còn khóa bí mật chính thức (sk_live_) cần https://api.wooshpay.com",
     "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "Khi hiển thị theo Tokens, số lượng nạp phải là bội số của {{unit}} tokens",
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay vẫn bị tắt cho đến khi khóa bí mật và API base thuộc cùng một môi trường: khóa sk_test_ cần https://apitest.wooshpay.com và khóa sk_live_ cần https://api.wooshpay.com.",
-    "Minimum top-up cannot exceed 10000": "Mức nạp tối thiểu không được vượt quá 10000"
+    "Minimum top-up cannot exceed 10000": "Mức nạp tối thiểu không được vượt quá 10000",
+    "Payment return address is not configured; set the server address in system settings": "Chưa cấu hình địa chỉ quay lại sau thanh toán; hãy đặt địa chỉ máy chủ trong cài đặt hệ thống",
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "Chỉ có thể bật WooshPay khi địa chỉ máy chủ trong cài đặt hệ thống là URL http(s) tuyệt đối"
   }
 }

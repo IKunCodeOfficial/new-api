@@ -7566,6 +7566,8 @@
     "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com",
     "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens",
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.",
-    "Minimum top-up cannot exceed 10000": "Minimum top-up cannot exceed 10000"
+    "Minimum top-up cannot exceed 10000": "Minimum top-up cannot exceed 10000",
+    "Payment return address is not configured; set the server address in system settings": "Payment return address is not configured; set the server address in system settings",
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL"
   }
 }

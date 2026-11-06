@@ -63,6 +63,7 @@ var (
 	ErrPaymentMethodMismatch = errors.New("payment method mismatch")
 	ErrTopUpNotFound         = errors.New("topup not found")
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
+	ErrTopUpAmountMismatch   = errors.New("received amount does not match the order")
 	// The quota errors reach the web console, so they carry message keys.
 	ErrInvalidTopUpQuota        error = common.NewMessage("Invalid top-up quota")
 	ErrTopUpQuotaLimitExceeded  error = common.NewMessage("Top-up quota limit exceeded")
@@ -328,10 +329,12 @@ func Recharge(referenceId string, customerId string, callerIp string, charge Gat
 // re-queried the PaymentIntent and verified that it succeeded. The money has
 // then really arrived, so an order already closed as expired or failed is
 // completed too. paymentAmount is the collected amount with its currency, as
-// shown in the top-up log. It returns ErrTopUpNotFound,
-// ErrPaymentMethodMismatch or ErrTopUpStatusInvalid (already completed, the
-// duplicate-notification case) unchanged so the caller can acknowledge them;
-// any other error is a database failure worth retrying.
+// shown in the top-up log. charge.Charged is the amount received in fen; it
+// must equal the order's Money, or the order is not completed. It returns
+// ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch or
+// ErrTopUpStatusInvalid (already completed, the duplicate-notification case)
+// unchanged so the caller can acknowledge them; any other error is a database
+// failure worth retrying.
 func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge) (err error) {
 	if tradeNo == "" {
 		return errors.New("payment order number not provided")
@@ -360,6 +363,11 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		default:
 			return ErrTopUpStatusInvalid
 		}
+		// The caller checked the amount against the checkout's metadata; the
+		// locked order's own price is checked again here.
+		if !decimal.NewFromFloat(topUp.Money).Shift(2).Round(0).Equal(decimal.NewFromInt(charge.Charged)) {
+			return ErrTopUpAmountMismatch
+		}
 
 		// Money is what was charged; the top-up group ratio only scales the
 		// price, so the credit is the purchased units, as with epay and Waffo.
@@ -382,7 +390,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
 	})
 	if err != nil {
-		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) {
+		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) && !errors.Is(err, ErrTopUpAmountMismatch) {
 			common.SysError(common.LogText("wooshpay topup failed: %s", err.Error()))
 		}
 		return err

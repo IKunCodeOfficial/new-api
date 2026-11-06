@@ -7566,6 +7566,8 @@
     "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com": "Тестовым секретным ключам WooshPay (sk_test_) нужна база API https://apitest.wooshpay.com, а рабочим секретным ключам (sk_live_) — https://api.wooshpay.com",
     "With the Tokens display the top-up amount must be a multiple of {{unit}} tokens": "При отображении в токенах сумма пополнения должна быть кратна {{unit}} токенам",
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay остаётся отключённым, пока секретный ключ и база API не относятся к одной среде: ключам sk_test_ нужен https://apitest.wooshpay.com, а ключам sk_live_ — https://api.wooshpay.com.",
-    "Minimum top-up cannot exceed 10000": "Минимальное пополнение не может превышать 10000"
+    "Minimum top-up cannot exceed 10000": "Минимальное пополнение не может превышать 10000",
+    "Payment return address is not configured; set the server address in system settings": "Адрес возврата после оплаты не настроен; укажите адрес сервера в системных настройках",
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "WooshPay можно включить, только если адрес сервера в системных настройках является абсолютным URL http(s)"
   }
 }

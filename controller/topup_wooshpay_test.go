@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -42,7 +43,8 @@ func (tr wooshpayTestTransport) RoundTrip(r *http.Request) (*http.Response, erro
 }
 
 // setupWooshpayTest configures a live-mode WooshPay account whose API is
-// served by api, with an in-memory database and pricing at 8 CNY per unit.
+// served by api, with an in-memory database, pricing at 8 CNY per unit and
+// the server address https://example.com/.
 func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	t.Helper()
 	setupRebateControllerTest(t)
@@ -62,7 +64,9 @@ func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	quotaPerUnit := common.QuotaPerUnit
 	displayType := operation_setting.GetGeneralSetting().QuotaDisplayType
 	discount := operation_setting.GetPaymentSetting().AmountDiscount
+	serverAddress := system_setting.ServerAddress
 	t.Cleanup(func() {
+		system_setting.ServerAddress = serverAddress
 		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
 		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
 		common.QuotaPerUnit = quotaPerUnit
@@ -78,6 +82,7 @@ func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
 	common.QuotaPerUnit = 500000
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	system_setting.ServerAddress = "https://example.com/"
 }
 
 func insertWooshpayTestOrder(t *testing.T, userID int, tradeNo string) {
@@ -113,8 +118,9 @@ func postWooshpayTestWebhook(t *testing.T, requestCtx context.Context, payload s
 	return recorder.Code
 }
 
-// The worked example from WooshPay's "Signature Check" document: their secret,
-// header timestamp and request body must produce their published v1.
+// The worked example from WooshPay's "Signature Check" document: their secret
+// (a public sample secret, not ours), header timestamp and request body must
+// produce their published v1.
 func TestVerifyWooshpaySignatureMatchesWooshpayExample(t *testing.T) {
 	const secret = "whsec_5U6m5O2ojRra442YkKZ6emDkH0S9wpGs"
 	const header = "t=1773980648254,v1=0c900eecd785b89ab54cc878fad312275be7104cae2e8e347eadc786697fbe91"
@@ -185,43 +191,6 @@ func TestVerifyWooshpaySignature(t *testing.T) {
 	}
 }
 
-func TestWooshpaySignatureDiagnosis(t *testing.T) {
-	const body = `{"id":"evt_1"}`
-	const timestamp = "1767225600123"
-	sign := func(key string, message string) string {
-		mac := hmac.New(sha256.New, []byte(key))
-		mac.Write([]byte(message))
-		return "t=" + timestamp + ",v1=" + hex.EncodeToString(mac.Sum(nil))
-	}
-
-	cases := []struct {
-		name    string
-		header  string
-		secret  string
-		schemes string
-	}{
-		{"current scheme", sign(wooshpayTestWebhookSecret, timestamp+"."+body), wooshpayTestWebhookSecret, "secret/t.body/hex"},
-		{"key without whsec_ prefix", sign("yDjRWBtest", timestamp+"."+body), wooshpayTestWebhookSecret, "stripped_key/t.body/hex"},
-		{"body only", sign(wooshpayTestWebhookSecret, body), wooshpayTestWebhookSecret, "secret/body/hex"},
-		{"t in seconds", sign(wooshpayTestWebhookSecret, "1767225600."+body), wooshpayTestWebhookSecret, "secret/t_seconds.body/hex"},
-		{"wrong secret", sign("whsec_other", timestamp+"."+body), wooshpayTestWebhookSecret, "none"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/api/wooshpay/webhook", strings.NewReader(body))
-			request.Header.Set("Wooshpay-Signature", tc.header)
-			request.Header.Set("Content-Type", "application/json")
-
-			line := wooshpaySignatureFailureLog(request, []byte(body), tc.secret, "127.0.0.1", errors.New("no matching v1 signature"))
-			assert.True(t, strings.HasSuffix(line, " matching_schemes="+tc.schemes), line)
-			assert.Contains(t, line, "headers=Content-Type,Wooshpay-Signature ")
-			assert.Contains(t, line, "secret_has_whsec_prefix=true secret_length=16 ")
-			assert.NotContains(t, line, tc.secret)
-			assert.NotContains(t, line, strings.TrimPrefix(tc.secret, "whsec_"))
-		})
-	}
-}
-
 func TestWooshpayUnitAmountFen(t *testing.T) {
 	cases := []struct {
 		name string
@@ -252,13 +221,17 @@ func TestWooshpayUnitAmountFen(t *testing.T) {
 }
 
 // The Checkout Session is created before the order, carries the amounts the
-// webhook later checks, and a gateway failure leaves no dangling order. The
-// order stores the purchased units and the money actually charged.
+// webhook later checks, and a gateway failure, a payment URL outside WooshPay
+// or a server address that cannot build return URLs leaves no dangling order.
+// The order stores the purchased units and the money actually charged.
 func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	var sessionBody map[string]any
 	var idempotencyKey, authorization string
 	fail := true
+	sessionURL := "https://checkouttest.wooshpay.com/cs_test_1"
+	gatewayCalls := 0
 	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		gatewayCalls++
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/v1/checkout/sessions", r.URL.Path)
 		raw, err := io.ReadAll(r.Body)
@@ -270,7 +243,7 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"amount_too_small","message":"no"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"id":"cs_test_1","url":"https://checkouttest.wooshpay.com/cs_test_1","status":"open","payment_intent":"pi_1"}`))
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"id":"cs_test_1","url":%q,"status":"open","payment_intent":"pi_1"}`, sessionURL)))
 	})
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{2: 0.75}
 	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
@@ -284,7 +257,35 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
 	assert.Zero(t, count, "no order without a Checkout Session")
 
+	// The customer is only sent to a WooshPay page over HTTPS.
 	fail = false
+	for _, link := range []string{
+		"", "https://checkout.example.com/cs_test_1", "http://checkouttest.wooshpay.com/cs_test_1",
+		"https://wooshpay.com.example.com/cs_test_1", "https://evilwooshpay.com/cs_test_1", "javascript:alert(1)",
+	} {
+		sessionURL = link
+		out = pay()
+		assert.Equal(t, "error", out["message"], link)
+		assert.Equal(t, "Failed to start payment", out["data"], link)
+	}
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+	assert.Zero(t, count, "no order for a payment URL outside WooshPay")
+
+	// Without an absolute server address there is no page to return the
+	// customer to: the checkout is refused before WooshPay is called.
+	for _, address := range []string{"", "example.com", "/"} {
+		system_setting.ServerAddress = address
+		calls := gatewayCalls
+		out = pay()
+		assert.Equal(t, "error", out["message"], address)
+		assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"], address)
+		assert.Equal(t, calls, gatewayCalls, "WooshPay is not called: %q", address)
+	}
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+	assert.Zero(t, count, "no order without return URLs")
+	system_setting.ServerAddress = "https://example.com/"
+
+	sessionURL = "https://checkouttest.wooshpay.com/cs_test_1"
 	out = pay()
 	require.Equal(t, "success", out["message"], out)
 	assert.Equal(t, map[string]any{"pay_link": "https://checkouttest.wooshpay.com/cs_test_1"}, out["data"])
@@ -294,8 +295,8 @@ func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
 	assert.Equal(t, tradeNo, idempotencyKey)
 	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("sk_live_wooshpay:")), authorization)
 	assert.NotContains(t, sessionBody, "expires_at", "WooshPay's 24h default applies; its timestamps are in milliseconds")
-	assert.Equal(t, paymentReturnPath("/wallet"), sessionBody["success_url"], "a paid customer lands back on the wallet")
-	assert.Equal(t, paymentReturnPath("/wallet"), sessionBody["cancel_url"])
+	assert.Equal(t, "https://example.com/wallet?show_history=true", sessionBody["success_url"], "a paid customer lands on the top-up history")
+	assert.Equal(t, "https://example.com/wallet", sessionBody["cancel_url"])
 	lineItem := sessionBody["line_items"].([]any)[0].(map[string]any)
 	priceData := lineItem["price_data"].(map[string]any)
 	assert.Equal(t, "CNY", priceData["currency"])
@@ -428,6 +429,9 @@ func TestWooshpayFulfillRejectsMismatchedIntent(t *testing.T) {
 		"pi_test_mode":    strings.Replace(intent("pi_test_mode"), `"livemode":true`, `"livemode":false`, 1),
 		"pi_no_metadata":  fmt.Sprintf(`{"id":"pi_no_metadata","status":"succeeded","amount_received":8000,"currency":"cny","livemode":true,"merchant_order_id":%q}`, tradeNo),
 		"pi_answers_else": intent("pi_someone_else"),
+		// The metadata and the received amount agree with each other but not
+		// with the order's Money of 80.00 CNY.
+		"pi_order_money": strings.ReplaceAll(intent("pi_order_money"), "8000", "7000"),
 		// The order's user is gone; the payment needs manual handling.
 		"pi_orphan": wooshpayTestIntent("pi_orphan", orphanTradeNo),
 	}
@@ -556,7 +560,9 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	optionMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	common.OptionMapRWMutex.Unlock()
+	serverAddress := system_setting.ServerAddress
 	t.Cleanup(func() {
+		system_setting.ServerAddress = serverAddress
 		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
 		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
 		common.OptionMap = optionMap
@@ -626,9 +632,21 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	assert.Equal(t, 7.5, setting.WooshpayUnitPrice)
 	assert.Equal(t, "sk_test_x", setting.WooshpaySecretKey)
 
+	// Checkouts return the customer under the server address, so WooshPay
+	// cannot be switched on while it is not an absolute http(s) URL.
+	const liveSave = `{"secret_key":" sk_live_x ","webhook_secret":"","api_base":"https://api.wooshpay.com/","unit_price":9.5,"min_topup":2,"enabled":true}`
+	for _, address := range []string{"", "example.com", "ftp://example.com"} {
+		system_setting.ServerAddress = address
+		out = save(liveSave)
+		assert.Equal(t, false, out["success"], "server address %q", address)
+		assert.Equal(t, "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL", out["message"], address)
+		assert.False(t, setting.WooshpayEnabled)
+	}
+	system_setting.ServerAddress = "https://example.com/"
+
 	// Moving to the live environment, with a new price, is one save; blank
 	// secrets keep their values.
-	out = save(`{"secret_key":" sk_live_x ","webhook_secret":"","api_base":"https://api.wooshpay.com/","unit_price":9.5,"min_topup":2,"enabled":true}`)
+	out = save(liveSave)
 	require.Equal(t, true, out["success"], out)
 	assert.Equal(t, "sk_live_x", setting.WooshpaySecretKey)
 	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)

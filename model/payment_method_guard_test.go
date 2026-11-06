@@ -119,7 +119,8 @@ func TestRechargeWooshpay_RejectsMismatchedPaymentMethod(t *testing.T) {
 
 // A verified WooshPay payment completes its order even after the order was
 // closed as expired or failed, because the money really arrived; a completed
-// order is never credited twice and reports the duplicate sentinel.
+// order is never credited twice and reports the duplicate sentinel, and a
+// payment of another amount than the order's Money is not credited.
 func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 	truncateTables(t)
 	insertUserForPaymentGuardTest(t, 103, 0)
@@ -130,13 +131,18 @@ func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 		insertTopUpForPaymentGuardTest(t, tradeNo, 103, PaymentProviderWooshpay)
 		require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", tradeNo).Update("status", status).Error)
 
-		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 CNY", GatewayCharge{}), status)
+		// A received amount other than the order's Money credits nothing.
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.98 CNY", GatewayCharge{Listed: 998, Charged: 998}), ErrTopUpAmountMismatch, status)
+		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
+
+		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}), status)
 		assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		quota := getUserQuotaForPaymentGuardTest(t, 103)
 		assert.Greater(t, quota, credited, status)
 		credited = quota
 
-		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "8.00 CNY", GatewayCharge{}), ErrTopUpStatusInvalid)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}), ErrTopUpStatusInvalid)
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103), "a completed order is not credited twice")
 	}
 }

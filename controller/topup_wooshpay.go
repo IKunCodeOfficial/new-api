@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -145,6 +144,14 @@ func RequestWooshpayPay(c *gin.Context) {
 		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
+	// WooshPay needs absolute return URLs. This is checked before the
+	// availability, which requires it as well, so the cause is named.
+	returnBase, err := absolutePaymentReturnURL("")
+	if err != nil {
+		logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
+		paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
+		return
+	}
 	if !isWooshpayTopUpEnabled() {
 		paymentError(c, common.NewMessage("WooshPay payment is not enabled"))
 		return
@@ -165,13 +172,14 @@ func RequestWooshpayPay(c *gin.Context) {
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Payment cancel redirect URL is not in the trusted domain list"), gin.H{"data": ""})
 		return
 	}
+	// A paid customer lands on the wallet's top-up history, as with Waffo.
 	successURL := req.SuccessURL
 	if successURL == "" {
-		successURL = paymentReturnPath("/wallet")
+		successURL = returnBase + "/wallet?show_history=true"
 	}
 	cancelURL := req.CancelURL
 	if cancelURL == "" {
-		cancelURL = paymentReturnPath("/wallet")
+		cancelURL = returnBase + "/wallet"
 	}
 
 	id := c.GetInt("id")
@@ -248,8 +256,14 @@ func RequestWooshpayPay(c *gin.Context) {
 		paymentError(c, common.NewMessage("Failed to start payment"))
 		return
 	}
-	if session.URL == "" {
-		logger.LogError(ctx, common.LogText("WooshPay Checkout Session has no payment URL user_id=%d trade_no=%s session_id=%s", id, tradeNo, session.ID))
+	// The customer is only ever sent to a WooshPay page over HTTPS.
+	payLink, err := url.Parse(session.URL)
+	payLinkHost := ""
+	if err == nil && payLink.Scheme == "https" {
+		payLinkHost = strings.ToLower(payLink.Hostname())
+	}
+	if payLinkHost != "wooshpay.com" && !strings.HasSuffix(payLinkHost, ".wooshpay.com") {
+		logger.LogError(ctx, common.LogText("WooshPay Checkout Session has no valid payment URL, no order created user_id=%d trade_no=%s session_id=%s pay_link=%q", id, tradeNo, session.ID, session.URL))
 		paymentError(c, common.NewMessage("Failed to start payment"))
 		return
 	}
@@ -266,7 +280,7 @@ func RequestWooshpayPay(c *gin.Context) {
 		Pricing:         &model.TopUpPricing{UnitPrice: unitPrice, TestMode: account.testMode()},
 	}
 	if err := topUp.Insert(); err != nil {
-		logger.LogError(ctx, common.LogText("WooshPay Checkout Session created but top-up order insert failed, a payment on it will not be credited and needs manual handling user_id=%d trade_no=%s session_id=%s amount=%d error=%q", id, tradeNo, session.ID, req.Amount, err.Error()))
+		logger.LogError(ctx, common.LogText("WooshPay Checkout Session created but top-up order insert failed, a payment on it is not credited, needs manual handling alert=wooshpay_paid_not_credited user_id=%d trade_no=%s session_id=%s amount=%d error=%q", id, tradeNo, session.ID, req.Amount, err.Error()))
 		paymentError(c, common.NewMessage("Failed to create order"))
 		return
 	}
@@ -355,7 +369,7 @@ func WooshpayWebhook(c *gin.Context) {
 	}
 
 	if err := verifyWooshpaySignature(payload, wooshpaySignatureHeader(c.Request.Header), webhookSecret); err != nil {
-		logger.LogWarn(ctx, wooshpaySignatureFailureLog(c.Request, payload, webhookSecret, callerIp, err))
+		logger.LogWarn(ctx, common.LogText("WooshPay webhook signature verification failed client_ip=%s error=%q has_signature_header=%t body_length=%d", callerIp, err.Error(), wooshpaySignatureHeader(c.Request.Header) != "", len(payload)))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -395,7 +409,8 @@ func WooshpayWebhook(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// verifyWooshpaySignature checks the Signature header ("t=<ms>,v1=<hex>"),
+// verifyWooshpaySignature checks the webhook signature header
+// ("t=<ms>,v1=<hex>", see wooshpaySignatureHeader),
 // which signs t + "." + body with HMAC-SHA256 keyed by the whole webhook
 // secret (including its whsec_ prefix). t is only a salt: it is used as the
 // raw header string and is not checked against the clock. Replays are
@@ -444,107 +459,6 @@ func wooshpaySignatureHeader(header http.Header) string {
 		return signature
 	}
 	return header.Get("Signature")
-}
-
-// wooshpaySignatureFailureLog is the warning logged when a webhook fails
-// verification. Besides the error it records what the request looked like and
-// which candidate signing schemes would have matched, so the scheme WooshPay
-// really uses can be learned from the log. It holds the signature header
-// (only t and the MACs) and the secret's length and prefix, never the secret.
-func wooshpaySignatureFailureLog(request *http.Request, payload []byte, secret string, callerIp string, verifyErr error) string {
-	signature := wooshpaySignatureHeader(request.Header)
-	bodySum := sha256.Sum256(payload)
-	matches := strings.Join(wooshpaySignatureDiagnosis(payload, signature, secret), ",")
-	if matches == "" {
-		matches = "none"
-	}
-	return common.LogText("WooshPay webhook signature verification failed path=%q client_ip=%s error=%q signature=%q headers=%s content_type=%q content_encoding=%q body_length=%d body_sha256=%s body_head=%q secret_has_whsec_prefix=%t secret_length=%d matching_schemes=%s",
-		request.RequestURI, callerIp, verifyErr.Error(), signature,
-		strings.Join(slices.Sorted(maps.Keys(request.Header)), ","),
-		request.Header.Get("Content-Type"), request.Header.Get("Content-Encoding"),
-		len(payload), hex.EncodeToString(bodySum[:]), payload[:min(len(payload), 120)],
-		strings.HasPrefix(secret, "whsec_"), len(secret), matches)
-}
-
-// wooshpaySignatureDiagnosis names the candidate signing schemes, as
-// key/message/encoding, that produce one of the header's v1 values. It is only
-// logged after verification failed, to learn how WooshPay signs; it never
-// accepts a webhook.
-func wooshpaySignatureDiagnosis(payload []byte, header string, secret string) []string {
-	var timestamp string
-	var signatures []string
-	for part := range strings.SplitSeq(header, ",") {
-		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "t":
-			timestamp = value
-		case "v1":
-			signatures = append(signatures, value)
-		}
-	}
-	if secret == "" || len(signatures) == 0 {
-		return nil
-	}
-
-	// A candidate is a key or a signed message under a scheme name.
-	type candidate struct {
-		name  string
-		bytes []byte
-	}
-	stripped := strings.TrimPrefix(secret, "whsec_")
-	keys := []candidate{
-		{"secret", []byte(secret)},
-		{"stripped_key", []byte(stripped)},
-	}
-	for _, encoding := range []struct {
-		name     string
-		encoding *base64.Encoding
-	}{
-		{"base64_std_key", base64.StdEncoding},
-		{"base64_raw_std_key", base64.RawStdEncoding},
-		{"base64_url_key", base64.URLEncoding},
-		{"base64_raw_url_key", base64.RawURLEncoding},
-	} {
-		if decoded, err := encoding.encoding.DecodeString(stripped); err == nil {
-			keys = append(keys, candidate{encoding.name, decoded})
-		}
-	}
-
-	messages := []candidate{
-		{"t.body", []byte(timestamp + "." + string(payload))},
-		{"body", payload},
-		{"tbody", []byte(timestamp + string(payload))},
-	}
-	if milliseconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
-		messages = append(messages, candidate{"t_seconds.body", []byte(strconv.FormatInt(milliseconds/1000, 10) + "." + string(payload))})
-	}
-
-	var matches []string
-	for _, key := range keys {
-		for _, message := range messages {
-			mac := hmac.New(sha256.New, key.bytes)
-			mac.Write(message.bytes)
-			sum := mac.Sum(nil)
-			hexSum := hex.EncodeToString(sum)
-			base64Sum := base64.StdEncoding.EncodeToString(sum)
-			for _, signature := range signatures {
-				name := ""
-				switch {
-				case strings.EqualFold(signature, hexSum):
-					name = key.name + "/" + message.name + "/hex"
-				case signature == base64Sum:
-					name = key.name + "/" + message.name + "/base64"
-				}
-				if name != "" && !slices.Contains(matches, name) {
-					matches = append(matches, name)
-				}
-			}
-		}
-	}
-	return matches
 }
 
 // wooshpayPaymentProof checks a succeeded PaymentIntent re-queried with
@@ -625,11 +539,11 @@ func wooshpayFulfill(ctx context.Context, account wooshpayAccount, object json.R
 	}
 	received, livemode, failed := wooshpayPaymentProof(ctx, account, intent, eventIntent.ID)
 	if failed == "amount_unknown" {
-		logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded without an amount, retry requested, needs manual handling if it persists payment_intent=%s trade_no=%s client_ip=%s", eventIntent.ID, tradeNo, callerIp))
+		logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded without an amount, retry requested, paid but not credited, needs manual handling if it persists alert=wooshpay_paid_not_credited payment_intent=%s trade_no=%s client_ip=%s", eventIntent.ID, tradeNo, callerIp))
 		return errWooshpayRetry
 	}
 	if failed != "" {
-		logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded but does not match the order, paid but not credited, needs manual handling payment_intent=%s trade_no=%s mismatch=%s client_ip=%s", eventIntent.ID, tradeNo, failed, callerIp))
+		logger.LogError(ctx, common.LogText("WooshPay PaymentIntent succeeded but does not match the order, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited payment_intent=%s trade_no=%s mismatch=%s client_ip=%s", eventIntent.ID, tradeNo, failed, callerIp))
 		return nil
 	}
 
@@ -649,13 +563,11 @@ func wooshpayFulfill(ctx context.Context, account wooshpayAccount, object json.R
 	case errors.Is(err, model.ErrTopUpStatusInvalid):
 		logger.LogInfo(ctx, common.LogText("WooshPay order already completed, duplicate notification ignored trade_no=%s payment_intent=%s client_ip=%s", tradeNo, intent.ID, callerIp))
 		return nil
-	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch), errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch), errors.Is(err, model.ErrTopUpAmountMismatch),
+		errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
 		// gorm.ErrRecordNotFound here means the order's user no longer
-		// exists; a redelivery cannot change that.
-		logger.LogError(ctx, common.LogText("WooshPay order cannot be completed, paid but not credited, needs manual handling trade_no=%s payment_intent=%s client_ip=%s error=%q", tradeNo, intent.ID, callerIp, err.Error()))
-		return nil
-	case errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
-		logger.LogError(ctx, common.LogText("WooshPay paid order needs manual completion trade_no=%s payment_intent=%s client_ip=%s error=%q", tradeNo, intent.ID, callerIp, err.Error()))
+		// exists. A redelivery cannot change any of these.
+		logger.LogError(ctx, common.LogText("WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no=%s payment_intent=%s amount_received=%s client_ip=%s error=%q", tradeNo, intent.ID, paymentAmount, callerIp, err.Error()))
 		return nil
 	default:
 		logger.LogError(ctx, common.LogText("WooshPay top-up processing failed trade_no=%s payment_intent=%s client_ip=%s error=%q", tradeNo, intent.ID, callerIp, err.Error()))

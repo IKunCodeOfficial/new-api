@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 func isPaymentComplianceConfirmed() bool {
@@ -110,9 +111,11 @@ func isEpayWebhookEnabled() bool {
 }
 
 // isWooshpayTopUpEnabled reports whether new WooshPay top-ups are offered:
-// the administrator switched WooshPay on and its account is configured.
+// the administrator switched WooshPay on, its account is configured, and the
+// server address can build the absolute return URLs a checkout needs.
 func isWooshpayTopUpEnabled() bool {
-	return setting.WooshpayEnabled && isWooshpayWebhookEnabled()
+	return setting.WooshpayEnabled && isWooshpayWebhookEnabled() &&
+		system_setting.IsAbsoluteHTTPAddress(system_setting.ServerAddress)
 }
 
 // isWooshpayWebhookEnabled reports whether WooshPay payments are accepted.

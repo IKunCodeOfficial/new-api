@@ -336,7 +336,8 @@ func UpdateOption(key string, value string) error {
 // validateWooshpayEnvironment checks the WooshPay settings a save would leave
 // in place; a setting not being saved keeps its stored value. A secret key
 // must not be paired with the API base of the other environment, and WooshPay
-// can only be on while the keys of one environment are set. The admin page
+// can only be on while the keys of one environment and an absolute http(s)
+// server address are set. The admin page
 // saves every changed WooshPay setting together through UpdateOptionsBulk.
 func validateWooshpayEnvironment(values map[string]string) error {
 	secretKey, keySaved := values["WooshpaySecretKey"]
@@ -364,7 +365,18 @@ func validateWooshpayEnvironment(values map[string]string) error {
 	if enabled != "true" {
 		return nil
 	}
-	return setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase)
+	if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
+		return err
+	}
+	// Checkouts return the customer to pages under the server address.
+	serverAddress, addressSaved := values["ServerAddress"]
+	if !addressSaved {
+		serverAddress = system_setting.ServerAddress
+	}
+	if !system_setting.IsAbsoluteHTTPAddress(serverAddress) {
+		return common.NewMessage("WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL")
+	}
+	return nil
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
