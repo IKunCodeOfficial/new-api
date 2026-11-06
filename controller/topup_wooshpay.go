@@ -181,7 +181,7 @@ func RequestWooshpayPay(c *gin.Context) {
 			return
 		}
 		if err := setting.ValidateWooshpayServerAddress(account.secretKey, system_setting.ServerAddress); err != nil {
-			logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
+			logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings alert=wooshpay_checkout_failed error=%q", err.Error()))
 			paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
 			return
 		}
@@ -284,7 +284,7 @@ func RequestWooshpayPay(c *gin.Context) {
 	ctx := c.Request.Context()
 	var session wooshpaySession
 	if err := wooshpayRequest(ctx, account, http.MethodPost, "/v1/checkout/sessions", tradeNo, params, &session); err != nil {
-		logger.LogError(ctx, common.LogText("WooshPay failed to create Checkout Session user_id=%d trade_no=%s amount=%d error=%q", id, tradeNo, req.Amount, err.Error()))
+		logger.LogError(ctx, common.LogText("WooshPay failed to create Checkout Session alert=wooshpay_checkout_failed user_id=%d trade_no=%s amount=%d error=%q", id, tradeNo, req.Amount, err.Error()))
 		paymentError(c, common.NewMessage("Failed to start payment"))
 		return
 	}

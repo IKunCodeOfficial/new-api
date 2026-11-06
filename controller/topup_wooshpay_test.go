@@ -1218,3 +1218,40 @@ func TestRequestWooshpayPayRefusesTestOrderBeforeAddressDiagnosis(t *testing.T) 
 	assert.Contains(t, logs.String(), "return URL cannot be built")
 	assert.Zero(t, gatewayCalls)
 }
+
+// A checkout that cannot be created carries alert=wooshpay_checkout_failed,
+// untranslated and in the same place in the English and the Chinese log:
+// customers cannot pay with WooshPay until an administrator acts.
+func TestWooshpayCheckoutFailureLogsAlertMarker(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"currency_not_supported"}}`))
+	})
+	t.Cleanup(func() { common.SetLogLanguage("") })
+	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
+	cases := []struct {
+		language string
+		gateway  string
+		address  string
+	}{
+		{"en", "WooshPay failed to create Checkout Session alert=wooshpay_checkout_failed user_id=",
+			"WooshPay checkout refused, the return URL cannot be built, set the server address in system settings alert=wooshpay_checkout_failed error="},
+		{"zh-CN", "WooshPay 创建 Checkout Session 失败 alert=wooshpay_checkout_failed user_id=",
+			"WooshPay 拒绝创建收银台，无法生成返回地址，请在系统设置中填写服务器地址 alert=wooshpay_checkout_failed error="},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			common.SetLogLanguage(tc.language)
+			logs := captureWooshpayErrorLog(t)
+			system_setting.ServerAddress = "https://example.com/"
+			out := requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+			assert.Equal(t, "Failed to start payment", out["data"])
+			assert.Contains(t, logs.String(), tc.gateway)
+
+			system_setting.ServerAddress = "http://localhost:3000"
+			out = requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+			assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"])
+			assert.Contains(t, logs.String(), tc.address)
+		})
+	}
+}
