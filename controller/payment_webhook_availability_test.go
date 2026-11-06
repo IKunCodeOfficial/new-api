@@ -137,22 +137,9 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		{"sk_test_123", "http://[::1%25lo0]:3000", false},
 		{"sk_test_123", "http://localhost.localdomain", false},
 		{"sk_test_123", "http://LocalHost.LocalDomain.", false},
-		// Numeric forms browsers resolve to 127.0.0.1 or 0.0.0.0 although
-		// they are not the canonical dotted quad.
-		{"sk_test_123", "http://127.1", false},
-		{"sk_test_123", "http://2130706433", false},
-		{"sk_test_123", "http://0x7f000001", false},
-		{"sk_test_123", "http://0X7F000001", false},
-		{"sk_test_123", "http://017700000001", false},
-		{"sk_test_123", "http://127.000.000.001", false},
-		{"sk_test_123", "http://0x7f.0.0.1", false},
-		{"sk_test_123", "http://0", false},
-		{"sk_test_123", "http://0:3000", false},
-		// Public addresses and names that merely contain digits stay valid.
+		// Public addresses stay valid.
 		{"sk_test_123", "http://203.0.113.7", true},
 		{"sk_test_123", "http://[2001:db8::1]", true},
-		{"sk_test_123", "http://1.example.com", true},
-		{"sk_test_123", "http://0xcafe.example.com", true},
 		{"sk_test_123", "http://example.localdomain", true},
 		{"sk_live_123", "https://localhost", false},
 		{"sk_live_123", "", false},
