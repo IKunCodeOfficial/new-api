@@ -53,11 +53,15 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	common.RedisEnabled = false
 	common.SessionSecret = "manage-user-test-secret"
 	common.SetDatabaseTypes(databaseTypes[dialect], databaseTypes[dialect])
+	// Raw SQL quotes reserved-word columns such as group by dialect; InitDB
+	// is not run here, so the names are set for this dialect explicitly.
+	model.InitColumnNames()
 
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.RedisEnabled, common.SessionSecret = previousRedisEnabled, previousSecret
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
+		model.InitColumnNames()
 		sqlDB, err := db.DB()
 		if err == nil {
 			_ = sqlDB.Close()

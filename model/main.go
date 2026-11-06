@@ -63,6 +63,14 @@ func initCol() {
 	}
 }
 
+// InitColumnNames sets the reserved-word column names and boolean literals
+// for the configured main and log database types. InitDB and InitLogDB do this
+// at startup; code that sets the database types itself, such as test
+// fixtures, calls it afterwards.
+func InitColumnNames() {
+	initCol()
+}
+
 var DB *gorm.DB
 
 var LOG_DB *gorm.DB
