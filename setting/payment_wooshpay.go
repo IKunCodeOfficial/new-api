@@ -82,14 +82,40 @@ func ValidateWooshpayServerAddress(secretKey string, serverAddress string) error
 		return common.NewMessage("WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL")
 	}
 	host := strings.TrimSuffix(strings.ToLower(address.Hostname()), ".")
+	// An IPv6 zone (fe80::1%en0) names a local interface, not another host.
+	host, _, _ = strings.Cut(host, "%")
 	ip := net.ParseIP(host)
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") || ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || host == "localhost.localdomain" ||
+		ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) || ip == nil && isLegacyNumericHost(host) {
 		return common.NewMessage("WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings")
 	}
 	if address.Scheme != "https" && strings.HasPrefix(strings.TrimSpace(secretKey), "sk_live_") {
 		return common.NewMessage("WooshPay live secret keys (sk_live_) need an https:// server address in system settings")
 	}
 	return nil
+}
+
+// isLegacyNumericHost reports whether host is written in the numeric forms
+// inet_aton still resolves to an IPv4 address although it is not the
+// canonical dotted quad: 127.1, 2130706433, 0x7f000001, 017700000001,
+// 127.000.000.001 or 0. Browsers resolve them, so they cannot be checked as
+// names; none is a public address a site would be configured with.
+func isLegacyNumericHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	for part := range strings.SplitSeq(host, ".") {
+		digits, hex := strings.CutPrefix(part, "0x")
+		if !hex && part == "" {
+			return false
+		}
+		for _, r := range digits {
+			if !('0' <= r && r <= '9' || hex && 'a' <= r && r <= 'f') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ValidateWooshpayKeyBase rejects a secret key paired with the API base of
