@@ -735,6 +735,22 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	require.Equal(t, true, save(`{"enabled":false}`)["success"])
 	require.NoError(t, model.UpdateOption("ServerAddress", "http://localhost:3000"))
 	assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
+
+	// A mismatched stored pair (saved before the cross-check existed, or by
+	// another node) cannot block switching WooshPay off, alone or with other
+	// settings; a save that touches the key or the API base is still checked.
+	setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayApiBase = true, "sk_live_x", "https://apitest.wooshpay.com"
+	const keyBase = "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com"
+	out = save(`{"enabled":false,"api_base":"https://apitest.wooshpay.com"}`)
+	assert.Equal(t, keyBase, out["message"])
+	assert.True(t, setting.WooshpayEnabled)
+	out = save(`{"enabled":false,"min_topup":4}`)
+	require.Equal(t, true, out["success"], out)
+	assert.False(t, setting.WooshpayEnabled)
+	assert.Equal(t, 4, setting.WooshpayMinTopUp)
+	setting.WooshpayEnabled = true
+	require.NoError(t, model.UpdateOption("WooshpayEnabled", "false"))
+	assert.False(t, setting.WooshpayEnabled)
 }
 
 // The settings a request works with are read once: a change saved while a

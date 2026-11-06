@@ -402,7 +402,10 @@ func checkWooshpayEnvironment(values map[string]string) error {
 	if !addressSaved {
 		serverAddress = system_setting.ServerAddress
 	}
-	if wooshpaySaved {
+	// Switching WooshPay off without touching the key or the API base must
+	// work even while the stored pair is mismatched.
+	disabling := enabledSaved && enabled != "true" && !keySaved && !baseSaved
+	if wooshpaySaved && !disabling {
 		if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
 			return err
 		}
