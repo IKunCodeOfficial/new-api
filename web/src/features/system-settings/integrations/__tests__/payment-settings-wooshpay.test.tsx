@@ -58,7 +58,7 @@ const defaultValues: SectionProps['defaultValues'] = {
   CreemProducts: '[]',
 }
 
-function PaymentFixture() {
+function PaymentFixture(props: { wooshpayTestMode?: boolean }) {
   const [actions, setActions] = useState<HTMLDivElement | null>(null)
   return (
     <SettingsPageProvider actionsContainer={actions}>
@@ -89,6 +89,7 @@ function PaymentFixture() {
         }}
         waffoPancakeProvisionedStoreID='store_1'
         waffoPancakeProvisionedProductID='product_1'
+        wooshpayTestMode={props.wooshpayTestMode}
         complianceDefaults={{
           confirmed: true,
           termsVersion: 'v1',
@@ -100,13 +101,13 @@ function PaymentFixture() {
   )
 }
 
-function renderPayment() {
+function renderPayment(wooshpayTestMode = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
     <QueryClientProvider client={client}>
-      <PaymentFixture />
+      <PaymentFixture wooshpayTestMode={wooshpayTestMode} />
     </QueryClientProvider>
   )
   return userEvent.setup()
@@ -133,6 +134,18 @@ describe('WooshPay settings', () => {
     await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
     expect(screen.getByRole('spinbutton', { name: 'Unit price' })).toBeVisible()
     expect(screen.queryByRole('textbox', { name: 'Currency' })).toBeNull()
+  })
+
+  it('warns that test payments credit real quota when the saved key is a test key', async () => {
+    const user = renderPayment(true)
+    await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
+    expect(screen.getByText('WooshPay is in test mode')).toBeVisible()
+  })
+
+  it('shows no test-mode warning when the saved key is not a test key', async () => {
+    const user = renderPayment(false)
+    await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
+    expect(screen.queryByText('WooshPay is in test mode')).toBeNull()
   })
 
   it('saves every changed WooshPay setting in one request and none one by one', async () => {

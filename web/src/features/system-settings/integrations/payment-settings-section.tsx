@@ -228,6 +228,8 @@ type PaymentSettingsSectionProps = {
   waffoPancakeDefaultValues: WaffoPancakeSettingsValues
   waffoPancakeProvisionedStoreID?: string
   waffoPancakeProvisionedProductID?: string
+  /** The stored WooshPay secret key is a test (sk_test_) key. */
+  wooshpayTestMode?: boolean
   complianceDefaults: PaymentComplianceDefaults
 }
 
@@ -246,6 +248,7 @@ export function PaymentSettingsSection({
   waffoPancakeDefaultValues,
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
+  wooshpayTestMode,
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
@@ -1574,14 +1577,20 @@ export function PaymentSettingsSection({
                       {t('Required events:')}{' '}
                       <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
                         payment_intent.succeeded
+                      </code>{' '}
+                      {t('and')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        checkout.session.expired
                       </code>
-                      {', '}
+                    </li>
+                    <li>
+                      {t('Optional events (only logged):')}{' '}
                       <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
                         payment_intent.canceled
                       </code>{' '}
                       {t('and')}{' '}
                       <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
-                        checkout.session.expired
+                        payment_intent.payment_failed
                       </code>
                     </li>
                     <li>
@@ -1591,6 +1600,18 @@ export function PaymentSettingsSection({
                     </li>
                   </ul>
                 </div>
+
+                {wooshpayTestMode && (
+                  <Alert variant='destructive'>
+                    <ShieldAlert className='h-4 w-4' />
+                    <AlertTitle>{t('WooshPay is in test mode')}</AlertTitle>
+                    <AlertDescription>
+                      {t(
+                        'The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.'
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 <Alert>
                   <ShieldAlert className='h-4 w-4' />

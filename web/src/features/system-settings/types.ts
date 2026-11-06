@@ -338,6 +338,8 @@ export type BillingSettings = {
   WooshpayApiBase: string
   WooshpayUnitPrice: number
   WooshpayMinTopUp: number
+  /** Derived by the server: the stored secret key is a test (sk_test_) key. */
+  WooshpayTestMode: boolean
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean

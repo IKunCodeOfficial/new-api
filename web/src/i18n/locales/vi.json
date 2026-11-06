@@ -7553,7 +7553,6 @@
     "WooshPay is not configured, so the payment cannot be verified": "WooshPay chưa được cấu hình nên không thể xác minh thanh toán",
     "Failed to query the WooshPay PaymentIntent": "Truy vấn PaymentIntent WooshPay thất bại",
     "The WooshPay PaymentIntent has not succeeded": "PaymentIntent WooshPay này chưa thanh toán thành công",
-    "The WooshPay PaymentIntent does not match this order: {{field}}": "PaymentIntent WooshPay không khớp với đơn hàng này: {{field}}",
     "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent": "Đơn hàng WooshPay đã hết hạn hoặc thất bại chỉ có thể hoàn tất bằng ID PaymentIntent đã thanh toán thành công",
     "Failed to calculate the payment amount": "Không tính được số tiền thanh toán",
     "PaymentIntent ID": "ID PaymentIntent",
@@ -7568,6 +7567,17 @@
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay vẫn bị tắt cho đến khi khóa bí mật và API base thuộc cùng một môi trường: khóa sk_test_ cần https://apitest.wooshpay.com và khóa sk_live_ cần https://api.wooshpay.com.",
     "Minimum top-up cannot exceed 10000": "Mức nạp tối thiểu không được vượt quá 10000",
     "Payment return address is not configured; set the server address in system settings": "Chưa cấu hình địa chỉ quay lại sau thanh toán; hãy đặt địa chỉ máy chủ trong cài đặt hệ thống",
-    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "Chỉ có thể bật WooshPay khi địa chỉ máy chủ trong cài đặt hệ thống là URL http(s) tuyệt đối"
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "Chỉ có thể bật WooshPay khi địa chỉ máy chủ trong cài đặt hệ thống là URL http(s) tuyệt đối",
+    "WooshPay is in test mode; only administrators can place test orders": "WooshPay đang ở chế độ thử nghiệm; chỉ quản trị viên mới có thể tạo đơn thử nghiệm",
+    "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings": "WooshPay không thể đưa khách hàng quay lại địa chỉ máy chủ localhost; hãy đặt địa chỉ công khai của trang trong cài đặt hệ thống",
+    "WooshPay live secret keys (sk_live_) need an https:// server address in system settings": "Khóa bí mật thật của WooshPay (sk_live_) cần địa chỉ máy chủ https:// trong cài đặt hệ thống",
+    "The WooshPay PaymentIntent belongs to another order": "PaymentIntent WooshPay này thuộc về một đơn hàng khác",
+    "The WooshPay PaymentIntent was not charged in CNY": "PaymentIntent WooshPay này không được thanh toán bằng CNY",
+    "The WooshPay PaymentIntent is not in the mode of the configured secret key": "PaymentIntent WooshPay này không cùng chế độ với khóa bí mật đã cấu hình",
+    "The amount the WooshPay PaymentIntent received does not match this order": "Số tiền PaymentIntent WooshPay nhận được không khớp với đơn hàng này",
+    "This order was not created by WooshPay": "Đơn hàng này không được tạo bởi WooshPay",
+    "WooshPay is in test mode": "WooshPay đang ở chế độ thử nghiệm",
+    "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "Khóa bí mật đã lưu là khóa thử nghiệm (sk_test_). Thanh toán thử nghiệm không chuyển tiền thật nhưng vẫn nạp hạn mức thật, vì vậy chỉ quản trị viên mới có thể tạo đơn WooshPay cho đến khi lưu khóa thật.",
+    "Optional events (only logged):": "Sự kiện tùy chọn (chỉ ghi log):"
   }
 }

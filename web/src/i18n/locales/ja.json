@@ -7553,7 +7553,6 @@
     "WooshPay is not configured, so the payment cannot be verified": "WooshPay が設定されていないため、支払いを確認できません",
     "Failed to query the WooshPay PaymentIntent": "WooshPay の PaymentIntent の照会に失敗しました",
     "The WooshPay PaymentIntent has not succeeded": "この WooshPay の PaymentIntent はまだ成功していません",
-    "The WooshPay PaymentIntent does not match this order: {{field}}": "この WooshPay の PaymentIntent は注文と一致しません: {{field}}",
     "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent": "期限切れまたは失敗した WooshPay の注文は、成功した PaymentIntent の ID がある場合にのみ完了できます",
     "Failed to calculate the payment amount": "支払金額の計算に失敗しました",
     "PaymentIntent ID": "PaymentIntent ID",
@@ -7568,6 +7567,17 @@
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "シークレットキーと API ベースが同じ環境のものになるまで、WooshPay は無効のままです。sk_test_ キーには https://apitest.wooshpay.com、sk_live_ キーには https://api.wooshpay.com が必要です。",
     "Minimum top-up cannot exceed 10000": "最小チャージ数量は 10000 を超えることはできません",
     "Payment return address is not configured; set the server address in system settings": "支払い後の戻り先アドレスが設定されていません。システム設定でサーバーアドレスを設定してください",
-    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "システム設定のサーバーアドレスが完全な http(s) URL の場合のみ WooshPay を有効にできます"
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "システム設定のサーバーアドレスが完全な http(s) URL の場合のみ WooshPay を有効にできます",
+    "WooshPay is in test mode; only administrators can place test orders": "WooshPay はテストモードです。テスト注文を作成できるのは管理者のみです",
+    "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings": "WooshPay は顧客を localhost のサーバーアドレスに戻せません。システム設定でこのサイトの公開アドレスを設定してください",
+    "WooshPay live secret keys (sk_live_) need an https:// server address in system settings": "WooshPay の本番シークレットキー（sk_live_）には、システム設定で https:// のサーバーアドレスが必要です",
+    "The WooshPay PaymentIntent belongs to another order": "この WooshPay PaymentIntent は別の注文のものです",
+    "The WooshPay PaymentIntent was not charged in CNY": "この WooshPay PaymentIntent は CNY で決済されていません",
+    "The WooshPay PaymentIntent is not in the mode of the configured secret key": "この WooshPay PaymentIntent は設定済みシークレットキーのモードと一致しません",
+    "The amount the WooshPay PaymentIntent received does not match this order": "WooshPay PaymentIntent の受取額がこの注文と一致しません",
+    "This order was not created by WooshPay": "この注文は WooshPay で作成されたものではありません",
+    "WooshPay is in test mode": "WooshPay はテストモードです",
+    "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "保存されているシークレットキーはテストキー（sk_test_）です。テスト決済では実際のお金は動きませんが実際のクォータがチャージされるため、本番キーを保存するまで WooshPay の注文を作成できるのは管理者のみです。",
+    "Optional events (only logged):": "任意のイベント（ログ記録のみ）："
   }
 }

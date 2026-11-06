@@ -61,10 +61,13 @@ describe('WooshPay top-up defaults', () => {
     discount: {},
   }
 
-  test('selects WooshPay when it is the only enabled gateway without pay methods', () => {
-    expect(getDefaultPaymentType(wooshpayOnlyTopupInfo)).toBe(
-      PAYMENT_TYPES.WOOSHPAY
-    )
+  test('selects WooshPay when the server lists it as the only pay method', () => {
+    expect(
+      getDefaultPaymentType({
+        ...wooshpayOnlyTopupInfo,
+        pay_methods: [{ name: 'WooshPay', type: PAYMENT_TYPES.WOOSHPAY }],
+      })
+    ).toBe(PAYMENT_TYPES.WOOSHPAY)
   })
 
   test('uses the WooshPay minimum top-up when it is the only enabled gateway', () => {

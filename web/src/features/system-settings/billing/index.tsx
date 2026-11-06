@@ -87,6 +87,7 @@ const defaultBillingSettings: BillingSettings = {
   WooshpayApiBase: 'https://api.wooshpay.com',
   WooshpayUnitPrice: 7.3,
   WooshpayMinTopUp: 1,
+  WooshpayTestMode: false,
   CreemApiKey: '',
   CreemWebhookSecret: '',
   CreemTestMode: false,

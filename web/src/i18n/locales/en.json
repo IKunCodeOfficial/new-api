@@ -7553,7 +7553,6 @@
     "WooshPay is not configured, so the payment cannot be verified": "WooshPay is not configured, so the payment cannot be verified",
     "Failed to query the WooshPay PaymentIntent": "Failed to query the WooshPay PaymentIntent",
     "The WooshPay PaymentIntent has not succeeded": "The WooshPay PaymentIntent has not succeeded",
-    "The WooshPay PaymentIntent does not match this order: {{field}}": "The WooshPay PaymentIntent does not match this order: {{field}}",
     "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent": "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent",
     "Failed to calculate the payment amount": "Failed to calculate the payment amount",
     "PaymentIntent ID": "PaymentIntent ID",
@@ -7568,6 +7567,17 @@
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.",
     "Minimum top-up cannot exceed 10000": "Minimum top-up cannot exceed 10000",
     "Payment return address is not configured; set the server address in system settings": "Payment return address is not configured; set the server address in system settings",
-    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL"
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL",
+    "WooshPay is in test mode; only administrators can place test orders": "WooshPay is in test mode; only administrators can place test orders",
+    "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings": "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings",
+    "WooshPay live secret keys (sk_live_) need an https:// server address in system settings": "WooshPay live secret keys (sk_live_) need an https:// server address in system settings",
+    "The WooshPay PaymentIntent belongs to another order": "The WooshPay PaymentIntent belongs to another order",
+    "The WooshPay PaymentIntent was not charged in CNY": "The WooshPay PaymentIntent was not charged in CNY",
+    "The WooshPay PaymentIntent is not in the mode of the configured secret key": "The WooshPay PaymentIntent is not in the mode of the configured secret key",
+    "The amount the WooshPay PaymentIntent received does not match this order": "The amount the WooshPay PaymentIntent received does not match this order",
+    "This order was not created by WooshPay": "This order was not created by WooshPay",
+    "WooshPay is in test mode": "WooshPay is in test mode",
+    "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.",
+    "Optional events (only logged):": "Optional events (only logged):"
   }
 }

@@ -7553,7 +7553,6 @@
     "WooshPay is not configured, so the payment cannot be verified": "WooshPay 未配置，无法核实付款",
     "Failed to query the WooshPay PaymentIntent": "查询 WooshPay PaymentIntent 失败",
     "The WooshPay PaymentIntent has not succeeded": "该 WooshPay PaymentIntent 尚未支付成功",
-    "The WooshPay PaymentIntent does not match this order: {{field}}": "该 WooshPay PaymentIntent 与此订单不符：{{field}}",
     "An expired or failed WooshPay order can only be completed with the ID of its succeeded PaymentIntent": "已过期或失败的 WooshPay 订单只能凭其支付成功的 PaymentIntent ID 补单",
     "Failed to calculate the payment amount": "计算支付金额失败",
     "PaymentIntent ID": "PaymentIntent ID",
@@ -7568,6 +7567,17 @@
     "WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.": "密钥和 API 地址属于同一环境之前，WooshPay 保持停用：sk_test_ 密钥需要 https://apitest.wooshpay.com，sk_live_ 密钥需要 https://api.wooshpay.com。",
     "Minimum top-up cannot exceed 10000": "最低充值不能超过 10000",
     "Payment return address is not configured; set the server address in system settings": "未配置支付返回地址，请在系统设置中填写服务器地址",
-    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "只有系统设置中的服务器地址是完整的 http(s) 地址时才能启用 WooshPay"
+    "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL": "只有系统设置中的服务器地址是完整的 http(s) 地址时才能启用 WooshPay",
+    "WooshPay is in test mode; only administrators can place test orders": "WooshPay 处于测试模式，只有管理员可以创建测试订单",
+    "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings": "WooshPay 不能把顾客返回到 localhost 服务器地址，请在系统设置中填写本站的公网地址",
+    "WooshPay live secret keys (sk_live_) need an https:// server address in system settings": "WooshPay 正式密钥（sk_live_）需要在系统设置中使用 https:// 服务器地址",
+    "The WooshPay PaymentIntent belongs to another order": "该 WooshPay PaymentIntent 属于其他订单",
+    "The WooshPay PaymentIntent was not charged in CNY": "该 WooshPay PaymentIntent 不是以人民币（CNY）扣款",
+    "The WooshPay PaymentIntent is not in the mode of the configured secret key": "该 WooshPay PaymentIntent 与当前密钥的模式不一致",
+    "The amount the WooshPay PaymentIntent received does not match this order": "该 WooshPay PaymentIntent 的实收金额与此订单不符",
+    "This order was not created by WooshPay": "此订单不是通过 WooshPay 创建的",
+    "WooshPay is in test mode": "WooshPay 处于测试模式",
+    "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "已保存的密钥是测试密钥（sk_test_）。测试付款不会产生真实资金，但会充入真实额度，因此在保存正式密钥之前，只有管理员可以创建 WooshPay 订单。",
+    "Optional events (only logged):": "可选事件（仅记录日志）："
   }
 }

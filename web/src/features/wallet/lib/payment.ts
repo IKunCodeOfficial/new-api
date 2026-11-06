@@ -169,10 +169,8 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.WAFFO_PANCAKE
   }
 
-  if (topupInfo.enable_wooshpay_topup) {
-    return PAYMENT_TYPES.WOOSHPAY
-  }
-
+  // WooshPay needs no branch here: whenever it is enabled the server lists
+  // it in pay_methods.
   return DEFAULT_PAYMENT_TYPE
 }
 
