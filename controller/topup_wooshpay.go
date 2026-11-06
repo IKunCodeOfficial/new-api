@@ -673,6 +673,8 @@ func completeWooshpayOrderByIntent(ctx context.Context, order *model.TopUp, inte
 		return common.NewMessage("This order was not created by WooshPay")
 	case errors.Is(err, model.ErrTopUpAmountMismatch):
 		return common.NewMessage("The amount the WooshPay PaymentIntent received does not match this order")
+	case errors.Is(err, model.ErrTestPaymentForNonAdmin):
+		return common.NewMessage("This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed")
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		// The order's user no longer exists.
 		return common.NewMessage("User does not exist")

@@ -135,8 +135,10 @@ func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.98 CNY", GatewayCharge{Listed: 998, Charged: 998}, false), ErrTopUpAmountMismatch, status)
 		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
-		// A webhook test payment credits only an administrator's order.
+		// A test payment credits only an administrator's order, also when an
+		// administrator completes it.
 		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999, Test: true}, false), ErrTestPaymentForNonAdmin, status)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999, Test: true}, true), ErrTestPaymentForNonAdmin, status)
 		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
 

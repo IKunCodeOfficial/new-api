@@ -24,7 +24,7 @@
 
 > **币种（必须）**：本站只按人民币收款，币种写死为 `CNY`，没有币种配置项。WooshPay 商户账号必须按报价单 / 入网（onboarding）结果开通 CNY 收款，否则创建收银台会失败。
 
-> **测试模式会充入真实额度（必须知道）**：`sk_test_` 密钥下的付款不产生真实资金，但订单入账时照常给用户加**真实额度**（只是返佣快照记为 0）。所以测试密钥下只有管理员（`role >= common.RoleAdminUser`）能报价、下单，普通用户在充值页看不到 WooshPay，调用 `/amount`、`/pay` 会得到 “WooshPay is in test mode; only administrators can place test orders”。`/amount`、`/pay` 在请求开始时只读一次账号（密钥和 API Base），管理员判断和建收银台用同一份快照，不会在两者之间换成测试密钥。入账侧也有兜底：Webhook 收到测试模式的付款（`livemode=false`），而订单的用户不是管理员时（例如订单创建后才换成测试密钥）不入账，返回 200，记 Error 日志（带 `alert=wooshpay_paid_not_credited`，`error=` 为 `test-mode payment for an order of a non-administrator`）。管理员凭 PaymentIntent 补单不受这条限制。后台 WooshPay 页在已保存的密钥是测试密钥时显示醒目警告（见 §8.1）。
+> **测试模式会充入真实额度（必须知道）**：`sk_test_` 密钥下的付款不产生真实资金，但订单入账时照常给用户加**真实额度**（只是返佣快照记为 0）。所以测试密钥下只有管理员（`role >= common.RoleAdminUser`）能报价、下单，普通用户在充值页看不到 WooshPay，调用 `/amount`、`/pay` 会得到 “WooshPay is in test mode; only administrators can place test orders”。`/amount`、`/pay` 在请求开始时只读一次账号（密钥和 API Base），管理员判断和建收银台用同一份快照，不会在两者之间换成测试密钥。入账侧也有兜底：Webhook 收到测试模式的付款（`livemode=false`），而订单的用户不是管理员时（例如订单创建后才换成测试密钥）不入账，返回 200，记 Error 日志（带 `alert=wooshpay_paid_not_credited`，`error=` 为 `test-mode payment for an order of a non-administrator`）。管理员凭 PaymentIntent 补单同样受这条限制：测试模式的 PaymentIntent 只能给管理员的订单补单，非管理员的订单会被拒绝，提示 “This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed”，不入账（确需补偿时直接调整该用户额度）。后台 WooshPay 页在已保存的密钥是测试密钥时显示醒目警告（见 §8.1）。
 
 > **部署顺序（必须）**：返佣结算服务 `ikun_rebate_v2` 必须先升级到支持 `wooshpay` 渠道的版本（分支 `feat/wooshpay-provider`，提交 `cdd10a1`），之后才能产生任何 WooshPay 订单，包括 `sk_test_` 测试订单。旧版结算服务不认识 `payment_provider = wooshpay` 的订单。上线前先确认结算服务版本，再在后台打开 WooshPay 开关。
 
@@ -277,6 +277,8 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		if !decimal.NewFromFloat(topUp.Money).Shift(2).Round(0).Equal(decimal.NewFromInt(charge.Charged)) {
 			return ErrTopUpAmountMismatch
 		}
+		// 测试模式付款（charge.Test）只给管理员的订单入账，Webhook 和管理员补单（byAdmin）都一样，
+		// 否则返回 ErrTestPaymentForNonAdmin
 		// quota = Amount × QuotaPerUnit，严格换算，与 RechargeWaffoPancake / 易支付相同
 		// applyGatewayCharge(tx, topUp, charge)
 		// creditTopUpQuota(tx, topUp.UserId, quota, nil)   // 不写 stripe_customer
@@ -292,7 +294,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 }
 ```
 
-`ErrTopUpNotFound`、`ErrPaymentMethodMismatch`、`ErrTopUpAmountMismatch`、`ErrTopUpStatusInvalid` 原样返回给调用方，由调用方确认并返回 200；其余错误按数据库故障处理（Webhook 返回 500 重投）。
+`ErrTopUpNotFound`、`ErrPaymentMethodMismatch`、`ErrTopUpAmountMismatch`、`ErrTestPaymentForNonAdmin`、`ErrTopUpStatusInvalid` 原样返回给调用方，由调用方确认并返回 200；其余错误按数据库故障处理（Webhook 返回 500 重投）。
 
 额度换算必须用 `common.WalletQuotaFromDecimalStrict`（和 `Recharge` 一致），不允许出现 `int(...)` 这类裸强转。
 
@@ -310,7 +312,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 2. 填了实付金额时，标价 = `Money`（实付按标价比例缩放快照）。
 3. 没填实付金额时，与易支付一样保留下单时的快照（WooshPay 由本站定价，`Money` 就是发给网关的金额；`sk_test_` 订单的快照本来就是 0），不再按 `GatewayCharge{Listed:1, Charged:0}` 清零。
 
-`ManualCompleteTopUp` 对所有渠道都只处理 `pending`。WooshPay 的 `expired`、`failed` 订单（会话过期只关单，钱仍可能到账，而 Webhook 72 小时后停止重投）必须提供付款证明：管理员在 `POST /api/user/topup/complete` 里带上 `payment_intent_id`（`pi_...`），`controller.completeWooshpayOrderByIntent` 用当前密钥回查该 PaymentIntent，要求 `status = succeeded`，`metadata.new_api_trade_no`、`merchant_order_id` 都等于本订单号，币种为 CNY（不区分大小写），`amount_received` 等于 metadata 里的扣款金额且等于订单 `Money × 100` 四舍五入后的分，`livemode` 与密钥模式一致，然后走 `RechargeWooshpay(..., byAdmin=true)` 入账（同样的 `LockOrder` 和行锁，只入账一次），充值日志记为 “Administrator completed the order, amount added: …, payment amount: 73.00 CNY”（`callback_payment_method = admin`），与 `ManualCompleteTopUp` 相同；路由 `POST /api/user/topup/complete` 的管理审计由审计中间件按 `user.topup_complete` 兜底记录。
+`ManualCompleteTopUp` 对所有渠道都只处理 `pending`。WooshPay 的 `expired`、`failed` 订单（会话过期只关单，钱仍可能到账，而 Webhook 72 小时后停止重投）必须提供付款证明：管理员在 `POST /api/user/topup/complete` 里带上 `payment_intent_id`（`pi_...`），`controller.completeWooshpayOrderByIntent` 用当前密钥回查该 PaymentIntent，要求 `status = succeeded`，`metadata.new_api_trade_no`、`merchant_order_id` 都等于本订单号，币种为 CNY（不区分大小写），`amount_received` 等于 metadata 里的扣款金额且等于订单 `Money × 100` 四舍五入后的分，`livemode` 与密钥模式一致，然后走 `RechargeWooshpay(..., byAdmin=true)` 入账（测试模式的 PaymentIntent 只能给管理员的订单入账，见 §1 测试模式说明）（同样的 `LockOrder` 和行锁，只入账一次），充值日志记为 “Administrator completed the order, amount added: …, payment amount: 73.00 CNY”（`callback_payment_method = admin`），与 `ManualCompleteTopUp` 相同；路由 `POST /api/user/topup/complete` 的管理审计由审计中间件按 `user.topup_complete` 兜底记录。
 
 补单失败返回给后台的都是可翻译的英文原文（`common.NewMessage`），不暴露内部字段名：
 
@@ -322,6 +324,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 | 实收与 metadata 或订单 `Money` 不符（含 `ErrTopUpAmountMismatch`） | The amount the WooshPay PaymentIntent received does not match this order |
 | `ErrTopUpNotFound` | Top-up order does not exist |
 | `ErrPaymentMethodMismatch` | This order was not created by WooshPay |
+| 测试模式付款而订单用户不是管理员（`ErrTestPaymentForNonAdmin`） | This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed |
 | 订单用户已不存在 | User does not exist |
 | 额度校验失败（`ErrInvalidTopUpQuota`、`ErrTopUpQuotaLimitExceeded`） | 原样返回（本身就是 `common.Message`） |
 | 订单已 success（`ErrTopUpStatusInvalid`） | 视为成功，不重复入账 |
@@ -584,7 +587,7 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 | `TestWooshpayUnitAmountFen` | 同上 | 73 元 → 7300 分；不足 1 分的部分四舍五入；舍入后为 0 拒绝；超过 99,999,999 分（8 位）拒绝 |
 | `TestRequestWooshpayPayCreatesSessionBeforeOrder` | 同上 | 先建会话后建订单；返回地址由 `ServerAddress` 拼成；`ServerAddress` 不合格（非绝对地址、localhost、live 密钥配 http）或 `pay_link` 不是 `https://*.wooshpay.com` 时拒绝且不建订单；8 位金额上限只约束实扣 |
 | `TestRequestWooshpayPayRefusesTestOrderBeforeAddressDiagnosis` | 同上 | 测试密钥下非管理员先得到测试模式提示，拿不到服务器地址提示，也不记地址 Error；管理员得到地址提示 |
-| `TestWooshpayTestPaymentCreditsOnlyAdministratorOrders` | 同上 | Webhook 的测试模式付款只给管理员的订单入账；非管理员订单返回 200 不入账，日志带 `alert=wooshpay_paid_not_credited` |
+| `TestWooshpayTestPaymentCreditsOnlyAdministratorOrders` | 同上 | 测试模式付款只给管理员的订单入账：管理员凭 PaymentIntent 补单时，非管理员订单返回可翻译的拒绝提示、不入账，管理员订单照常补单；Webhook 对非管理员订单返回 200 不入账，日志带 `alert=wooshpay_paid_not_credited` |
 | `TestWooshpayCheckoutFailureLogsAlertMarker` | 同上 | 建收银台失败、返回地址无法生成的 Error 在英文和 `zh-CN` 日志里都带 `alert=wooshpay_checkout_failed` |
 | `TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError` | 同上 | WooshPay 没打开的站点 `/pay` 返回 “WooshPay payment is not enabled”，不记 `ServerAddress` 的 Error |
 | `TestWooshpayTestModeIsAdminOnly` | 同上 | 测试密钥下非管理员 `/amount`、`/pay` 被拒、充值信息里不显示 WooshPay（包括 `PayMethods` 里配置的项）；管理员可以下单；`GetOptions` 只返回派生的 `WooshpayTestMode`，不回显密钥和库里的同名行；`WooshpayTestMode` 不能被任何保存接口写入 |
@@ -603,7 +606,7 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 | `TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig` | `controller/payment_webhook_availability_test.go` | 必须同时满足合规确认、配置完整，且密钥模式与 API Base 对应；关掉开关仍收款；新充值还要求 `ServerAddress` 满足 §4.1 的三条规则（含 IPv6 zone、`localhost.localdomain` 和 `127.1`、`0x7f000001` 等数字写法） |
 | `TestWooshpayUnavailableReasonNamesTheUnmetRequirement` | 同上 | 开关打开时 `WooshpayUnavailableReason` 给出各条件对应的机器码，可用或关闭时为空；该项只读 |
 | `TestRechargeWooshpay_RejectsMismatchedPaymentMethod` | `model/payment_method_guard_test.go` | 其他渠道的订单不能走 wooshpay 入账 |
-| `TestRechargeWooshpay_CompletesClosedOrdersOnce` | 同上 | pending / expired / failed 订单回查成功后都入账一次，已 success 不重复入账；实收不等于 `Money` 时不入账 |
+| `TestRechargeWooshpay_CompletesClosedOrdersOnce` | 同上 | pending / expired / failed 订单回查成功后都入账一次，已 success 不重复入账；实收不等于 `Money` 时不入账；测试模式付款不给非管理员订单入账（含 `byAdmin=true`） |
 | `UpdatePendingTopUpStatus` 表新增 wooshpay 用例 | 同上 | expire 和 fail 只对本渠道的 pending 订单生效 |
 | `TestPaidQuotaFromCharge` / `TestResolveTopUpProvider` 新增用例 | `model/rebate_test.go` | 返佣快照 = `Money ÷ WooshpayUnitPrice × QPU`；测试密钥下快照为 0 |
 | `TestGatewayChargeAdjustsPaidSnapshot` 新增 wooshpay 用例 | 同上 | Webhook 入账时测试模式把快照清零 |

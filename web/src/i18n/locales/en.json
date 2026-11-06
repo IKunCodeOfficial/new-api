@@ -7576,6 +7576,7 @@
     "The WooshPay PaymentIntent is not in the mode of the configured secret key": "The WooshPay PaymentIntent is not in the mode of the configured secret key",
     "The amount the WooshPay PaymentIntent received does not match this order": "The amount the WooshPay PaymentIntent received does not match this order",
     "This order was not created by WooshPay": "This order was not created by WooshPay",
+    "This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed": "This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed",
     "WooshPay is in test mode": "WooshPay is in test mode",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.",
     "Optional events (only logged):": "Optional events (only logged):",

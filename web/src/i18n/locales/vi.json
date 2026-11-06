@@ -7576,6 +7576,7 @@
     "The WooshPay PaymentIntent is not in the mode of the configured secret key": "PaymentIntent WooshPay này không cùng chế độ với khóa bí mật đã cấu hình",
     "The amount the WooshPay PaymentIntent received does not match this order": "Số tiền PaymentIntent WooshPay nhận được không khớp với đơn hàng này",
     "This order was not created by WooshPay": "Đơn hàng này không được tạo bởi WooshPay",
+    "This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed": "Đây là khoản thanh toán thử nghiệm WooshPay và không thể ghi có cho tài khoản không phải quản trị viên; hãy điều chỉnh trực tiếp hạn mức của người dùng nếu cần",
     "WooshPay is in test mode": "WooshPay đang ở chế độ thử nghiệm",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "Khóa bí mật đã lưu là khóa thử nghiệm (sk_test_). Thanh toán thử nghiệm không chuyển tiền thật nhưng vẫn nạp hạn mức thật, vì vậy chỉ quản trị viên mới có thể tạo đơn WooshPay cho đến khi lưu khóa thật.",
     "Optional events (only logged):": "Sự kiện tùy chọn (chỉ ghi log):",

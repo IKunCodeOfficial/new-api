@@ -1170,25 +1170,45 @@ func TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError(t *testing.T) {
 	assert.NotContains(t, logs.String(), "return URL cannot be built")
 }
 
-// A test payment moves no real money, so the webhook credits it only to an
-// administrator's order. One for anyone else's order (the key was switched
-// to a test key after the order was created) is acknowledged without
-// crediting and raises the paid-but-not-credited alert.
+// A test payment moves no real money, so it credits only an administrator's
+// order, whether the webhook or an administrator completes it. One for anyone
+// else's order (the key was switched to a test key after the order was
+// created) is acknowledged by the webhook without crediting, and refused to an
+// administrator with a message the web console translates.
 func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 	const userOrder, adminOrder = "wsp_test_user_order", "wsp_test_admin_order"
+	const userClosed, adminClosed = "wsp_test_user_closed", "wsp_test_admin_closed"
+	intentOrders := map[string]string{"pi_user": userOrder, "pi_admin": adminOrder, "pi_user_closed": userClosed, "pi_admin_closed": adminClosed}
 	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
-		tradeNo := userOrder
-		if r.URL.Path == "/v1/payment_intents/pi_admin" {
-			tradeNo = adminOrder
-		}
 		id := strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")
-		_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent(id, tradeNo), `"livemode":true`, `"livemode":false`, 1)))
+		_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent(id, intentOrders[id]), `"livemode":true`, `"livemode":false`, 1)))
 	})
 	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
 	userID := createRebateTestUser(t, 0, common.RoleCommonUser)
 	adminID := createRebateTestUser(t, 0, common.RoleAdminUser)
 	insertWooshpayTestOrder(t, userID, userOrder)
 	insertWooshpayTestOrder(t, adminID, adminOrder)
+	insertWooshpayTestOrder(t, userID, userClosed)
+	insertWooshpayTestOrder(t, adminID, adminClosed)
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no IN ?", []string{userClosed, adminClosed}).Update("status", common.TopUpStatusExpired).Error)
+	completeByAdmin := func(tradeNo string, intentID string) map[string]any {
+		return postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", `{"trade_no":"`+tradeNo+`","payment_intent_id":"`+intentID+`"}`, adminID)
+	}
+
+	out := completeByAdmin(userClosed, "pi_user_closed")
+	assert.Equal(t, false, out["success"])
+	assert.Equal(t, "This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed", out["message"])
+	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(userClosed).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+
+	out = completeByAdmin(adminClosed, "pi_admin_closed")
+	require.Equal(t, true, out["success"], out)
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminClosed).Status)
+	quota, err = model.GetUserQuota(adminID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5_000_000, quota)
 	logs := captureWooshpayErrorLog(t)
 	deliver := func(intentID string) int {
 		payload := `{"id":"evt_` + intentID + `","type":"payment_intent.succeeded","livemode":false,"data":{"object":{"id":"` + intentID + `"}}}`
@@ -1197,7 +1217,7 @@ func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, deliver("pi_user"), "redelivery cannot change the outcome")
 	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(userOrder).Status)
-	quota, err := model.GetUserQuota(userID, true)
+	quota, err = model.GetUserQuota(userID, true)
 	require.NoError(t, err)
 	assert.Zero(t, quota)
 	assert.Contains(t, logs.String(), "WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no="+userOrder)
@@ -1207,7 +1227,7 @@ func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminOrder).Status)
 	quota, err = model.GetUserQuota(adminID, true)
 	require.NoError(t, err)
-	assert.Equal(t, 5_000_000, quota)
+	assert.Equal(t, 10_000_000, quota)
 }
 
 // With a test key a non-administrator is refused as test mode before the

@@ -336,8 +336,8 @@ func Recharge(referenceId string, customerId string, callerIp string, charge Gat
 // shown in the top-up log. charge.Charged is the amount received in fen; it
 // must equal the order's Money, or the order is not completed. It returns
 // ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch,
-// ErrTestPaymentForNonAdmin (a webhook test payment for a non-administrator's
-// order) or ErrTopUpStatusInvalid (already completed, the
+// ErrTestPaymentForNonAdmin (a test payment for a non-administrator's order,
+// also when an administrator completes it) or ErrTopUpStatusInvalid (already completed, the
 // duplicate-notification case) unchanged so the caller can acknowledge them; any other error is a database
 // failure worth retrying. byAdmin records the completion in the top-up log as
 // an administrator's, as ManualCompleteTopUp does.
@@ -376,8 +376,9 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 		}
 		// Only administrators may place test orders; a test payment for anyone
 		// else's order (the key changed after it was created, or the order was
-		// not created by the checkout) must not credit real quota.
-		if charge.Test && !byAdmin {
+		// not created by the checkout) must not credit real quota, whether the
+		// webhook or an administrator completes it.
+		if charge.Test {
 			owner := User{}
 			if err := tx.Select("role").Where("id = ?", topUp.UserId).First(&owner).Error; err != nil {
 				return err
