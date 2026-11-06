@@ -39,6 +39,14 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+/** The whole system banner, saved in one request. */
+export type UpdateSystemBannerRequest = {
+  enabled: boolean
+  level: 'normal' | 'important'
+  text_zh: string
+  text_en: string
+}
+
 export interface PasskeyDomainChange {
   rp_id: string
   legacy_rp_ids: string

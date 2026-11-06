@@ -24,16 +24,10 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { SettingsPageProvider } from '../../components/settings-page-context'
 import { SystemBannerSection } from '../system-banner-section'
 
-const calls: Array<{ key: string; value: unknown }> = []
-type Request = { key: string; value: unknown }
-const succeed = async (request: Request) => {
-  calls.push(request)
-  return { success: true }
-}
-const mutateAsync = vi.fn(succeed)
+const mutateAsync = vi.fn(async (_values: unknown) => ({ success: true }))
 
-vi.mock('../../hooks/use-update-option', () => ({
-  useUpdateOption: () => ({ mutateAsync, isPending: false }),
+vi.mock('../../hooks/use-update-system-banner', () => ({
+  useUpdateSystemBanner: () => ({ mutateAsync, isPending: false }),
 }))
 
 type Defaults = Parameters<typeof SystemBannerSection>[0]['defaultValues']
@@ -69,9 +63,8 @@ async function save() {
 }
 
 beforeEach(() => {
-  calls.length = 0
   mutateAsync.mockReset()
-  mutateAsync.mockImplementation(succeed)
+  mutateAsync.mockResolvedValue({ success: true })
 })
 
 test('fields are reachable by their labels', async () => {
@@ -84,32 +77,35 @@ test('fields are reachable by their labels', async () => {
   expect(screen.getByLabelText('English text')).toBeInTheDocument()
 })
 
-test('enabling saves texts and level before enabled', async () => {
+test('enabling saves the whole banner in one request', async () => {
   render(<Fixture defaultValues={disabled} />)
   await userEvent.type(await screen.findByLabelText('Chinese text'), '维护')
   await userEvent.type(screen.getByLabelText('English text'), 'Maintenance')
   await userEvent.click(screen.getByRole('switch', { name: 'Show banner' }))
   await save()
-  await waitFor(() => expect(calls).toHaveLength(3))
-  expect(calls).toEqual([
-    { key: 'system_banner.text_zh', value: '维护' },
-    { key: 'system_banner.text_en', value: 'Maintenance' },
-    { key: 'system_banner.enabled', value: true },
-  ])
+  await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+  expect(mutateAsync).toHaveBeenCalledWith({
+    enabled: true,
+    level: 'normal',
+    text_zh: '维护',
+    text_en: 'Maintenance',
+  })
 })
 
-test('disabling saves enabled before the texts', async () => {
+test('disabling and clearing text is one request', async () => {
   render(<Fixture defaultValues={enabled} />)
   await userEvent.click(
     await screen.findByRole('switch', { name: 'Show banner' })
   )
   await userEvent.clear(screen.getByLabelText('Chinese text'))
   await save()
-  await waitFor(() => expect(calls).toHaveLength(2))
-  expect(calls).toEqual([
-    { key: 'system_banner.enabled', value: false },
-    { key: 'system_banner.text_zh', value: '' },
-  ])
+  await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+  expect(mutateAsync).toHaveBeenCalledWith({
+    enabled: false,
+    level: 'normal',
+    text_zh: '',
+    text_en: 'Maintenance',
+  })
 })
 
 test('enabled with empty English text shows a field error and saves nothing', async () => {
@@ -143,27 +139,16 @@ test('unchanged form saves nothing', async () => {
   expect(mutateAsync).not.toHaveBeenCalled()
 })
 
-test('a failed save keeps the unsaved edits and later keys unsaved', async () => {
-  mutateAsync.mockImplementation(async (request) => {
-    calls.push(request)
-    if (request.key === 'system_banner.text_en') throw new Error('rejected')
-    return { success: true }
-  })
-  const view = render(<Fixture defaultValues={disabled} />)
+test('a failed save keeps the unsaved edits', async () => {
+  mutateAsync.mockRejectedValue(new Error('rejected'))
+  render(<Fixture defaultValues={disabled} />)
   await userEvent.type(await screen.findByLabelText('Chinese text'), '维护')
   await userEvent.type(screen.getByLabelText('English text'), 'Maintenance')
   await userEvent.click(screen.getByRole('switch', { name: 'Show banner' }))
   await save()
-  await waitFor(() => expect(calls).toHaveLength(2))
-
-  // The refetch after the first success changes the saved defaults.
-  view.rerender(<Fixture defaultValues={{ ...disabled, text_zh: '维护' }} />)
+  await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
 
   expect(screen.getByLabelText('English text')).toHaveValue('Maintenance')
   expect(screen.getByLabelText('Chinese text')).toHaveValue('维护')
   expect(screen.getByRole('switch', { name: 'Show banner' })).toBeChecked()
-  expect(calls.map((c) => c.key)).toEqual([
-    'system_banner.text_zh',
-    'system_banner.text_en',
-  ])
 })

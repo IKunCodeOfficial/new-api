@@ -3,9 +3,11 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -61,4 +63,50 @@ func TestGetSystemBannerReturnsBannerOnlyWhileEnabled(t *testing.T) {
 		"text_en":      "Maintenance",
 		"published_at": float64(1000),
 	}, request())
+}
+
+func TestUpdateSystemBannerAuditsTheKeyAndRejectsPartialBodies(t *testing.T) {
+	user, _ := setupAccessTokenAudit(t)
+	banner := system_setting.GetSystemBannerSettings()
+	original := *banner
+	common.OptionMapRWMutex.Lock()
+	previousMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		*banner = original
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousMap
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	save := func(body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		context.Request = httptest.NewRequest(http.MethodPut, "/api/option/system_banner", strings.NewReader(body))
+		context.Set("id", user.Id)
+		context.Set("role", common.RoleRootUser)
+		UpdateSystemBanner(context)
+		return response
+	}
+
+	partial := save(`{"level":"normal","text_zh":"维护"}`)
+	assert.Equal(t, http.StatusBadRequest, partial.Code)
+
+	saved := save(`{"enabled":true,"level":"important","text_zh":"维护","text_en":"Maintenance"}`)
+	require.Equal(t, http.StatusOK, saved.Code)
+	var payload struct {
+		Success bool           `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(saved.Body.Bytes(), &payload))
+	require.True(t, payload.Success)
+	assert.Equal(t, true, payload.Data["enabled"])
+
+	var audit model.AuditLog
+	require.NoError(t, model.LOG_DB.Where("category = ? AND action = ?", model.AuditCategoryOperation, "option.update").First(&audit).Error)
+	encoded, err := common.Marshal(audit)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), "system_banner")
+	assert.NotContains(t, string(encoded), "Maintenance")
 }

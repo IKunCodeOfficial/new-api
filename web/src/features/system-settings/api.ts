@@ -30,6 +30,7 @@ import type {
   UpdateOptionResponse,
   UpdatePasskeyDomainsRequest,
   UpdatePasskeyDomainsResponse,
+  UpdateSystemBannerRequest,
   UpstreamChannelsResponse,
   UpstreamRatiosResponse,
 } from './types'
@@ -66,6 +67,14 @@ export interface WooshpaySettingsUpdate {
 export async function updateWooshpaySettings(request: WooshpaySettingsUpdate) {
   const res = await api.put<UpdateOptionResponse>(
     '/api/option/wooshpay/environment',
+    request
+  )
+  return res.data
+}
+
+export async function updateSystemBanner(request: UpdateSystemBannerRequest) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/system_banner',
     request
   )
   return res.data

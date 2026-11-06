@@ -195,6 +195,37 @@ func writePasskeyDomainSettingsError(c *gin.Context, err error) {
 	common.ApiError(c, err)
 }
 
+// UpdateSystemBanner saves the whole system banner in one request, so the
+// admin form never leaves it half saved.
+func UpdateSystemBanner(c *gin.Context) {
+	// Every field is required: a missing one must not silently turn the
+	// banner off or clear a text.
+	var body struct {
+		Enabled *bool   `json:"enabled"`
+		Level   *string `json:"level"`
+		TextZh  *string `json:"text_zh"`
+		TextEn  *string `json:"text_en"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &body); err != nil ||
+		body.Enabled == nil || body.Level == nil || body.TextZh == nil || body.TextEn == nil {
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
+		return
+	}
+	saved, err := model.UpdateSystemBanner(model.SystemBannerInput{
+		Enabled: *body.Enabled,
+		Level:   *body.Level,
+		TextZh:  *body.TextZh,
+		TextEn:  *body.TextEn,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// Like option.update, record only which setting changed, never the text.
+	recordManageAudit(c, "option.update", map[string]any{"key": "system_banner"})
+	common.ApiSuccess(c, saved)
+}
+
 func UpdateOption(c *gin.Context) {
 	var option OptionUpdateRequest
 	err := common.DecodeJson(c.Request.Body, &option)
