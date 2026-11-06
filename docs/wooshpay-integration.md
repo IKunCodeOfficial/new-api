@@ -172,6 +172,8 @@ var WooshpayMinTopUp = 1            // 最低充值数量
 
 **单独保存 `ServerAddress` 不检查 WooshPay 规则**：WooshPay 已打开时把它改成上表不允许的地址，保存照常成功，但新充值随即停止（`isWooshpayTopUpEnabled` 为 false，充值页不再显示 WooshPay），后台 WooshPay 页显示 `invalid_server_address` 警告（见下文和 §8.1）；已打开的收银台付款仍照常入账。
 
+**`ServerAddress` 不合格时无法轮换密钥**：WooshPay 处于打开状态而 `ServerAddress` 不满足上表时，单独保存新的 `WooshpaySecretKey` 或 `WooshpayWebhookSecret` 会被拒绝（返回上表对应的提示），因为合并后的组合仍是“已打开”。要轮换密钥，在同一次保存里把 `WooshpayEnabled` 设为 `false`，或先把 `ServerAddress` 改成合格的地址再保存。`UpdateOptionsBulk` 在把整组设置交给 Passkey 域名保存（`UpdatePasskeyDomainOptions`）之前就运行这项校验，所以同时带有 Passkey 域名项和 `Wooshpay*` 项的保存也一样受检。
+
 **关闭 WooshPay 不受密钥校验阻挡**：保存把 `WooshpayEnabled` 设为 `false`、且不改密钥和 API Base 时，跳过密钥与 API Base 的交叉校验，库里已存在的错配组合不会挡住关闭。同一次保存改了密钥或 API Base 时照常校验。
 
 `GET /api/option/` 返回两个派生的只读项，都不能通过任何保存接口写入（返回 “WooshPay status is derived from its settings and is read-only”），库里即使有同名行也不回显：
@@ -324,6 +326,8 @@ WooshPay 订单不走 `model.ManualCompleteTopUp`：无论订单是 `pending`、
 | 额度校验失败（`ErrInvalidTopUpQuota`、`ErrTopUpQuotaLimitExceeded`） | 原样返回（本身就是 `common.Message`） |
 | 订单已 success（`ErrTopUpStatusInvalid`） | 视为成功，不重复入账 |
 | 其他数据库错误 | Failed to complete order（服务端记 Error 日志） |
+
+`model.ManualCompleteTopUp` 自身也兜底：在事务里用 `lockForUpdate` 读到订单行后，订单渠道（`resolveTopUpProvider`，旧订单按 `payment_method` 推断）是 WooshPay 就直接返回 “A WooshPay order can only be completed with the ID of its succeeded PaymentIntent”（`common.NewMessage`，后台原样显示，不记系统错误日志），不改订单状态、不加额度、不动返佣快照；即使绕过控制器的判断调用它，也不会凭空给 WooshPay 订单入账。
 
 不带有效 PaymentIntent 的 WooshPay 订单无法补单；`payment_intent_id` 不能与 `paid_money` 同时提交，也不能用于其他渠道的订单。后台“账单记录”里 WooshPay 的 `pending`/`expired`/`failed` 订单显示“完成订单”按钮，确认框里只有必填的 PaymentIntent ID，没有实收金额。
 
@@ -596,13 +600,14 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 | `TestWooshpayWebhookRetriesTransientDatabaseError` | 同上 | 入账时数据库临时故障返回 500，重投后只入账一次 |
 | `TestWooshpayRequestsUseOneSettingsSnapshot` | 同上 | 下单和回查过程中改设置，不会混用新旧单价、密钥和模式 |
 | `TestWooshpayRejectedWebhookLogsAlertMarker` | 同上 | `webhook_disabled` 和验签失败的 Warn 在英文和 `zh-CN` 日志里都带 `alert=wooshpay_webhook_rejected`；路径只记 `URL.Path`，最多 256 字节，不含查询串 |
-| `TestWooshpayOptionsRejectInvalidValues` | 同上 | 各配置项的取值校验；密钥与 API Base 交叉校验；整组保存被拒时一项不写；打开 WooshPay 时 `ServerAddress` 的三条规则；WooshPay 打开时单独保存不合格的 `ServerAddress` 照常成功并给出 `invalid_server_address`，此时保存 WooshPay 项被拒；审计日志不记值；库里密钥与 API Base 错配时仍可关闭 WooshPay |
+| `TestWooshpayOptionsRejectInvalidValues` | 同上 | 各配置项的取值校验；密钥与 API Base 交叉校验；整组保存被拒时一项不写；打开 WooshPay 时 `ServerAddress` 的三条规则；WooshPay 打开时单独保存不合格的 `ServerAddress` 照常成功并给出 `invalid_server_address`，此时保存 WooshPay 项被拒（含同时带 Passkey 域名项的整组保存）；审计日志不记值；库里密钥与 API Base 错配时仍可关闭 WooshPay |
 | `TestAdminCompleteWooshpayOrderRequiresPaymentProof` | 同上 | `pending`/`expired`/`failed` 订单都只能凭回查成功的 PaymentIntent 补单，只入账一次；不带 PaymentIntent 和各种不符返回对应的可翻译提示；充值日志记为管理员补单 |
 | `TestWooshpayGroupRatioScalesPriceNotCredit` | `controller/topup_quota_limit_test.go` | 分组倍率只放大应付金额，入账 = 购买数量 × QPU |
 | `TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig` | `controller/payment_webhook_availability_test.go` | 必须同时满足合规确认、配置完整，且密钥模式与 API Base 对应；关掉开关仍收款；新充值还要求 `ServerAddress` 满足 §4.1 的三条规则（含 IPv6 zone 和 `localhost.localdomain`） |
 | `TestWooshpayUnavailableReasonNamesTheUnmetRequirement` | 同上 | 开关打开时 `WooshpayUnavailableReason` 给出各条件对应的机器码，可用或关闭时为空；该项只读 |
 | `TestRechargeWooshpay_RejectsMismatchedPaymentMethod` | `model/payment_method_guard_test.go` | 其他渠道的订单不能走 wooshpay 入账 |
 | `TestRechargeWooshpay_CompletesClosedOrdersOnce` | 同上 | pending / expired / failed 订单回查成功后都入账一次，已 success 不重复入账；实收不等于 `Money` 时不入账；测试模式付款不给非管理员订单入账（含 `byAdmin=true`） |
+| `TestManualCompleteTopUp_RefusesWooshpayOrder` | 同上 | `ManualCompleteTopUp` 拒绝 WooshPay 订单（带或不带实收金额），订单仍为 pending、额度和返佣快照不变 |
 | `UpdatePendingTopUpStatus` 表新增 wooshpay 用例 | 同上 | expire 和 fail 只对本渠道的 pending 订单生效 |
 | `TestPaidQuotaFromCharge` / `TestResolveTopUpProvider` 新增用例 | `model/rebate_test.go` | 返佣快照 = `Money ÷ WooshpayUnitPrice × QPU`；测试密钥下快照为 0 |
 | `TestGatewayChargeAdjustsPaidSnapshot` 新增 wooshpay 用例 | 同上 | Webhook 入账时测试模式把快照清零 |
