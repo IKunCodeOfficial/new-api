@@ -2,7 +2,7 @@
 
 > 适用分支：`ikun-new`
 > 范围：钱包在线充值（一次性支付），只收人民币（CNY）。订阅支付不在第一期范围内，见 §11。
-> 参考实现：`controller/topup_stripe.go`。WooshPay 的接口形态与 Stripe 高度一致，本文所有设计都尽量与 Stripe 链路保持对称，降低评审与维护成本。
+> 参考实现：WooshPay 的**接口形态**（Checkout Session、PaymentIntent、Webhook 签名）与 Stripe 高度一致，HTTP 调用和回调链路参照 `controller/topup_stripe.go`；**定价和入账语义**则与易支付、Waffo Pancake 一致（本站定价，分组倍率只放大应付金额，入账 = 购买数量 × `QuotaPerUnit`，见 §5.2）。
 
 ---
 
@@ -23,6 +23,8 @@
 3. **幂等入账**：复用 `LockOrder` 进程锁和 `lockForUpdate` 行锁；已经 `success` 的订单不再入账，重复通知直接返回 200。回查确认已支付的订单即使已被置为 `expired`/`failed` 也照常入账（钱确实到了）。
 
 > **币种（必须）**：本站只按人民币收款，币种写死为 `CNY`，没有币种配置项。WooshPay 商户账号必须按报价单 / 入网（onboarding）结果开通 CNY 收款，否则创建收银台会失败。
+
+> **测试模式会充入真实额度（必须知道）**：`sk_test_` 密钥下的付款不产生真实资金，但订单入账时照常给用户加**真实额度**（只是返佣快照记为 0）。所以测试密钥下只有管理员（`role >= common.RoleAdminUser`）能报价、下单，普通用户在充值页看不到 WooshPay，调用 `/amount`、`/pay` 会得到 “WooshPay is in test mode; only administrators can place test orders”。后台 WooshPay 页在已保存的密钥是测试密钥时显示醒目警告（见 §8.1）。
 
 > **部署顺序（必须）**：返佣结算服务 `ikun_rebate_v2` 必须先升级到支持 `wooshpay` 渠道的版本（分支 `feat/wooshpay-provider`，提交 `cdd10a1`），之后才能产生任何 WooshPay 订单，包括 `sk_test_` 测试订单。旧版结算服务不认识 `payment_provider = wooshpay` 的订单。上线前先确认结算服务版本，再在后台打开 WooshPay 开关。
 
@@ -158,7 +160,15 @@ var WooshpayMinTopUp = 1            // 最低充值数量
 
 测试模式由密钥前缀推导（`strings.HasPrefix(WooshpaySecretKey, "sk_test_")`），不再单独设开关，避免“生产密钥 + 测试开关”这种配置不一致。密钥与 API Base 必须对应：`sk_test_` 只能配 `apitest.wooshpay.com`，`sk_live_` 只能配 `api.wooshpay.com`，否则视为未启用。`WooshpayApiBase` 保存时去掉首尾空白和末尾的 `/`；`WooshpayWebhookSecret` 保存时和参与 HMAC 计算时都去掉首尾空白。
 
-保存时交叉校验（`model.validateWooshpayEnvironment`，由 `model.UpdateOption` / `model.UpdateOptionsBulk` 调用）：没有保存的项取库里的当前值，按合并后的组合校验。组合是已知的错配（`sk_test_` 配非 `apitest` 主机，`sk_live_` 配非 `api` 主机）就拒绝保存；前缀不是这两种的密钥不算已知错配，只是保持未启用。`WooshpayEnabled` 为 `true` 时还要求密钥、Webhook Secret 都已填写，且密钥与 API Base 属于同一环境（`setting.ValidateWooshpayEnabled`）；并且系统设置里的服务器地址（`ServerAddress`）必须是带主机的绝对 `http(s)` 地址（`system_setting.IsAbsoluteHTTPAddress`），否则拒绝打开，提示 “WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL”。
+保存时交叉校验（`model.validateWooshpayEnvironment`，由 `model.UpdateOption` / `model.UpdateOptionsBulk` 调用）：没有保存的项取库里的当前值，按合并后的组合校验。组合是已知的错配（`sk_test_` 配非 `apitest` 主机，`sk_live_` 配非 `api` 主机）就拒绝保存；前缀不是这两种的密钥不算已知错配，只是保持未启用。`WooshpayEnabled` 为 `true` 时还要求密钥、Webhook Secret 都已填写，且密钥与 API Base 属于同一环境（`setting.ValidateWooshpayEnabled`）；并且系统设置里的服务器地址（`ServerAddress`）必须是顾客能访问到的地址（`setting.ValidateWooshpayServerAddress`），否则拒绝打开：
+
+| 规则 | 拒绝时的提示 |
+|---|---|
+| 带主机的绝对 `http(s)` 地址 | “WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL” |
+| 主机不是本机：`localhost`、`*.localhost`、`127.0.0.0/8`、`::1`、`0.0.0.0`（判断前转小写、去掉末尾的 `.`） | “WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings” |
+| 密钥是 `sk_live_` 时必须是 `https://` | “WooshPay live secret keys (sk_live_) need an https:// server address in system settings” |
+
+WooshPay 已打开时，**单独保存 `ServerAddress`** 也按同一规则校验，不合格就拒绝保存，避免 WooshPay 从充值页悄悄消失。`ServerAddress` 的所有保存入口最终都走 `model.UpdatePasskeyDomainOptions`（通用 `PUT /api/option/`、`model.UpdateOption`、`model.UpdateOptionsBulk` 里只要带了 `ServerAddress` 都会转到这里），校验加在这里（预览请求不校验）。WooshPay 关闭时不检查 `ServerAddress`；Stripe、Waffo、易支付不依赖这条规则，不受影响。
 
 后台保存只走一个请求：`PUT /api/option/wooshpay/environment`，请求体是部分字段 `{"enabled","secret_key","webhook_secret","api_base","unit_price","min_topup"}`，只带有改动的项；空的密钥字段表示保留原值。服务端规范化（API Base 去空白和末尾 `/`）后用 `UpdateOptionsBulk` 校验整个组合并在同一事务里写入，被拒绝时一项都不写。审计日志用 `option.update` 模板，`key` 参数是改动项名称的逗号列表，不记录值。通用的 `PUT /api/option/` 单项保存为了 API 兼容仍然可用，但后台页面不再用它保存任何 `Wooshpay*` 项。
 
@@ -172,11 +182,14 @@ var WooshpayMinTopUp = 1            // 最低充值数量
 ### 4.3 可用性判断：`controller/payment_webhook_availability.go`
 
 ```go
-// 新充值：开关打开、账号配置完整，且 ServerAddress 能拼出绝对的返回地址
+// 新充值：开关打开、账号配置完整，且 ServerAddress 是顾客能访问的返回地址（§4.1 的表）
 func isWooshpayTopUpEnabled() bool {
 	return setting.WooshpayEnabled && isWooshpayWebhookEnabled() &&
-		system_setting.IsAbsoluteHTTPAddress(system_setting.ServerAddress)
+		setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress) == nil
 }
+
+// 按用户判断：在上面的基础上，测试密钥只允许管理员（GetTopUpInfo、/amount、/pay 共用）
+func wooshpayTopUpUnavailable(role int) error
 
 // 收款：不看开关和 ServerAddress，关掉开关后已经打开的收银台付款仍会入账
 func isWooshpayWebhookEnabled() bool {
@@ -186,7 +199,7 @@ func isWooshpayWebhookEnabled() bool {
 	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
 		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
 		setting.WooshpayUnitPrice > 0 &&
-		setting.WooshpayApiBaseMatchesKey() // sk_test_ ⇔ apitest.wooshpay.com，sk_live_ ⇔ api.wooshpay.com
+		setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase) // sk_test_ ⇔ apitest，sk_live_ ⇔ api
 }
 ```
 
@@ -217,10 +230,10 @@ WooshPay 和易支付、Waffo、Waffo Pancake 一样由本站定价，所以沿�
 
 ### 5.3 新增 `RechargeWooshpay`
 
-`Recharge` 写死了只接受 Stripe 订单（`model/topup.go:270`），还会写 `stripe_customer`，不能直接复用。参照 `RechargeCreem` 和 `RechargeWaffoPancake` 另写一个同级函数：
+`Recharge`（`model/topup.go`）写死了只接受 Stripe 订单，还会写 `stripe_customer`，不能直接复用。参照 `RechargeCreem` 和 `RechargeWaffoPancake` 另写一个同级函数：
 
 ```go
-func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge) (err error) {
+func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge, byAdmin bool) (err error) {
 	if tradeNo == "" {
 		return errors.New("payment order number not provided")
 	}
@@ -260,6 +273,8 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 	// 提交后：syncCreditUserQuotaCache(..., "wooshpay topup")
 	//         RecordTopupLog(..., topUp.PaymentMethod, PaymentMethodWooshpay)
 	//         日志里的“支付金额”就是参数 paymentAmount：amount_received（分）换算成元、保留 2 位小数再加币种，如 "73.00 CNY"
+	//         byAdmin（管理员凭 PaymentIntent 补单）时改记 "Administrator completed the order, ..."，
+	//         callback_payment_method 为 "admin"，与 ManualCompleteTopUp 一致
 	return err
 }
 ```
@@ -274,7 +289,7 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 - `resolveTopUpProvider`：加 `case PaymentMethodWooshpay: return PaymentProviderWooshpay`。
 - `TopUp.AfterCreate`：测试密钥（`sk_test_`）下单时，`paid = 0`，与 Waffo 沙箱、Creem 测试模式的处理一致。单价和测试模式取下单请求开始时读到的值：`RequestWooshpayPay` 把它们放进不落库的 `TopUp.Pricing`（`gorm:"-"`），`AfterCreate` 优先用它，避免下单过程中管理员改了单价或密钥导致快照与实际扣款不一致。
 
-### 5.5 管理员手工补单：`ManualCompleteTopUp`（`model/topup.go:462`）
+### 5.5 管理员手工补单：`model.ManualCompleteTopUp`
 
 `pending` 订单的三处分支都与 Waffo Pancake 归为一组：
 
@@ -282,7 +297,22 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 2. 填了实付金额时，标价 = `Money`（实付按标价比例缩放快照）。
 3. 没填实付金额时，与易支付一样保留下单时的快照（WooshPay 由本站定价，`Money` 就是发给网关的金额；`sk_test_` 订单的快照本来就是 0），不再按 `GatewayCharge{Listed:1, Charged:0}` 清零。
 
-`ManualCompleteTopUp` 对所有渠道都只处理 `pending`。WooshPay 的 `expired`、`failed` 订单（会话过期只关单，钱仍可能到账，而 Webhook 72 小时后停止重投）必须提供付款证明：管理员在 `POST /api/user/topup/complete` 里带上 `payment_intent_id`（`pi_...`），`controller.completeWooshpayOrderByIntent` 用当前密钥回查该 PaymentIntent，要求 `status = succeeded`，`metadata.new_api_trade_no`、`merchant_order_id` 都等于本订单号，币种为 CNY（不区分大小写），`amount_received` 等于 metadata 里的扣款金额且等于订单 `Money × 100` 四舍五入后的分，`livemode` 与密钥模式一致，然后走 `RechargeWooshpay` 入账（同样的 `LockOrder` 和行锁，只入账一次）。不带有效 PaymentIntent 的 WooshPay `expired`/`failed` 订单无法补单；`payment_intent_id` 不能与 `paid_money` 同时提交。后台“账单记录”里 WooshPay 的 `expired`/`failed` 订单显示“完成订单”按钮，确认框里要求填写 PaymentIntent ID。
+`ManualCompleteTopUp` 对所有渠道都只处理 `pending`。WooshPay 的 `expired`、`failed` 订单（会话过期只关单，钱仍可能到账，而 Webhook 72 小时后停止重投）必须提供付款证明：管理员在 `POST /api/user/topup/complete` 里带上 `payment_intent_id`（`pi_...`），`controller.completeWooshpayOrderByIntent` 用当前密钥回查该 PaymentIntent，要求 `status = succeeded`，`metadata.new_api_trade_no`、`merchant_order_id` 都等于本订单号，币种为 CNY（不区分大小写），`amount_received` 等于 metadata 里的扣款金额且等于订单 `Money × 100` 四舍五入后的分，`livemode` 与密钥模式一致，然后走 `RechargeWooshpay(..., byAdmin=true)` 入账（同样的 `LockOrder` 和行锁，只入账一次），充值日志记为 “Administrator completed the order, amount added: …, payment amount: 73.00 CNY”（`callback_payment_method = admin`），与 `ManualCompleteTopUp` 相同；路由 `POST /api/user/topup/complete` 的管理审计由审计中间件按 `user.topup_complete` 兜底记录。
+
+补单失败返回给后台的都是可翻译的英文原文（`common.NewMessage`），不暴露内部字段名：
+
+| 情况 | 提示 |
+|---|---|
+| PaymentIntent 的 id / 订单号不是本订单 | The WooshPay PaymentIntent belongs to another order |
+| 币种不是 CNY | The WooshPay PaymentIntent was not charged in CNY |
+| `livemode` 与密钥模式不一致 | The WooshPay PaymentIntent is not in the mode of the configured secret key |
+| 实收与 metadata 或订单 `Money` 不符（含 `ErrTopUpAmountMismatch`） | The amount the WooshPay PaymentIntent received does not match this order |
+| `ErrTopUpNotFound` | Top-up order does not exist |
+| `ErrPaymentMethodMismatch` | This order was not created by WooshPay |
+| 订单用户已不存在 | User does not exist |
+| 额度校验失败（`ErrInvalidTopUpQuota`、`ErrTopUpQuotaLimitExceeded`） | 原样返回（本身就是 `common.Message`） |
+| 订单已 success（`ErrTopUpStatusInvalid`） | 视为成功，不重复入账 |
+| 其他数据库错误 | Failed to complete order（服务端记 Error 日志） |不带有效 PaymentIntent 的 WooshPay `expired`/`failed` 订单无法补单；`payment_intent_id` 不能与 `paid_money` 同时提交。后台“账单记录”里 WooshPay 的 `expired`/`failed` 订单显示“完成订单”按钮，确认框里要求填写 PaymentIntent ID。
 
 ---
 
@@ -327,12 +357,12 @@ fen := payMoney.Shift(2).Round(0) // ×100，四舍五入（half away from zero�
 
 ### 6.2 `RequestWooshpayAmount`：`POST /api/user/wooshpay/amount`
 
-校验与 `/pay` 相同，返回实际扣款的人民币金额（2 位小数字符串，与其他渠道一致）：`{"message":"success","data":{"amount":"73.00"}}`。`amount` 由扣款的分换算，与收银台金额一致。前端确认框和金额栏按 CNY、2 位小数显示。
+先做与 `/pay` 相同的可用性检查（`wooshpayTopUpUnavailable`：未启用返回 “WooshPay payment is not enabled”，测试密钥下非管理员返回测试模式提示），金额校验也与 `/pay` 相同，返回实际扣款的人民币金额（2 位小数字符串，与其他渠道一致）：`{"message":"success","data":{"amount":"73.00"}}`。`amount` 由扣款的分换算，与收银台金额一致。前端确认框和金额栏按 CNY、2 位小数显示。
 
 ### 6.3 `RequestWooshpayPay`：`POST /api/user/wooshpay/pay`
 
-1. 先用 `absolutePaymentReturnURL("")`（`controller/return_path.go`）取返回地址的前缀：`ServerAddress` 去掉末尾 `/` 后必须是带主机的绝对 `http(s)` 地址，否则记 Error 日志并返回 “Payment return address is not configured; set the server address in system settings”，不调网关、不建订单。这一步放在可用性检查之前（可用性检查同样要求它），这样错误提示能说清原因。
-2. 如果 `!isWooshpayTopUpEnabled()`，直接返回错误。
+1. 只有 WooshPay 已打开且账号配置完整（`setting.WooshpayEnabled && isWooshpayWebhookEnabled()`）时，先按 §4.1 的规则校验 `ServerAddress`：不合格就记 Error 日志并返回 “Payment return address is not configured; set the server address in system settings”，不调网关、不建订单。放在可用性检查之前是为了把原因说清楚；WooshPay 没打开的站点不会记这条 Error。
+2. `wooshpayTopUpUnavailable(role)` 不为空时直接返回：未启用是 “WooshPay payment is not enabled”，测试密钥下非管理员是 “WooshPay is in test mode; only administrators can place test orders”。返回地址前缀是 `ServerAddress` 去掉末尾 `/`。
 3. 要求 `req.PaymentMethod == model.PaymentMethodWooshpay`；检查金额上下限。
 4. 用 `common.ValidateRedirectURL` 校验 SuccessURL 和 CancelURL。为空时 SuccessURL 默认 `<ServerAddress>/wallet?show_history=true`（与 Waffo 一致，付款后打开充值记录），CancelURL 默认 `<ServerAddress>/wallet`。
 5. 请求开始时一次性读取单价和账号（密钥、API Base），后续计价、建会话、建订单和返佣快照都用这份快照。生成 TradeNo，按 §6.1 计算 `listed`、`fen`。
@@ -349,27 +379,24 @@ fen := payMoney.Shift(2).Round(0) // ×100，四舍五入（half away from zero�
 - 使用项目里现有的 HTTP client（能读到代理配置的那个），超时 15 秒。
 - 请求头：`Authorization: Basic base64(secret+":")`、`Content-Type: application/json`、`Accept: application/json`。
 - 序列化和反序列化**必须用 `common.Marshal` / `common.Unmarshal`**，不允许直接调用 `encoding/json`。
-- 非 2xx 响应解析成 `{error:{type,code,message}}` 并返回 error。
+- 非 2xx 响应只解析 `{error:{type,code}}` 并返回 error（`wooshpayAPIError` 只保留这两个字段，日志不记 message）。
 
 只解析会用到的字段：
 
 ```go
 type wooshpaySession struct {
-	ID            string `json:"id"`
-	URL           string `json:"url"`
-	Status        string `json:"status"`
-	PaymentIntent string `json:"payment_intent"`
-	Livemode      bool   `json:"livemode"`
-	Metadata      map[string]string `json:"metadata"`
+	ID       string            `json:"id"`
+	URL      string            `json:"url"`
+	Metadata map[string]string `json:"metadata"` // 只有过期事件读它
 }
 
 type wooshpayPaymentIntent struct {
 	ID              string            `json:"id"`
 	Status          string            `json:"status"`
 	Amount          int64             `json:"amount"`
-	AmountReceived  *int64            `json:"amount_received"` // 缺失时为 nil，视为尚未确认
+	AmountReceived  *int64            `json:"amount_received"` // 缺失时为 nil；succeeded 时按 amount 计实收（自动扣款）
 	Currency        string            `json:"currency"`
-	Livemode        *bool             `json:"livemode"`        // 同上
+	Livemode        *bool             `json:"livemode"`        // 缺失时为 nil，按密钥模式处理并记 Warn
 	MerchantOrderID string            `json:"merchant_order_id"`
 	Metadata        map[string]string `json:"metadata"`
 }
@@ -382,7 +409,7 @@ func WooshpayWebhook(c *gin.Context) {
 	// 回查和入账不能因为 WooshPay 断开连接而被取消
 	ctx := context.WithoutCancel(c.Request.Context())
 	if !isWooshpayWebhookEnabled() {
-		logger.LogWarn(ctx, ...)                     // reason=webhook_disabled
+		logger.LogWarn(ctx, ...)                     // alert=wooshpay_webhook_rejected reason=webhook_disabled path=<URL.Path，最多 256 字节>
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
@@ -396,7 +423,7 @@ func WooshpayWebhook(c *gin.Context) {
 
 	// 先读 Wooshpay-Signature，没有时读 Signature
 	if err := verifyWooshpaySignature(payload, wooshpaySignatureHeader(c.Request.Header), webhookSecret); err != nil {
-		// 只记 client_ip、error、has_signature_header、body_length，不记 secret 和签名
+		// alert=wooshpay_webhook_rejected；只记 client_ip、error、has_signature_header、body_length，不记 secret 和签名
 		logger.LogWarn(ctx, ...)
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
@@ -464,7 +491,7 @@ func WooshpayWebhook(c *gin.Context) {
 
 ### 6.6 充值信息接口：`controller/topup.go`
 
-- `GetTopUpInfo`：先复制全局 `PayMethods`（`slices.Clone`，避免追加时写进全局切片的底层数组）；`isWooshpayTopUpEnabled()` 为真时，往 `pay_methods` 追加 `{"name":"WooshPay","type":"wooshpay","color":"#1F6FEB","min_topup":getWooshpayMinTopup()}`。
+- `GetTopUpInfo`：先复制全局 `PayMethods`（`slices.Clone`，避免追加时写进全局切片的底层数组）。`wooshpayTopUpUnavailable(role) == nil` 且能读到用户分组时，`pay_methods` 里没有 wooshpay 就追加 `{"name":"WooshPay","type":"wooshpay","color":"#1F6FEB","min_topup":getWooshpayMinTopup()}`；否则（未启用、配置不完整、测试密钥下的非管理员、读分组失败）把 `PayMethods` 里配置的 `type == "wooshpay"` 项也删掉，`enable_wooshpay_topup` 为 false。读分组失败只记 Warn 并隐藏 WooshPay，不让整个接口失败。
 - 同时返回 `enable_wooshpay_topup`、`wooshpay_min_topup`，以及按当前用户计算的 `wooshpay_unit_price`（人民币单价 × 用户的充值分组倍率），供预设金额卡片计价和显示。不返回币种和小数位：前端固定按 CNY、2 位小数显示。`/api/status` 不再返回 WooshPay 价格。
 - 易支付下单（`RequestEpay`、订阅易支付）拒绝 `stripe`、`creem`、`waffo`、`waffo_pancake`、`wooshpay`、`balance` 这些有独立收银流程的类型，即使它们出现在 `PayMethods` 里。
 
@@ -495,6 +522,8 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
   - Secret Key（密码框）
   - Webhook Secret（密码框）
   - API Base（下拉选择 测试 / 生产）
+  - 必需事件 `payment_intent.succeeded`、`checkout.session.expired`；可选事件 `payment_intent.canceled`、`payment_intent.payment_failed`（只记日志），与 §10 的注册命令一致
+  - 已保存的密钥是测试密钥时显示醒目警告（测试付款充入真实额度，只有管理员能下单）。前端不拿密钥：`GET /api/option/` 返回派生的布尔项 `WooshpayTestMode`（由 `setting.IsWooshpayTestSecretKey` 算出），密钥本身照旧不回显
   - 一条静态提示：密钥和 API Base 属于同一环境之前 WooshPay 保持停用（`sk_test_` 配 `apitest`，`sk_live_` 配 `api`）
   - 启用开关（`WooshpayEnabled`）
   - 保存：所有有改动的 `Wooshpay*` 项通过 `PUT /api/option/wooshpay/environment` 一次提交（见 §4.1），被拒绝时一项都不写；某个渠道保存失败不会跳过其他渠道（包括 Waffo Pancake 绑定）的保存
@@ -509,7 +538,7 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 |---|---|
 | `features/wallet/api.ts` | `calculateWooshpayAmount` → `/api/user/wooshpay/amount`；`requestWooshpayPayment` → `/api/user/wooshpay/pay` |
 | `hooks/use-payment.ts` | calculators 映射加 `wooshpay`；`processPayment` 拿到 `pay_link` 后与 Waffo Pancake 一样在当前页跳转（`window.location.href`），避免 await 之后 `window.open` 被拦截；Stripe 仍新窗口打开 |
-| `lib/payment.ts` | `isWooshpayPayment`；默认类型和最低充值的推导（WooshPay 排在 Waffo、Waffo Pancake 之后，不抬高其他方式的最低充值；WooshPay 按钮自身的最低值来自 `pay_methods[].min_topup`）；`getWooshpayPresetPricing`：WooshPay 是已选的支付方式，或未选择时的默认方式（`pay_methods` 第一项）时，预设金额卡片按充值信息里的 `wooshpay_unit_price`（已含分组倍率）计价、按 CNY 2 位小数显示（`formatCnyAmount`）；`getWooshpayAmountError`：超过 10000 个单位、Tokens 展示下不是 `QuotaPerUnit` 整数倍时在前端直接提示（与后端同一文案） |
+| `lib/payment.ts` | `isWooshpayPayment`；默认类型取 `pay_methods` 第一项（WooshPay 启用时服务端一定把它列进 `pay_methods`，所以 `getDefaultPaymentType` 不需要 WooshPay 分支）；最低充值的推导（WooshPay 排在 Waffo、Waffo Pancake 之后，不抬高其他方式的最低充值；WooshPay 按钮自身的最低值来自 `pay_methods[].min_topup`）；`getWooshpayPresetPricing`：WooshPay 是已选的支付方式，或未选择时的默认方式（`pay_methods` 第一项）时，预设金额卡片按充值信息里的 `wooshpay_unit_price`（已含分组倍率）计价、按 CNY 2 位小数显示（`formatCnyAmount`）；`getWooshpayAmountError`：超过 10000 个单位、Tokens 展示下不是 `QuotaPerUnit` 整数倍时在前端直接提示（与后端同一文案） |
 | `hooks/use-payment.ts` | `/amount` 失败时不再当作 0：WooshPay 提示错误且不打开确认框；确认框和金额栏把 `/amount` 返回的金额按 CNY 2 位小数显示 |
 | `hooks/use-topup-info.ts`、`types.ts` | `enable_wooshpay_topup`、`wooshpay_min_topup` |
 | `constants.ts` | `PAYMENT_TYPES` 加 `WOOSHPAY` 和颜色 |
@@ -534,28 +563,66 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 |---|---|---|
 | `TestVerifyWooshpaySignature` | `controller/topup_wooshpay_test.go` | 用 `whsec_` 密钥和毫秒 `t` 签出的正确签名能通过；篡改 body、错误密钥、缺少 `t`/`v1`、多个 `v1` 中有一个正确，各情况的结果都符合预期 |
 | `TestVerifyWooshpaySignatureMatchesWooshpayExample` | 同上 | WooshPay “Signature Check” 文档的示例（公开的示例密钥，不是本站密钥）能通过验签 |
-| `TestWooshpayFulfillRejectsMismatchedIntent` | 同上（用 httptest 模拟 WooshPay API） | 状态不是 succeeded、订单号不一致、金额不一致、币种不是 CNY（如 USD）、livemode 不一致，以及 metadata 与实收一致但不等于订单 `Money` 时，都**不入账** |
-| `TestRequestWooshpayPayCreatesSessionBeforeOrder` | 同上 | 先建会话后建订单；返回地址是 `ServerAddress` 拼成的绝对地址；`ServerAddress` 不是绝对 `http(s)` 地址、或 `pay_link` 不是 `https://*.wooshpay.com` 时拒绝且不建订单 |
-| `TestWooshpayFulfillIsIdempotent` | 同上 | 同一事件投递两次，只入账一次；`payment_intent.canceled` 不关单；会话过期后到达的成功付款仍入账一次 |
-| `TestWooshpayTokensDisplayOrderCreditsRequestedTokens` | 同上 | Tokens 展示模式下按购买数量限额、计价，分组倍率只放大价格，入账额度等于输入的 token 数 |
+| `TestWooshpaySignatureHeader` | 同上 | 先读 `Wooshpay-Signature`，没有时读 `Signature` |
 | `TestWooshpayUnitAmountFen` | 同上 | 73 元 → 7300 分；不足 1 分的部分四舍五入；舍入后为 0 拒绝；超过 99,999,999 分（8 位）拒绝 |
+| `TestRequestWooshpayPayCreatesSessionBeforeOrder` | 同上 | 先建会话后建订单；返回地址由 `ServerAddress` 拼成；`ServerAddress` 不合格（非绝对地址、localhost、live 密钥配 http）或 `pay_link` 不是 `https://*.wooshpay.com` 时拒绝且不建订单；8 位金额上限只约束实扣 |
+| `TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError` | 同上 | WooshPay 没打开的站点 `/pay` 返回 “WooshPay payment is not enabled”，不记 `ServerAddress` 的 Error |
+| `TestWooshpayTestModeIsAdminOnly` | 同上 | 测试密钥下非管理员 `/amount`、`/pay` 被拒、充值信息里不显示 WooshPay（包括 `PayMethods` 里配置的项）；管理员可以下单；`GetOptions` 只返回 `WooshpayTestMode`，不回显密钥 |
+| `TestWooshpayTopUpInfoPricesForTheUser` | 同上 | `wooshpay_unit_price` = 单价 × 用户充值分组倍率；追加 WooshPay 不写入全局 `PayMethods` |
+| `TestWooshpayTopUpInfoHidesUnavailableWooshpay` | 同上 | 不可用时删掉 `PayMethods` 里的 wooshpay 项、`/amount` 拒绝；已配置时不重复追加；读分组失败只隐藏 WooshPay |
+| `TestWooshpayTokensDisplayOrderCreditsRequestedTokens` | 同上 | Tokens 展示模式下按购买数量限额、计价，不是 `QuotaPerUnit` 整数倍时 `/amount`、`/pay` 拒绝；分组倍率只放大价格，入账额度等于输入的 token 数 |
+| `TestWooshpayFulfillRejectsMismatchedIntent` | 同上（用 httptest 模拟 WooshPay API） | 状态不是 succeeded、订单号不一致、金额不一致、币种不是 CNY、livemode 不一致、非本站 PaymentIntent、订单用户已删除，以及 metadata 与实收一致但不等于订单 `Money` 时，都**不入账** |
+| `TestWooshpayFulfillIsIdempotent` | 同上 | 同一事件投递两次只入账一次；WooshPay 断开连接不中断入账；`payment_intent.canceled`/`payment_failed` 不关单；会话过期后到达的成功付款仍入账一次 |
+| `TestWooshpayFulfillFallsBackForMissingFields` | 同上 | succeeded 但缺 `amount_received` 按 `amount` 入账；缺 `livemode` 按密钥模式 |
+| `TestWooshpayWebhookRetriesTransientDatabaseError` | 同上 | 入账时数据库临时故障返回 500，重投后只入账一次 |
+| `TestWooshpayRequestsUseOneSettingsSnapshot` | 同上 | 下单和回查过程中改设置，不会混用新旧单价、密钥和模式 |
+| `TestWooshpayRejectedWebhookLogsAlertMarker` | 同上 | `webhook_disabled` 和验签失败的 Warn 在英文和 `zh-CN` 日志里都带 `alert=wooshpay_webhook_rejected`；路径只记 `URL.Path`，最多 256 字节，不含查询串 |
+| `TestWooshpayOptionsRejectInvalidValues` | 同上 | 各配置项的取值校验；密钥与 API Base 交叉校验；整组保存被拒时一项不写；打开 WooshPay 时 `ServerAddress` 的三条规则；WooshPay 打开时经 `UpdateOption`、`UpdateOptionsBulk`、`UpdatePasskeyDomainOptions` 单独保存不合格的 `ServerAddress` 都被拒，关闭后不检查；审计日志不记值 |
+| `TestAdminCompleteWooshpayOrderRequiresPaymentProof` | 同上 | `expired`/`failed` 订单只能凭回查成功的 PaymentIntent 补单，只入账一次；各种不符返回对应的可翻译提示；充值日志记为管理员补单 |
 | `TestWooshpayGroupRatioScalesPriceNotCredit` | `controller/topup_quota_limit_test.go` | 分组倍率只放大应付金额，入账 = 购买数量 × QPU |
-| `TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig` | `controller/payment_webhook_availability_test.go` | 必须同时满足合规确认、配置完整，且密钥模式与 API Base 对应；新充值还要求 `ServerAddress` 是绝对 `http(s)` 地址 |
+| `TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig` | `controller/payment_webhook_availability_test.go` | 必须同时满足合规确认、配置完整，且密钥模式与 API Base 对应；关掉开关仍收款；新充值还要求 `ServerAddress` 满足 §4.1 的三条规则 |
 | `TestRechargeWooshpay_RejectsMismatchedPaymentMethod` | `model/payment_method_guard_test.go` | 其他渠道的订单不能走 wooshpay 入账 |
 | `TestRechargeWooshpay_CompletesClosedOrdersOnce` | 同上 | pending / expired / failed 订单回查成功后都入账一次，已 success 不重复入账；实收不等于 `Money` 时不入账 |
 | `UpdatePendingTopUpStatus` 表新增 wooshpay 用例 | 同上 | expire 和 fail 只对本渠道的 pending 订单生效 |
 | `TestPaidQuotaFromCharge` / `TestResolveTopUpProvider` 新增用例 | `model/rebate_test.go` | 返佣快照 = `Money ÷ WooshpayUnitPrice × QPU`；测试密钥下快照为 0 |
+| `TestGatewayChargeAdjustsPaidSnapshot` 新增 wooshpay 用例 | 同上 | Webhook 入账时测试模式把快照清零 |
 | `TestManualCompleteTopUpCreditsLikeGatewayCallback` 新增 wooshpay 用例 | 同上 | 手工补单入账的额度与回调入账一致 |
 | 路由列表 | `router/access_token_scope_test.go` | webhook 是匿名回调路由 |
 
-前端测试：在 `features/wallet/lib/payment.test.ts` 和 `hooks/use-payment.test.ts` 里补 wooshpay 用例。
+前端测试：
 
-检查命令：
+| 文件 | 内容 |
+|---|---|
+| `features/wallet/lib/payment.test.ts` | 默认类型、最低充值、预设卡片计价、前端金额校验 |
+| `features/wallet/hooks/use-payment.test.ts` | `/amount` 走 WooshPay 计算器、被拒时不当作 0、CNY 标记、当前页跳转 |
+| `features/wallet/__tests__/payment-confirm-currency.test.tsx` | 确认框、预设卡片、金额栏按 CNY 显示 |
+| `features/wallet/__tests__/billing-history-complete.test.tsx` | 已关闭的 WooshPay 订单补单必须填 PaymentIntent ID |
+| `features/system-settings/integrations/__tests__/payment-settings-wooshpay.test.tsx` | 没有币种项；一次请求保存全部改动；保存失败不影响 Waffo Pancake；测试密钥警告 |
+
+检查命令（Go 1.25 以上，`CGO_ENABLED=0`）：
 
 ```bash
-go build ./... && go test ./controller/... ./model/... ./router/...
-cd web && bun run lint && bun run build && bun run test
+go build ./... && go vet ./controller/ ./model/ ./setting/...
+go test ./controller/... ./model/... ./setting/... ./middleware/... ./router/... -count=1
+cd web && bun run i18n:sync && bunx vitest run src/features/wallet src/features/system-settings && bun run lint && bun run build
 ```
+
+**三种数据库**：`controller` 包里用 `setupManageUserTestDB` 建库的测试（包括上面所有 WooshPay 控制器测试）按环境变量切换方言，默认 SQLite。MySQL / PostgreSQL 可以用 `ikun_rebate_v2` 仓库的 `docker-compose.test.yml` 起测试容器（MySQL 8.0 映射 `13306`，PostgreSQL 16 映射 `15432`，密码都是 `rebate`）：
+
+```bash
+# 在 ikun_rebate_v2 目录
+docker compose -f docker-compose.test.yml up -d mysql pg
+
+# 回到 new-api 目录
+TEST_MANAGE_USER_DIALECT=sqlite   go test ./controller/ -run 'Wooshpay|TopUp|Rebate|Payment|ManageUser' -count=1
+TEST_MANAGE_USER_DIALECT=mysql    TEST_MYSQL_DSN='root:rebate@tcp(127.0.0.1:13306)/mysql?parseTime=true' \
+  go test -p 1 ./controller/ -run 'Wooshpay|TopUp|Rebate|Payment|ManageUser' -count=1
+TEST_MANAGE_USER_DIALECT=postgres TEST_POSTGRES_DSN='postgres://postgres:rebate@127.0.0.1:15432/postgres?sslmode=disable' \
+  go test -p 1 ./controller/ -run 'Wooshpay|TopUp|Rebate|Payment|ManageUser' -count=1
+# 主库和日志库分开的情形：上面任一条再加 TEST_MANAGE_USER_SEPARATE_LOG_DB=1
+```
+
+夹具在 DSN 指向的实例里为每个测试另建临时库。`model` 包的测试只跑 SQLite（不读这些变量）。`REBATE_MYSQL_TEST_DSN` 是另一回事：它只启用 `TestRebateMySQLControllerContracts`，要求库名以 `rebate_` 开头、是已初始化返利表的专用回放库（例如 `.../rebate_replay`），不能指向上面的临时库实例根库。
 
 ---
 
@@ -567,21 +634,22 @@ cd web && bun run lint && bun run build && bun run test
    ```bash
    curl https://apitest.wooshpay.com/v1/webhook_endpoints -u sk_test_xxx: \
      -H 'Content-Type: application/json' \
-     -d '{"url":"https://<你的域名>/api/wooshpay/webhook","enabled_events":["payment_intent.succeeded","payment_intent.canceled","payment_intent.payment_failed","checkout.session.expired"],"api_version":"1.0.1"}'
+     -d '{"url":"https://<你的域名>/api/wooshpay/webhook","enabled_events":["payment_intent.succeeded","checkout.session.expired","payment_intent.canceled","payment_intent.payment_failed"],"api_version":"1.0.1"}'
    ```
-   把返回的 `secret`（`whsec_...`）整串填到后台的 Webhook Secret 里。
-3. 在系统设置里把服务器地址（`ServerAddress`）设为站点对外的绝对 `https://` 地址（如 `https://<你的域名>`）。收银台的 `success_url` / `cancel_url` 由它拼成；它不是绝对 `http(s)` 地址时 WooshPay 无法打开，充值按钮也不显示。
+   必需事件是 `payment_intent.succeeded`（入账）和 `checkout.session.expired`（关单）；`payment_intent.canceled`、`payment_intent.payment_failed` 可选，只记日志，与后台 WooshPay 页的提示一致。把返回的 `secret`（`whsec_...`）整串填到后台的 Webhook Secret 里。
+3. 在系统设置里把服务器地址（`ServerAddress`）设为站点对外的绝对 `https://` 地址（如 `https://<你的域名>`）。收银台的 `success_url` / `cancel_url` 由它拼成。它不是绝对 `http(s)` 地址、主机是 `localhost`/`*.localhost`/`127.0.0.0/8`/`::1`/`0.0.0.0`、或用 `sk_live_` 密钥却不是 `https://` 时，WooshPay 无法打开，充值按钮也不显示；WooshPay 打开后再把它改成这样的地址会被拒绝保存（§4.1）。
 4. 确认 WooshPay 账号已开通 CNY 收款（报价单 / 入网结果）。后台填写 API Base、人民币单价、最低充值，确认支付合规，打开 WooshPay 开关（各项一次保存）。
 5. Webhook URL 必须是公网可访问的 HTTPS 地址；如果前面有 CDN 或 WAF，要放行 `/api/wooshpay/webhook`，并且**不能改写请求体**，否则验签必然失败。
-6. 测试环境只能用报价单上列出的支付方式；用测试卡联调（官方 Testing cards 页面）：成功、失败后换卡重试、放着不付等它过期、重复投递，这四种情况都要走一遍。
+6. **测试付款会充入真实额度**：`sk_test_` 下只有管理员能下单（普通用户看不到 WooshPay），联调完要处理测试账号上多出来的额度。测试环境只能用报价单上列出的支付方式；用测试卡联调（官方 Testing cards 页面）：成功、失败后换卡重试、放着不付等它过期、重复投递，这四种情况都要走一遍。
 7. 上线生产：换成 `sk_live_` 密钥和生产 API Base，重新注册生产 Webhook 并更新 secret。
 
 **日志告警**：
 
 - `alert=wooshpay_paid_not_credited`：钱可能已经到账但没有入账，需要人工处理。这个标记不翻译，在英文日志和 `DEFAULT_LANGUAGE=zh-CN` 的中文日志里位置相同（紧跟在说明文字之后），按它做关键字告警即可。出现在：会话已建但订单写入失败；PaymentIntent 已成功但与订单不一致（`mismatch=` 字段说明哪一项）；已成功但没有金额（会重投，持续出现才需处理）；订单无法完成（订单不存在、渠道不符、实收与订单金额不符、额度超限、用户已删除，见 `error=`）。
 - 持续出现的重投错误：`WooshPay failed to retrieve PaymentIntent`（回查失败）、`WooshPay top-up processing failed`（入账时数据库故障）、`WooshPay PaymentIntent is not conclusively paid yet`、`WooshPay failed to expire top-up order`。偶发可以忽略，同一 `trade_no` / `payment_intent` 持续出现说明 WooshPay 一直在重投却无法完成。
-- `WooshPay webhook rejected reason=webhook_disabled`：WooshPay 配置不完整（或未确认支付合规）时收到了回调，返回 403，已打开的收银台付款会一直重投直到 72 小时后放弃。
-- `WooshPay webhook signature verification failed`：验签失败，一般是 Webhook Secret 填错或者 CDN/WAF 改写了请求体。
+- `alert=wooshpay_webhook_rejected`：WooshPay 的回调被拒绝，付款可能一直不入账。同样不翻译，英文和中文日志里都紧跟在说明文字之后。出现在两处：
+  - `WooshPay webhook rejected alert=wooshpay_webhook_rejected reason=webhook_disabled path=...`：WooshPay 配置不完整（或未确认支付合规）时收到了回调，返回 403，已打开的收银台付款会一直重投直到 72 小时后放弃。注意关掉 WooshPay 开关**不会**导致拒收，开关只管新充值。`path` 只记 `URL.Path`（不含查询串），最多 256 字节。
+  - `WooshPay webhook signature verification failed alert=wooshpay_webhook_rejected ...`：验签失败，一般是 Webhook Secret 填错或者 CDN/WAF 改写了请求体（偶发的扫描请求也会触发，持续出现才需处理）。
 
 **对账兜底**：Webhook 重投 72 小时后就停止。如果一直没收到成功通知，管理员可以在 WooshPay 控制台找到该订单的 PaymentIntent，在“账单记录”里用“完成订单”入账：`pending` 订单直接补单；`expired`/`failed` 订单必须填写 PaymentIntent ID，经回查校验后入账（见 §5.5）。第二期可以加一个定时任务，用 Search PaymentIntents 按 `merchant_order_id` 自动对账。
 
