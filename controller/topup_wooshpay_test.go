@@ -1173,8 +1173,9 @@ func TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError(t *testing.T) {
 // A test payment moves no real money, so it credits only an administrator's
 // order, whether the webhook or an administrator completes it. One for anyone
 // else's order (the key was switched to a test key after the order was
-// created) is acknowledged by the webhook without crediting, and refused to an
-// administrator with a message the web console translates.
+// created) is acknowledged by the webhook without crediting under its own
+// alert, and refused to an administrator with a message the web console
+// translates.
 func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 	const userOrder, adminOrder = "wsp_test_user_order", "wsp_test_admin_order"
 	const userClosed, adminClosed = "wsp_test_user_closed", "wsp_test_admin_closed"
@@ -1215,13 +1216,25 @@ func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
 		return postWooshpayTestWebhook(t, t.Context(), payload, signWooshpayTestPayload("1767225600123", payload))
 	}
 
-	assert.Equal(t, http.StatusOK, deliver("pi_user"), "redelivery cannot change the outcome")
+	// No real money moved, so the refusal raises its own alert, not the
+	// paid-but-not-credited one; the marker stays untranslated.
+	t.Cleanup(func() { common.SetLogLanguage("") })
+	refusedLine := fmt.Sprintf(" alert=wooshpay_test_payment_refused trade_no=%s payment_intent=pi_user user_id=%d client_ip=", userOrder, userID)
+	for language, text := range map[string]string{
+		"en":    "WooshPay test payment for an order of a non-administrator refused, not credited",
+		"zh-CN": "WooshPay 测试付款对应的订单用户不是管理员，已拒绝，未入账",
+	} {
+		common.SetLogLanguage(language)
+		logs.Reset()
+		assert.Equal(t, http.StatusOK, deliver("pi_user"), "redelivery cannot change the outcome")
+		assert.Contains(t, logs.String(), text+refusedLine, language)
+		assert.NotContains(t, logs.String(), "wooshpay_paid_not_credited", language)
+	}
+	common.SetLogLanguage("")
 	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(userOrder).Status)
 	quota, err = model.GetUserQuota(userID, true)
 	require.NoError(t, err)
 	assert.Zero(t, quota)
-	assert.Contains(t, logs.String(), "WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no="+userOrder)
-	assert.Contains(t, logs.String(), model.ErrTestPaymentForNonAdmin.Error())
 
 	assert.Equal(t, http.StatusOK, deliver("pi_admin"))
 	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminOrder).Status)

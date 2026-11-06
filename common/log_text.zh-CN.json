@@ -298,6 +298,7 @@
   "WooshPay order is no longer pending, expiry ignored trade_no=%s session_id=%s": "WooshPay 订单已不是待支付状态，忽略过期处理 trade_no=%s session_id=%s",
   "WooshPay payment attempt did not succeed, order left pending event_id=%s event_type=%s client_ip=%s": "WooshPay 支付尝试未成功，订单保持待支付 event_id=%s event_type=%s client_ip=%s",
   "WooshPay succeeded event has no PaymentIntent id, ignored client_ip=%s": "WooshPay 支付成功事件缺少 PaymentIntent ID，忽略处理 client_ip=%s",
+  "WooshPay test payment for an order of a non-administrator refused, not credited alert=wooshpay_test_payment_refused trade_no=%s payment_intent=%s user_id=%d client_ip=%s": "WooshPay 测试付款对应的订单用户不是管理员，已拒绝，未入账 alert=wooshpay_test_payment_refused trade_no=%s payment_intent=%s user_id=%d client_ip=%s",
   "WooshPay top-up order created user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s": "WooshPay 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%d units=%d money=%s",
   "WooshPay top-up order expired trade_no=%s session_id=%s": "WooshPay 充值订单已过期 trade_no=%s session_id=%s",
   "WooshPay top-up processing failed trade_no=%s payment_intent=%s client_ip=%s error=%q": "WooshPay 充值处理失败 trade_no=%s payment_intent=%s client_ip=%s error=%q",

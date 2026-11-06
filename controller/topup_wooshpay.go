@@ -600,9 +600,17 @@ func wooshpayFulfill(ctx context.Context, account wooshpayAccount, object json.R
 	case errors.Is(err, model.ErrTopUpStatusInvalid):
 		logger.LogInfo(ctx, common.LogText("WooshPay order already completed, duplicate notification ignored trade_no=%s payment_intent=%s client_ip=%s", tradeNo, intent.ID, callerIp))
 		return nil
+	case errors.Is(err, model.ErrTestPaymentForNonAdmin):
+		// A test payment moves no real money, so nothing is owed to the user;
+		// it is not a paid-but-not-credited case.
+		userID := 0
+		if order := model.GetTopUpByTradeNo(tradeNo); order != nil {
+			userID = order.UserId
+		}
+		logger.LogWarn(ctx, common.LogText("WooshPay test payment for an order of a non-administrator refused, not credited alert=wooshpay_test_payment_refused trade_no=%s payment_intent=%s user_id=%d client_ip=%s", tradeNo, intent.ID, userID, callerIp))
+		return nil
 	case errors.Is(err, model.ErrTopUpNotFound), errors.Is(err, model.ErrPaymentMethodMismatch), errors.Is(err, model.ErrTopUpAmountMismatch),
-		errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded),
-		errors.Is(err, model.ErrTestPaymentForNonAdmin):
+		errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, model.ErrInvalidTopUpQuota), errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
 		// gorm.ErrRecordNotFound here means the order's user no longer
 		// exists. A redelivery cannot change any of these.
 		logger.LogError(ctx, common.LogText("WooshPay order cannot be completed, paid but not credited, needs manual handling alert=wooshpay_paid_not_credited trade_no=%s payment_intent=%s amount_received=%s client_ip=%s error=%q", tradeNo, intent.ID, paymentAmount, callerIp, err.Error()))

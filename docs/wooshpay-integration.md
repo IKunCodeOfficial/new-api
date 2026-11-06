@@ -24,7 +24,7 @@
 
 > **币种（必须）**：本站只按人民币收款，币种写死为 `CNY`，没有币种配置项。WooshPay 商户账号必须按报价单 / 入网（onboarding）结果开通 CNY 收款，否则创建收银台会失败。
 
-> **测试模式会充入真实额度（必须知道）**：`sk_test_` 密钥下的付款不产生真实资金，但订单入账时照常给用户加**真实额度**（只是返佣快照记为 0）。所以测试密钥下只有管理员（`role >= common.RoleAdminUser`）能报价、下单，普通用户在充值页看不到 WooshPay，调用 `/amount`、`/pay` 会得到 “WooshPay is in test mode; only administrators can place test orders”。`/amount`、`/pay` 在请求开始时只读一次账号（密钥和 API Base），管理员判断和建收银台用同一份快照，不会在两者之间换成测试密钥。入账侧也有兜底：Webhook 收到测试模式的付款（`livemode=false`），而订单的用户不是管理员时（例如订单创建后才换成测试密钥）不入账，返回 200，记 Error 日志（带 `alert=wooshpay_paid_not_credited`，`error=` 为 `test-mode payment for an order of a non-administrator`）。管理员凭 PaymentIntent 补单同样受这条限制：测试模式的 PaymentIntent 只能给管理员的订单补单，非管理员的订单会被拒绝，提示 “This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed”，不入账（确需补偿时直接调整该用户额度）。后台 WooshPay 页在已保存的密钥是测试密钥时显示醒目警告（见 §8.1）。
+> **测试模式会充入真实额度（必须知道）**：`sk_test_` 密钥下的付款不产生真实资金，但订单入账时照常给用户加**真实额度**（只是返佣快照记为 0）。所以测试密钥下只有管理员（`role >= common.RoleAdminUser`）能报价、下单，普通用户在充值页看不到 WooshPay，调用 `/amount`、`/pay` 会得到 “WooshPay is in test mode; only administrators can place test orders”。`/amount`、`/pay` 在请求开始时只读一次账号（密钥和 API Base），管理员判断和建收银台用同一份快照，不会在两者之间换成测试密钥。入账侧也有兜底：Webhook 收到测试模式的付款（`livemode=false`），而订单的用户不是管理员时（例如订单创建后才换成测试密钥）不入账，返回 200，记 Warn 日志（带 `alert=wooshpay_test_payment_refused` 和 trade_no、payment_intent、user_id、client_ip；没有真实资金，所以不带 `alert=wooshpay_paid_not_credited`，见 §10）。管理员凭 PaymentIntent 补单同样受这条限制：测试模式的 PaymentIntent 只能给管理员的订单补单，非管理员的订单会被拒绝，提示 “This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed”，不入账（确需补偿时直接调整该用户额度）。后台 WooshPay 页在已保存的密钥是测试密钥时显示醒目警告（见 §8.1）。
 
 > **部署顺序（必须）**：返佣结算服务 `ikun_rebate_v2` 必须先升级到支持 `wooshpay` 渠道的版本（分支 `feat/wooshpay-provider`，提交 `cdd10a1`），之后才能产生任何 WooshPay 订单，包括 `sk_test_` 测试订单。旧版结算服务不认识 `payment_provider = wooshpay` 的订单。上线前先确认结算服务版本，再在后台打开 WooshPay 开关。
 
@@ -498,7 +498,8 @@ func WooshpayWebhook(c *gin.Context) {
 5. `charge := model.GatewayCharge{Listed: received, Charged: received, Test: !livemode}`，`received` 是上一步得到的实收（分），`livemode` 是回查结果（缺失时按密钥模式）。实收已与 metadata 里的扣款金额校验相等，所以只有测试模式会改快照；`new_api_amount_listed` 只用于对账，不参与计算。
 6. 调用 `model.RechargeWooshpay(tradeNo, callerIp, paymentAmount, charge)`，`paymentAmount` 是实收（分）用 decimal 换算成元、保留 2 位小数后加 ` CNY`，如 `"73.00 CNY"`。`RechargeWooshpay` 在行锁内再要求实收等于订单 `Money` 换算的分（与管理员补单同一检查），不一致返回 `ErrTopUpAmountMismatch`：
    - 返回 `ErrTopUpStatusInvalid`（订单已 success）：属于重复通知，Info 日志后返回 200。
-   - 返回 `ErrTopUpNotFound` / `ErrPaymentMethodMismatch` / `ErrTopUpAmountMismatch` / `ErrTestPaymentForNonAdmin`（测试模式付款，订单用户不是管理员）/ `ErrInvalidTopUpQuota` / `ErrTopUpQuotaLimitExceeded`，或订单的用户已不存在（`gorm.ErrRecordNotFound`）：Error 日志（已付款未入账，需要人工处理，带 `alert=wooshpay_paid_not_credited`）后返回 200，重投也不会改变结果。
+   - 返回 `ErrTestPaymentForNonAdmin`（测试模式付款，订单用户不是管理员）：没有真实资金，Warn 日志（带 `alert=wooshpay_test_payment_refused`、trade_no、payment_intent、user_id、client_ip）后返回 200，不入账。
+   - 返回 `ErrTopUpNotFound` / `ErrPaymentMethodMismatch` / `ErrTopUpAmountMismatch` / `ErrInvalidTopUpQuota` / `ErrTopUpQuotaLimitExceeded`，或订单的用户已不存在（`gorm.ErrRecordNotFound`）：Error 日志（已付款未入账，需要人工处理，带 `alert=wooshpay_paid_not_credited`）后返回 200，重投也不会改变结果。
    - 其他 DB 错误（真正的临时故障）：Error 日志后返回 500。
 
 > metadata 由我方用私钥写入，而且是**从 API 回查**拿到的（不是用回调体里的数据），客户无法篡改。“实际到账金额”与“下单时我方期望扣款金额”相互印证，所以不需要新增数据库列来存期望金额。
@@ -587,7 +588,7 @@ selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 | `TestWooshpayUnitAmountFen` | 同上 | 73 元 → 7300 分；不足 1 分的部分四舍五入；舍入后为 0 拒绝；超过 99,999,999 分（8 位）拒绝 |
 | `TestRequestWooshpayPayCreatesSessionBeforeOrder` | 同上 | 先建会话后建订单；返回地址由 `ServerAddress` 拼成；`ServerAddress` 不合格（非绝对地址、localhost、live 密钥配 http）或 `pay_link` 不是 `https://*.wooshpay.com` 时拒绝且不建订单；8 位金额上限只约束实扣 |
 | `TestRequestWooshpayPayRefusesTestOrderBeforeAddressDiagnosis` | 同上 | 测试密钥下非管理员先得到测试模式提示，拿不到服务器地址提示，也不记地址 Error；管理员得到地址提示 |
-| `TestWooshpayTestPaymentCreditsOnlyAdministratorOrders` | 同上 | 测试模式付款只给管理员的订单入账：管理员凭 PaymentIntent 补单时，非管理员订单返回可翻译的拒绝提示、不入账，管理员订单照常补单；Webhook 对非管理员订单返回 200 不入账，日志带 `alert=wooshpay_paid_not_credited` |
+| `TestWooshpayTestPaymentCreditsOnlyAdministratorOrders` | 同上 | 测试模式付款只给管理员的订单入账：管理员凭 PaymentIntent 补单时，非管理员订单返回可翻译的拒绝提示、不入账，管理员订单照常补单；Webhook 对非管理员订单返回 200 不入账，英文和 zh-CN 日志都带 `alert=wooshpay_test_payment_refused`，不带 `alert=wooshpay_paid_not_credited` |
 | `TestWooshpayCheckoutFailureLogsAlertMarker` | 同上 | 建收银台失败、返回地址无法生成的 Error 在英文和 `zh-CN` 日志里都带 `alert=wooshpay_checkout_failed` |
 | `TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError` | 同上 | WooshPay 没打开的站点 `/pay` 返回 “WooshPay payment is not enabled”，不记 `ServerAddress` 的 Error |
 | `TestWooshpayTestModeIsAdminOnly` | 同上 | 测试密钥下非管理员 `/amount`、`/pay` 被拒、充值信息里不显示 WooshPay（包括 `PayMethods` 里配置的项）；管理员可以下单；`GetOptions` 只返回派生的 `WooshpayTestMode`，不回显密钥和库里的同名行；`WooshpayTestMode` 不能被任何保存接口写入 |
@@ -677,7 +678,8 @@ TEST_MANAGE_USER_DIALECT=postgres TEST_POSTGRES_DSN='postgres://postgres:rebate@
 
 **日志告警**：
 
-- `alert=wooshpay_paid_not_credited`：钱可能已经到账但没有入账，需要人工处理。这个标记不翻译，在英文日志和 `DEFAULT_LANGUAGE=zh-CN` 的中文日志里位置相同（紧跟在说明文字之后），按它做关键字告警即可。出现在：会话已建但订单写入失败；PaymentIntent 已成功但与订单不一致（`mismatch=` 字段说明哪一项）；已成功但没有金额（会重投，持续出现才需处理）；订单无法完成（订单不存在、渠道不符、实收与订单金额不符、额度超限、用户已删除，见 `error=`）。
+- `alert=wooshpay_paid_not_credited`：钱可能已经到账但没有入账，需要人工处理。这个标记不翻译，在英文日志和 `DEFAULT_LANGUAGE=zh-CN` 的中文日志里位置相同（紧跟在说明文字之后），按它做关键字告警即可。出现在：会话已建但订单写入失败；PaymentIntent 已成功但与订单不一致（`mismatch=` 字段说明哪一项）；已成功但没有金额（会重投，持续出现才需处理）；订单无法完成（订单不存在、渠道不符、实收与订单金额不符、额度超限、用户已删除，见 `error=`）。测试付款给非管理员订单的情况改记 `alert=wooshpay_test_payment_refused`（见下）。
+- `alert=wooshpay_test_payment_refused`：Webhook 收到测试模式（`livemode=false`）的付款，但订单的用户不是管理员，不入账，返回 200。测试付款没有真实资金，所以不算“已付款未入账”，不带 `alert=wooshpay_paid_not_credited`。Warn 日志：`WooshPay test payment for an order of a non-administrator refused, not credited alert=wooshpay_test_payment_refused trade_no=... payment_intent=... user_id=... client_ip=...`，标记同样不翻译，英文和中文日志里位置相同。一般是订单创建后才换成测试密钥，或测试环境的事件投递到了生产站点；确需补偿时直接调整该用户额度。
 - `alert=wooshpay_checkout_failed`：顾客点了 WooshPay 但收银台没建成，钱没有付出去，但 WooshPay 实际上无法使用。同样不翻译，英文和中文日志里位置相同。出现在两处：`WooshPay failed to create Checkout Session alert=wooshpay_checkout_failed ...`（WooshPay 接口返回错误，`error=` 里有 `type`、`code`，例如账号未开通 CNY）；`WooshPay checkout refused, the return URL cannot be built, set the server address in system settings alert=wooshpay_checkout_failed ...`（`ServerAddress` 不合格，只有管理员或正式密钥下的用户会触发）。持续出现时检查 WooshPay 账号和系统设置；后台 WooshPay 页的不可用警告也会说明配置上的原因。
 - 持续出现的重投错误：`WooshPay failed to retrieve PaymentIntent`（回查失败）、`WooshPay top-up processing failed`（入账时数据库故障）、`WooshPay PaymentIntent is not conclusively paid yet`、`WooshPay failed to expire top-up order`。偶发可以忽略，同一 `trade_no` / `payment_intent` 持续出现说明 WooshPay 一直在重投却无法完成。
 - `alert=wooshpay_webhook_rejected`：WooshPay 的回调被拒绝，付款可能一直不入账。同样不翻译，英文和中文日志里都紧跟在说明文字之后。出现在两处：
