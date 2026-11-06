@@ -116,8 +116,29 @@ func isEpayWebhookEnabled() bool {
 // setting.ValidateWooshpayServerAddress). With a test key only administrators
 // may use them (see wooshpayTopUpUnavailable).
 func isWooshpayTopUpEnabled() bool {
-	return setting.WooshpayEnabled && isWooshpayWebhookEnabled() &&
-		setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress) == nil
+	return setting.WooshpayEnabled && wooshpayUnavailableReason() == ""
+}
+
+// wooshpayUnavailableReason returns a stable code for the first requirement
+// of new WooshPay top-ups, other than the switch itself, that is not met, or
+// "" when all are. The admin page shows a warning per code while WooshPay is
+// switched on but offers nothing.
+func wooshpayUnavailableReason() string {
+	switch {
+	case !isPaymentComplianceConfirmed():
+		return "compliance_not_confirmed"
+	case strings.TrimSpace(setting.WooshpaySecretKey) == "":
+		return "missing_secret"
+	case strings.TrimSpace(setting.WooshpayWebhookSecret) == "":
+		return "missing_webhook_secret"
+	case !setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase):
+		return "key_base_mismatch"
+	case !(setting.WooshpayUnitPrice > 0):
+		return "invalid_unit_price"
+	case setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress) != nil:
+		return "invalid_server_address"
+	}
+	return ""
 }
 
 // isWooshpayWebhookEnabled reports whether WooshPay payments are accepted.

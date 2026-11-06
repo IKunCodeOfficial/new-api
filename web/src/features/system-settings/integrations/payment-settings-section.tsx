@@ -230,6 +230,8 @@ type PaymentSettingsSectionProps = {
   waffoPancakeProvisionedProductID?: string
   /** The stored WooshPay secret key is a test (sk_test_) key. */
   wooshpayTestMode?: boolean
+  /** Why WooshPay, switched on, offers no top-ups (a server code), or empty. */
+  wooshpayUnavailableReason?: string
   complianceDefaults: PaymentComplianceDefaults
 }
 
@@ -249,9 +251,30 @@ export function PaymentSettingsSection({
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
   wooshpayTestMode,
+  wooshpayUnavailableReason,
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
+  const wooshpayUnavailableMessages: Record<string, string> = {
+    compliance_not_confirmed: t(
+      'WooshPay is switched on but has no effect until the payment compliance terms are confirmed.'
+    ),
+    missing_secret: t(
+      'WooshPay is switched on but has no effect: the secret key is not set.'
+    ),
+    missing_webhook_secret: t(
+      'WooshPay is switched on but has no effect: the webhook secret is not set.'
+    ),
+    key_base_mismatch: t(
+      'WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.'
+    ),
+    invalid_server_address: t(
+      'WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.'
+    ),
+    invalid_unit_price: t(
+      'WooshPay is switched on but has no effect: the unit price must be greater than 0.'
+    ),
+  }
   const queryClient = useQueryClient()
   const updateOption = useUpdateOption()
   const wooshpayApiBaseOptions = [
@@ -1600,6 +1623,17 @@ export function PaymentSettingsSection({
                     </li>
                   </ul>
                 </div>
+
+                {wooshpayUnavailableReason && (
+                  <Alert variant='destructive'>
+                    <ShieldAlert className='h-4 w-4' />
+                    <AlertTitle>{t('WooshPay is not available')}</AlertTitle>
+                    <AlertDescription>
+                      {wooshpayUnavailableMessages[wooshpayUnavailableReason] ??
+                        t('WooshPay is switched on but has no effect.')}
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {wooshpayTestMode && (
                   <Alert variant='destructive'>

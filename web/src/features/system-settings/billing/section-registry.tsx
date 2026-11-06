@@ -197,6 +197,7 @@ const BILLING_SECTIONS = [
           WaffoPancakeReturnURL: settings.WaffoPancakeReturnURL ?? '',
         }}
         wooshpayTestMode={settings.WooshpayTestMode ?? false}
+        wooshpayUnavailableReason={settings.WooshpayUnavailableReason ?? ''}
         waffoPancakeProvisionedStoreID={settings.WaffoPancakeStoreID ?? ''}
         waffoPancakeProvisionedProductID={settings.WaffoPancakeProductID ?? ''}
         complianceDefaults={{

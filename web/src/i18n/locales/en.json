@@ -7579,6 +7579,14 @@
     "WooshPay is in test mode": "WooshPay is in test mode",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.",
     "Optional events (only logged):": "Optional events (only logged):",
-    "WooshPay status is derived from its settings and is read-only": "WooshPay status is derived from its settings and is read-only"
+    "WooshPay status is derived from its settings and is read-only": "WooshPay status is derived from its settings and is read-only",
+    "WooshPay is not available": "WooshPay is not available",
+    "WooshPay is switched on but has no effect.": "WooshPay is switched on but has no effect.",
+    "WooshPay is switched on but has no effect until the payment compliance terms are confirmed.": "WooshPay is switched on but has no effect until the payment compliance terms are confirmed.",
+    "WooshPay is switched on but has no effect: the secret key is not set.": "WooshPay is switched on but has no effect: the secret key is not set.",
+    "WooshPay is switched on but has no effect: the webhook secret is not set.": "WooshPay is switched on but has no effect: the webhook secret is not set.",
+    "WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.": "WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.",
+    "WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.": "WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.",
+    "WooshPay is switched on but has no effect: the unit price must be greater than 0.": "WooshPay is switched on but has no effect: the unit price must be greater than 0."
   }
 }

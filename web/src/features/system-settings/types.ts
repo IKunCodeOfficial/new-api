@@ -340,6 +340,11 @@ export type BillingSettings = {
   WooshpayMinTopUp: number
   /** Derived by the server: the stored secret key is a test (sk_test_) key. */
   WooshpayTestMode: boolean
+  /**
+   * Derived by the server: why WooshPay, switched on, offers no top-ups
+   * (a stable code), or empty.
+   */
+  WooshpayUnavailableReason: string
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean

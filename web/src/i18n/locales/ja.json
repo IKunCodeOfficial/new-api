@@ -7579,6 +7579,14 @@
     "WooshPay is in test mode": "WooshPay はテストモードです",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "保存されているシークレットキーはテストキー（sk_test_）です。テスト決済では実際のお金は動きませんが実際のクォータがチャージされるため、本番キーを保存するまで WooshPay の注文を作成できるのは管理者のみです。",
     "Optional events (only logged):": "任意のイベント（ログ記録のみ）：",
-    "WooshPay status is derived from its settings and is read-only": "WooshPay の状態は設定から算出されるため変更できません"
+    "WooshPay status is derived from its settings and is read-only": "WooshPay の状態は設定から算出されるため変更できません",
+    "WooshPay is not available": "WooshPay は利用できません",
+    "WooshPay is switched on but has no effect.": "WooshPay はオンですが、効果がありません。",
+    "WooshPay is switched on but has no effect until the payment compliance terms are confirmed.": "WooshPay はオンですが、決済コンプライアンス条項を確認するまで効果がありません。",
+    "WooshPay is switched on but has no effect: the secret key is not set.": "WooshPay はオンですが効果がありません：シークレットキーが設定されていません。",
+    "WooshPay is switched on but has no effect: the webhook secret is not set.": "WooshPay はオンですが効果がありません：Webhook シークレットが設定されていません。",
+    "WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.": "WooshPay はオンですが効果がありません：シークレットキーと API ベースが異なる環境のものです。",
+    "WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.": "WooshPay はオンですが効果がありません：システム設定のサーバーアドレスが顧客の戻り先として使えません。",
+    "WooshPay is switched on but has no effect: the unit price must be greater than 0.": "WooshPay はオンですが効果がありません：単価は 0 より大きくする必要があります。"
   }
 }

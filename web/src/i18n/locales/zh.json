@@ -7579,6 +7579,14 @@
     "WooshPay is in test mode": "WooshPay 处于测试模式",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "已保存的密钥是测试密钥（sk_test_）。测试付款不会产生真实资金，但会充入真实额度，因此在保存正式密钥之前，只有管理员可以创建 WooshPay 订单。",
     "Optional events (only logged):": "可选事件（仅记录日志）：",
-    "WooshPay status is derived from its settings and is read-only": "WooshPay 状态由其配置推导得出，不能手动修改"
+    "WooshPay status is derived from its settings and is read-only": "WooshPay 状态由其配置推导得出，不能手动修改",
+    "WooshPay is not available": "WooshPay 不可用",
+    "WooshPay is switched on but has no effect.": "WooshPay 已开启，但不会生效。",
+    "WooshPay is switched on but has no effect until the payment compliance terms are confirmed.": "WooshPay 已开启，但在确认支付合规条款之前不会生效。",
+    "WooshPay is switched on but has no effect: the secret key is not set.": "WooshPay 已开启，但不会生效：未填写 Secret Key。",
+    "WooshPay is switched on but has no effect: the webhook secret is not set.": "WooshPay 已开启，但不会生效：未填写 Webhook Secret。",
+    "WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.": "WooshPay 已开启，但不会生效：Secret Key 与 API Base 不属于同一环境。",
+    "WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.": "WooshPay 已开启，但不会生效：系统设置中的服务器地址不是顾客能访问到的地址。",
+    "WooshPay is switched on but has no effect: the unit price must be greater than 0.": "WooshPay 已开启，但不会生效：单价必须大于 0。"
   }
 }

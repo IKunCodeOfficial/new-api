@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Calcium-Ion/go-epay/epay"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -402,4 +403,71 @@ func TestEpayCallbacksVerifyBeforeSettlement(t *testing.T) {
 			}
 		}
 	}
+}
+
+// While WooshPay is switched on but offers no top-ups, the admin page learns
+// why from a stable code; it is empty while WooshPay works or is switched
+// off, and it cannot be written.
+func TestWooshpayUnavailableReasonNamesTheUnmetRequirement(t *testing.T) {
+	setupRebateControllerTest(t)
+	originalSecretKey, originalWebhookSecret := setting.WooshpaySecretKey, setting.WooshpayWebhookSecret
+	originalUnitPrice, originalApiBase := setting.WooshpayUnitPrice, setting.WooshpayApiBase
+	originalEnabled, originalServerAddress := setting.WooshpayEnabled, system_setting.ServerAddress
+	t.Cleanup(func() {
+		system_setting.ServerAddress = originalServerAddress
+		setting.WooshpayEnabled = originalEnabled
+		setting.WooshpaySecretKey, setting.WooshpayWebhookSecret = originalSecretKey, originalWebhookSecret
+		setting.WooshpayUnitPrice, setting.WooshpayApiBase = originalUnitPrice, originalApiBase
+	})
+	reasonOption := func() string {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/option/", nil)
+		GetOptions(ctx)
+		var out struct {
+			Data []model.Option `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &out))
+		values := []string{}
+		for _, option := range out.Data {
+			if option.Key == "WooshpayUnavailableReason" {
+				values = append(values, option.Value)
+			}
+		}
+		require.Len(t, values, 1, "the derived option is listed once")
+		return values[0]
+	}
+
+	cases := []struct {
+		name   string
+		change func()
+		reason string
+	}{
+		{"available", func() {}, ""},
+		{"compliance not confirmed", func() { operation_setting.GetPaymentSetting().ComplianceConfirmed = false }, "compliance_not_confirmed"},
+		{"missing secret key", func() { setting.WooshpaySecretKey = " " }, "missing_secret"},
+		{"missing webhook secret", func() { setting.WooshpayWebhookSecret = "" }, "missing_webhook_secret"},
+		{"key of the other environment", func() { setting.WooshpayApiBase = "https://apitest.wooshpay.com" }, "key_base_mismatch"},
+		{"zero unit price", func() { setting.WooshpayUnitPrice = 0 }, "invalid_unit_price"},
+		{"localhost server address", func() { system_setting.ServerAddress = "http://localhost:3000" }, "invalid_server_address"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			confirmPaymentComplianceForTest(t)
+			setting.WooshpaySecretKey, setting.WooshpayWebhookSecret = "sk_live_123", "whsec_test"
+			setting.WooshpayUnitPrice, setting.WooshpayApiBase = 8, "https://api.wooshpay.com"
+			system_setting.ServerAddress = "https://example.com"
+			tc.change()
+
+			setting.WooshpayEnabled = true
+			assert.Equal(t, tc.reason, reasonOption())
+			assert.Equal(t, tc.reason == "", isWooshpayTopUpEnabled())
+			setting.WooshpayEnabled = false
+			assert.Empty(t, reasonOption(), "nothing to explain while WooshPay is switched off")
+		})
+	}
+
+	const readOnly = "WooshPay status is derived from its settings and is read-only"
+	assert.EqualError(t, model.UpdateOption("WooshpayUnavailableReason", ""), readOnly)
+	assert.EqualError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayUnavailableReason": "missing_secret"}), readOnly)
 }

@@ -58,7 +58,10 @@ const defaultValues: SectionProps['defaultValues'] = {
   CreemProducts: '[]',
 }
 
-function PaymentFixture(props: { wooshpayTestMode?: boolean }) {
+function PaymentFixture(props: {
+  wooshpayTestMode?: boolean
+  wooshpayUnavailableReason?: string
+}) {
   const [actions, setActions] = useState<HTMLDivElement | null>(null)
   return (
     <SettingsPageProvider actionsContainer={actions}>
@@ -90,6 +93,7 @@ function PaymentFixture(props: { wooshpayTestMode?: boolean }) {
         waffoPancakeProvisionedStoreID='store_1'
         waffoPancakeProvisionedProductID='product_1'
         wooshpayTestMode={props.wooshpayTestMode}
+        wooshpayUnavailableReason={props.wooshpayUnavailableReason}
         complianceDefaults={{
           confirmed: true,
           termsVersion: 'v1',
@@ -101,13 +105,19 @@ function PaymentFixture(props: { wooshpayTestMode?: boolean }) {
   )
 }
 
-function renderPayment(wooshpayTestMode = false) {
+function renderPayment(
+  wooshpayTestMode = false,
+  wooshpayUnavailableReason = ''
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
     <QueryClientProvider client={client}>
-      <PaymentFixture wooshpayTestMode={wooshpayTestMode} />
+      <PaymentFixture
+        wooshpayTestMode={wooshpayTestMode}
+        wooshpayUnavailableReason={wooshpayUnavailableReason}
+      />
     </QueryClientProvider>
   )
   return userEvent.setup()
@@ -146,6 +156,48 @@ describe('WooshPay settings', () => {
     const user = renderPayment(false)
     await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
     expect(screen.queryByText('WooshPay is in test mode')).toBeNull()
+  })
+
+  it.each([
+    [
+      'compliance_not_confirmed',
+      'WooshPay is switched on but has no effect until the payment compliance terms are confirmed.',
+    ],
+    [
+      'missing_secret',
+      'WooshPay is switched on but has no effect: the secret key is not set.',
+    ],
+    [
+      'missing_webhook_secret',
+      'WooshPay is switched on but has no effect: the webhook secret is not set.',
+    ],
+    [
+      'key_base_mismatch',
+      'WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.',
+    ],
+    [
+      'invalid_server_address',
+      'WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.',
+    ],
+    [
+      'invalid_unit_price',
+      'WooshPay is switched on but has no effect: the unit price must be greater than 0.',
+    ],
+    ['some_future_code', 'WooshPay is switched on but has no effect.'],
+  ])(
+    'explains why switched-on WooshPay is unavailable for reason %s',
+    async (reason, message) => {
+      const user = renderPayment(false, reason)
+      await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
+      expect(screen.getByText('WooshPay is not available')).toBeVisible()
+      expect(screen.getByText(message)).toBeVisible()
+    }
+  )
+
+  it('shows no unavailable warning while WooshPay is available or off', async () => {
+    const user = renderPayment(false, '')
+    await user.click(screen.getByRole('tab', { name: 'WooshPay' }))
+    expect(screen.queryByText('WooshPay is not available')).toBeNull()
   })
 
   it('saves every changed WooshPay setting in one request and none one by one', async () => {

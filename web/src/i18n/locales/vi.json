@@ -7579,6 +7579,14 @@
     "WooshPay is in test mode": "WooshPay đang ở chế độ thử nghiệm",
     "The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.": "Khóa bí mật đã lưu là khóa thử nghiệm (sk_test_). Thanh toán thử nghiệm không chuyển tiền thật nhưng vẫn nạp hạn mức thật, vì vậy chỉ quản trị viên mới có thể tạo đơn WooshPay cho đến khi lưu khóa thật.",
     "Optional events (only logged):": "Sự kiện tùy chọn (chỉ ghi log):",
-    "WooshPay status is derived from its settings and is read-only": "Trạng thái WooshPay được suy ra từ cấu hình và không thể thay đổi"
+    "WooshPay status is derived from its settings and is read-only": "Trạng thái WooshPay được suy ra từ cấu hình và không thể thay đổi",
+    "WooshPay is not available": "WooshPay không khả dụng",
+    "WooshPay is switched on but has no effect.": "WooshPay đã bật nhưng không có hiệu lực.",
+    "WooshPay is switched on but has no effect until the payment compliance terms are confirmed.": "WooshPay đã bật nhưng không có hiệu lực cho đến khi xác nhận các điều khoản tuân thủ thanh toán.",
+    "WooshPay is switched on but has no effect: the secret key is not set.": "WooshPay đã bật nhưng không có hiệu lực: chưa thiết lập khóa bí mật.",
+    "WooshPay is switched on but has no effect: the webhook secret is not set.": "WooshPay đã bật nhưng không có hiệu lực: chưa thiết lập bí mật webhook.",
+    "WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.": "WooshPay đã bật nhưng không có hiệu lực: khóa bí mật và API base thuộc các môi trường khác nhau.",
+    "WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.": "WooshPay đã bật nhưng không có hiệu lực: địa chỉ máy chủ trong cài đặt hệ thống không phải là địa chỉ khách hàng có thể quay lại.",
+    "WooshPay is switched on but has no effect: the unit price must be greater than 0.": "WooshPay đã bật nhưng không có hiệu lực: đơn giá phải lớn hơn 0."
   }
 }
