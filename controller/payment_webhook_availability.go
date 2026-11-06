@@ -112,10 +112,12 @@ func isEpayWebhookEnabled() bool {
 
 // isWooshpayTopUpEnabled reports whether new WooshPay top-ups are offered:
 // the administrator switched WooshPay on, its account is configured, and the
-// server address can build the absolute return URLs a checkout needs.
+// server address can build return URLs a customer can reach (see
+// setting.ValidateWooshpayServerAddress). With a test key only administrators
+// may use them (see wooshpayTopUpUnavailable).
 func isWooshpayTopUpEnabled() bool {
 	return setting.WooshpayEnabled && isWooshpayWebhookEnabled() &&
-		system_setting.IsAbsoluteHTTPAddress(system_setting.ServerAddress)
+		setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress) == nil
 }
 
 // isWooshpayWebhookEnabled reports whether WooshPay payments are accepted.
@@ -128,5 +130,5 @@ func isWooshpayWebhookEnabled() bool {
 	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
 		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
 		setting.WooshpayUnitPrice > 0 &&
-		setting.WooshpayApiBaseMatchesKey()
+		setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase)
 }

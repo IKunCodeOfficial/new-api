@@ -108,6 +108,11 @@ func GetOptions(c *gin.Context) {
 	options = append(options, &model.Option{
 		Key: "ResendKeyConfigured", Value: strconv.FormatBool(strings.TrimSpace(common.OptionMap["ResendApiKey"]) != ""),
 	})
+	// The WooshPay secret key is never returned; the admin page only learns
+	// whether it is a test key, whose payments credit real quota.
+	options = append(options, &model.Option{
+		Key: "WooshpayTestMode", Value: strconv.FormatBool(setting.IsWooshpayTestSecretKey(common.OptionMap["WooshpaySecretKey"])),
+	})
 	common.OptionMapRWMutex.Unlock()
 	// Display the same effective expressions used by pricing and settlement,
 	// including built-in defaults absent from persisted administrator options.

@@ -2,6 +2,7 @@ package setting
 
 import (
 	"math"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -22,12 +23,6 @@ var (
 	WooshpayUnitPrice     = 7.3
 	WooshpayMinTopUp      = 1
 )
-
-// IsWooshpayTestKey reports whether the configured secret key belongs to the
-// WooshPay test environment, where payments move no real money.
-func IsWooshpayTestKey() bool {
-	return IsWooshpayTestSecretKey(WooshpaySecretKey)
-}
 
 // IsWooshpayTestSecretKey reports whether secretKey belongs to the WooshPay
 // test environment.
@@ -58,12 +53,6 @@ func wooshpayKeyHost(secretKey string) (host string, ok bool) {
 	}
 }
 
-// WooshpayApiBaseMatchesKey reports whether the API base points at the
-// WooshPay environment of the secret key.
-func WooshpayApiBaseMatchesKey() bool {
-	return WooshpayKeyMatchesApiBase(WooshpaySecretKey, WooshpayApiBase)
-}
-
 // WooshpayKeyMatchesApiBase reports whether apiBase is the https origin of
 // the WooshPay environment secretKey belongs to.
 func WooshpayKeyMatchesApiBase(secretKey string, apiBase string) bool {
@@ -80,6 +69,25 @@ func WooshpayKeyMatchesApiBase(secretKey string, apiBase string) bool {
 func ValidateWooshpayEnabled(secretKey string, webhookSecret string, apiBase string) error {
 	if strings.TrimSpace(secretKey) == "" || strings.TrimSpace(webhookSecret) == "" || !WooshpayKeyMatchesApiBase(secretKey, apiBase) {
 		return common.NewMessage("WooshPay can only be enabled once the secret key, the webhook secret and the API base of one environment are set")
+	}
+	return nil
+}
+
+// ValidateWooshpayServerAddress checks that serverAddress, the base of the
+// pages WooshPay returns customers to, can be reached by them: an absolute
+// http(s) URL whose host is not this machine, over https with a live key.
+func ValidateWooshpayServerAddress(secretKey string, serverAddress string) error {
+	address, err := url.Parse(strings.TrimRight(serverAddress, "/"))
+	if err != nil || (address.Scheme != "http" && address.Scheme != "https") || address.Hostname() == "" {
+		return common.NewMessage("WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL")
+	}
+	host := strings.TrimSuffix(strings.ToLower(address.Hostname()), ".")
+	ip := net.ParseIP(host)
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+		return common.NewMessage("WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings")
+	}
+	if address.Scheme != "https" && strings.HasPrefix(strings.TrimSpace(secretKey), "sk_live_") {
+		return common.NewMessage("WooshPay live secret keys (sk_live_) need an https:// server address in system settings")
 	}
 	return nil
 }

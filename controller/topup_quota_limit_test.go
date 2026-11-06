@@ -234,11 +234,11 @@ func TestWooshpayGroupRatioScalesPriceNotCredit(t *testing.T) {
 	_, err := validateCreditedQuota(getWooshpayCreditedQuota(int64(common.MaxWalletQuota)))
 	require.Error(t, err)
 
-	// With the Tokens display the amount is entered in tokens and rounded
-	// down to whole purchased units, as epay stores it.
+	// With the Tokens display the amount is entered in tokens; whole units
+	// credit exactly the requested tokens. A remainder is refused by /amount
+	// and /pay (TestWooshpayTokensDisplayOrderCreditsRequestedTokens).
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	assert.True(t, decimal.NewFromInt(1_000_000).Equal(getWooshpayCreditedQuota(1_000_000)))
-	assert.True(t, decimal.NewFromInt(500_000).Equal(getWooshpayCreditedQuota(750_000)))
 }
 
 // The paid snapshot must use the amount sent to the gateway, including its

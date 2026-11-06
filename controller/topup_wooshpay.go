@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -56,12 +57,9 @@ type WooshpayPayRequest struct {
 }
 
 type wooshpaySession struct {
-	ID            string            `json:"id"`
-	URL           string            `json:"url"`
-	Status        string            `json:"status"`
-	PaymentIntent string            `json:"payment_intent"`
-	Livemode      bool              `json:"livemode"`
-	Metadata      map[string]string `json:"metadata"`
+	ID       string            `json:"id"`
+	URL      string            `json:"url"`
+	Metadata map[string]string `json:"metadata"`
 }
 
 type wooshpayPaymentIntent struct {
@@ -77,10 +75,8 @@ type wooshpayPaymentIntent struct {
 
 type wooshpayAPIError struct {
 	Error struct {
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		Param   string `json:"param"`
+		Type string `json:"type"`
+		Code string `json:"code"`
 	} `json:"error"`
 }
 
@@ -108,10 +104,27 @@ func (account wooshpayAccount) testMode() bool {
 	return setting.IsWooshpayTestSecretKey(account.secretKey)
 }
 
+// wooshpayTopUpUnavailable returns why a user of role cannot start a WooshPay
+// top-up, or nil when they can. A test key moves no real money but still
+// credits real quota, so only administrators may place test orders.
+func wooshpayTopUpUnavailable(role int) error {
+	if !isWooshpayTopUpEnabled() {
+		return common.NewMessage("WooshPay payment is not enabled")
+	}
+	if setting.IsWooshpayTestSecretKey(setting.WooshpaySecretKey) && role < common.RoleAdminUser {
+		return common.NewMessage("WooshPay is in test mode; only administrators can place test orders")
+	}
+	return nil
+}
+
 func RequestWooshpayAmount(c *gin.Context) {
 	var req WooshpayPayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		paymentError(c, common.NewMessage("Invalid parameters"))
+		return
+	}
+	if err := wooshpayTopUpUnavailable(c.GetInt("role")); err != nil {
+		paymentError(c, err)
 		return
 	}
 	if err := checkWooshpayTopUpAmount(req.Amount); err != nil {
@@ -144,18 +157,21 @@ func RequestWooshpayPay(c *gin.Context) {
 		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
-	// WooshPay needs absolute return URLs. This is checked before the
-	// availability, which requires it as well, so the cause is named.
-	returnBase, err := absolutePaymentReturnURL("")
-	if err != nil {
-		logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
-		paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
+	// WooshPay needs return URLs a customer can reach. On a site where
+	// WooshPay is otherwise ready this is checked before the availability,
+	// which requires it as well, so the cause is named and logged.
+	if setting.WooshpayEnabled && isWooshpayWebhookEnabled() {
+		if err := setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress); err != nil {
+			logger.LogError(c.Request.Context(), common.LogText("WooshPay checkout refused, the return URL cannot be built, set the server address in system settings error=%q", err.Error()))
+			paymentError(c, common.NewMessage("Payment return address is not configured; set the server address in system settings"))
+			return
+		}
+	}
+	if err := wooshpayTopUpUnavailable(c.GetInt("role")); err != nil {
+		paymentError(c, err)
 		return
 	}
-	if !isWooshpayTopUpEnabled() {
-		paymentError(c, common.NewMessage("WooshPay payment is not enabled"))
-		return
-	}
+	returnBase := strings.TrimRight(system_setting.ServerAddress, "/")
 	if req.PaymentMethod != model.PaymentMethodWooshpay {
 		paymentError(c, common.NewMessage("Unsupported payment channel"))
 		return
@@ -350,8 +366,13 @@ func WooshpayWebhook(c *gin.Context) {
 	// request's cancellation.
 	ctx := context.WithoutCancel(c.Request.Context())
 	callerIp := c.ClientIP()
+	// Only the path is logged, at most 256 bytes of it: the query is not ours.
+	path := c.Request.URL.Path
+	if len(path) > 256 {
+		path = path[:256]
+	}
 	if !isWooshpayWebhookEnabled() {
-		logger.LogWarn(ctx, common.LogText("WooshPay webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, callerIp))
+		logger.LogWarn(ctx, common.LogText("WooshPay webhook rejected alert=wooshpay_webhook_rejected reason=webhook_disabled path=%q client_ip=%s", path, callerIp))
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
@@ -363,13 +384,13 @@ func WooshpayWebhook(c *gin.Context) {
 
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		logger.LogError(ctx, common.LogText("WooshPay webhook failed to read request body path=%q client_ip=%s error=%q", c.Request.RequestURI, callerIp, err.Error()))
+		logger.LogError(ctx, common.LogText("WooshPay webhook failed to read request body path=%q client_ip=%s error=%q", path, callerIp, err.Error()))
 		c.AbortWithStatus(http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := verifyWooshpaySignature(payload, wooshpaySignatureHeader(c.Request.Header), webhookSecret); err != nil {
-		logger.LogWarn(ctx, common.LogText("WooshPay webhook signature verification failed client_ip=%s error=%q has_signature_header=%t body_length=%d", callerIp, err.Error(), wooshpaySignatureHeader(c.Request.Header) != "", len(payload)))
+		logger.LogWarn(ctx, common.LogText("WooshPay webhook signature verification failed alert=wooshpay_webhook_rejected client_ip=%s error=%q has_signature_header=%t body_length=%d", callerIp, err.Error(), wooshpaySignatureHeader(c.Request.Header) != "", len(payload)))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -555,7 +576,7 @@ func wooshpayFulfill(ctx context.Context, account wooshpayAccount, object json.R
 
 	LockOrder(tradeNo)
 	defer UnlockOrder(tradeNo)
-	err := model.RechargeWooshpay(tradeNo, callerIp, paymentAmount, charge)
+	err := model.RechargeWooshpay(tradeNo, callerIp, paymentAmount, charge, false)
 	switch {
 	case err == nil:
 		logger.LogInfo(ctx, common.LogText("WooshPay top-up succeeded trade_no=%s payment_intent=%s amount_received=%s client_ip=%s", tradeNo, intent.ID, paymentAmount, callerIp))
@@ -608,17 +629,42 @@ func completeWooshpayOrderByIntent(ctx context.Context, order *model.TopUp, inte
 	}
 	if failed != "" {
 		logger.LogWarn(ctx, common.LogText("WooshPay PaymentIntent does not prove the payment of the order, manual completion refused payment_intent=%s trade_no=%s mismatch=%s", intentID, order.TradeNo, failed))
-		return common.NewMessage("The WooshPay PaymentIntent does not match this order: {{field}}", map[string]any{"field": failed})
+	}
+	switch failed {
+	case "":
+	case "payment_intent_id", "trade_no":
+		return common.NewMessage("The WooshPay PaymentIntent belongs to another order")
+	case "currency":
+		return common.NewMessage("The WooshPay PaymentIntent was not charged in CNY")
+	case "livemode":
+		return common.NewMessage("The WooshPay PaymentIntent is not in the mode of the configured secret key")
+	default:
+		return common.NewMessage("The amount the WooshPay PaymentIntent received does not match this order")
 	}
 
 	paymentAmount := wooshpayPaymentAmount(received)
-	err := model.RechargeWooshpay(order.TradeNo, callerIp, paymentAmount, model.GatewayCharge{Listed: received, Charged: received, Test: !livemode})
-	if errors.Is(err, model.ErrTopUpStatusInvalid) {
+	err := model.RechargeWooshpay(order.TradeNo, callerIp, paymentAmount, model.GatewayCharge{Listed: received, Charged: received, Test: !livemode}, true)
+	var message *common.Message
+	switch {
+	case err == nil:
+	case errors.Is(err, model.ErrTopUpStatusInvalid):
 		// Already completed, by the webhook or an earlier request.
 		return nil
-	}
-	if err != nil {
+	case errors.Is(err, model.ErrTopUpNotFound):
+		return common.NewMessage("Top-up order does not exist")
+	case errors.Is(err, model.ErrPaymentMethodMismatch):
+		return common.NewMessage("This order was not created by WooshPay")
+	case errors.Is(err, model.ErrTopUpAmountMismatch):
+		return common.NewMessage("The amount the WooshPay PaymentIntent received does not match this order")
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// The order's user no longer exists.
+		return common.NewMessage("User does not exist")
+	case errors.As(err, &message):
+		// The quota checks already speak to the web console.
 		return err
+	default:
+		logger.LogError(ctx, common.LogText("WooshPay manual completion failed trade_no=%s payment_intent=%s error=%q", order.TradeNo, intentID, err.Error()))
+		return common.NewMessage("Failed to complete order")
 	}
 	logger.LogInfo(ctx, common.LogText("WooshPay order completed by an administrator with a verified PaymentIntent trade_no=%s payment_intent=%s amount_received=%s", order.TradeNo, intentID, paymentAmount))
 	return nil

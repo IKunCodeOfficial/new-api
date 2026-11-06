@@ -102,6 +102,12 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 			return nil, err
 		}
 	}
+	// ServerAddress is saved here, and the WooshPay return pages are built on it.
+	if !preview {
+		if err := validateWooshpayEnvironment(values); err != nil {
+			return nil, err
+		}
+	}
 	var change *PasskeyDomainChange
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		settings, serverAddress, err := lockPasskeyDomainSettings(tx)

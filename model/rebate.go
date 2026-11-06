@@ -201,7 +201,7 @@ func (topUp *TopUp) AfterCreate(tx *gorm.DB) error {
 	provider := resolveTopUpProvider(topUp)
 	var pricedUnitPrice float64
 	testMode := provider == PaymentProviderWaffo && setting.WaffoSandbox || provider == PaymentProviderCreem && setting.CreemTestMode ||
-		provider == PaymentProviderWooshpay && setting.IsWooshpayTestKey()
+		provider == PaymentProviderWooshpay && setting.IsWooshpayTestSecretKey(setting.WooshpaySecretKey)
 	if topUp.Pricing != nil {
 		pricedUnitPrice, testMode = topUp.Pricing.UnitPrice, topUp.Pricing.TestMode
 	}

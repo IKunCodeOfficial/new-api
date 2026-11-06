@@ -113,26 +113,40 @@ func TestWooshpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		})
 	}
 
-	// New top-ups also need a server address that builds absolute return
-	// URLs; payments on checkouts already opened are still accepted.
+	// New top-ups also need a server address customers can return to: an
+	// absolute http(s) URL that is not this machine, over https with a live
+	// key. Payments on checkouts already opened are still accepted.
 	addresses := []struct {
+		secretKey     string
 		serverAddress string
 		topUpEnabled  bool
 	}{
-		{"https://example.com/", true},
-		{"http://localhost:3000", true},
-		{"", false},
-		{"example.com", false},
-		{"/wallet", false},
-		{"ftp://example.com", false},
-		{"https://", false},
+		{"sk_live_123", "https://example.com/", true},
+		{"sk_live_123", "http://example.com", false},
+		{"sk_test_123", "http://example.com", true},
+		{"sk_test_123", "http://localhost:3000", false},
+		{"sk_test_123", "http://LOCALHOST.", false},
+		{"sk_test_123", "http://app.localhost", false},
+		{"sk_test_123", "http://127.0.0.1:3000", false},
+		{"sk_test_123", "http://127.8.0.1", false},
+		{"sk_test_123", "http://[::1]:3000", false},
+		{"sk_test_123", "http://0.0.0.0:3000", false},
+		{"sk_live_123", "https://localhost", false},
+		{"sk_live_123", "", false},
+		{"sk_live_123", "example.com", false},
+		{"sk_live_123", "/wallet", false},
+		{"sk_live_123", "ftp://example.com", false},
+		{"sk_live_123", "https://", false},
 	}
 	confirmPaymentComplianceForTest(t)
-	setting.WooshpaySecretKey, setting.WooshpayWebhookSecret = "sk_live_123", "whsec_test"
-	setting.WooshpayUnitPrice, setting.WooshpayApiBase, setting.WooshpayEnabled = 8, "https://api.wooshpay.com", true
+	setting.WooshpayWebhookSecret, setting.WooshpayUnitPrice, setting.WooshpayEnabled = "whsec_test", 8, true
 	for _, tc := range addresses {
+		setting.WooshpaySecretKey, setting.WooshpayApiBase = tc.secretKey, "https://api.wooshpay.com"
+		if strings.HasPrefix(tc.secretKey, "sk_test_") {
+			setting.WooshpayApiBase = "https://apitest.wooshpay.com"
+		}
 		system_setting.ServerAddress = tc.serverAddress
-		assert.Equal(t, tc.topUpEnabled, isWooshpayTopUpEnabled(), "server address %q", tc.serverAddress)
+		assert.Equal(t, tc.topUpEnabled, isWooshpayTopUpEnabled(), "%s with server address %q", tc.secretKey, tc.serverAddress)
 		assert.True(t, isWooshpayWebhookEnabled(), "server address %q", tc.serverAddress)
 	}
 }

@@ -334,8 +334,9 @@ func Recharge(referenceId string, customerId string, callerIp string, charge Gat
 // ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch or
 // ErrTopUpStatusInvalid (already completed, the duplicate-notification case)
 // unchanged so the caller can acknowledge them; any other error is a database
-// failure worth retrying.
-func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge) (err error) {
+// failure worth retrying. byAdmin records the completion in the top-up log as
+// an administrator's, as ManualCompleteTopUp does.
+func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charge GatewayCharge, byAdmin bool) (err error) {
 	if tradeNo == "" {
 		return errors.New("payment order number not provided")
 	}
@@ -397,6 +398,10 @@ func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, cha
 	}
 	syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("wooshpay topup"))
 
+	if byAdmin {
+		RecordTopupLog(topUp.UserId, common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quota), "amount": paymentAmount}), callerIp, topUp.PaymentMethod, "admin")
+		return nil
+	}
 	RecordTopupLog(topUp.UserId, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "WooshPay", "quota": logger.FormatQuota(quota), "amount": paymentAmount}), callerIp, topUp.PaymentMethod, PaymentMethodWooshpay)
 	return nil
 }

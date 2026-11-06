@@ -99,40 +99,35 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
-	enableWooshpay := isWooshpayTopUpEnabled()
-	if enableWooshpay {
-		hasWooshpay := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodWooshpay {
-				hasWooshpay = true
-				break
-			}
-		}
-
-		if !hasWooshpay {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "WooshPay",
-				"type":      model.PaymentMethodWooshpay,
-				"color":     "#1F6FEB",
-				"min_topup": strconv.FormatInt(getWooshpayMinTopup(), 10),
-			})
-		}
-	}
-
-	// WooshPay is priced by this server, so the preset cards need the price
-	// this user pays: the unit price scaled by the user's top-up group ratio.
+	// WooshPay is listed only while this user may start a top-up with it;
+	// otherwise a wooshpay entry configured in PayMethods is dropped as well.
+	// It is priced by this server, so the preset cards need the price this
+	// user pays: the unit price scaled by the user's top-up group ratio.
+	enableWooshpay := wooshpayTopUpUnavailable(c.GetInt("role")) == nil
 	var wooshpayUnitPrice float64
 	if enableWooshpay {
 		group, err := model.GetUserGroup(c.GetInt("id"), true)
 		if err != nil {
-			common.ApiErrorT(c, "Failed to get the user group")
-			return
+			logger.LogWarn(c.Request.Context(), common.LogText("WooshPay hidden from the top-up info, the user group cannot be read user_id=%d error=%q", c.GetInt("id"), err.Error()))
+			enableWooshpay = false
+		} else {
+			topUpGroupRatio := common.GetTopupGroupRatio(group)
+			if topUpGroupRatio == 0 {
+				topUpGroupRatio = 1
+			}
+			wooshpayUnitPrice = decimal.NewFromFloat(setting.WooshpayUnitPrice).Mul(decimal.NewFromFloat(topUpGroupRatio)).InexactFloat64()
 		}
-		topUpGroupRatio := common.GetTopupGroupRatio(group)
-		if topUpGroupRatio == 0 {
-			topUpGroupRatio = 1
-		}
-		wooshpayUnitPrice = decimal.NewFromFloat(setting.WooshpayUnitPrice).Mul(decimal.NewFromFloat(topUpGroupRatio)).InexactFloat64()
+	}
+	isWooshpayMethod := func(method map[string]string) bool { return method["type"] == model.PaymentMethodWooshpay }
+	if !enableWooshpay {
+		payMethods = slices.DeleteFunc(payMethods, isWooshpayMethod)
+	} else if !slices.ContainsFunc(payMethods, isWooshpayMethod) {
+		payMethods = append(payMethods, map[string]string{
+			"name":      "WooshPay",
+			"type":      model.PaymentMethodWooshpay,
+			"color":     "#1F6FEB",
+			"min_topup": strconv.FormatInt(getWooshpayMinTopup(), 10),
+		})
 	}
 
 	data := gin.H{
@@ -663,8 +658,7 @@ func AdminCompleteTopUp(c *gin.Context) {
 	// payment may still have arrived after its webhook stopped retrying. Such
 	// an order is only completed against a PaymentIntent the gateway confirms.
 	order := model.GetTopUpByTradeNo(req.TradeNo)
-	isWooshpay := order != nil && (order.PaymentProvider == model.PaymentProviderWooshpay ||
-		order.PaymentProvider == "" && order.PaymentMethod == model.PaymentMethodWooshpay)
+	isWooshpay := order != nil && order.PaymentProvider == model.PaymentProviderWooshpay
 	if strings.TrimSpace(req.PaymentIntentID) != "" {
 		if !isWooshpay || req.PaidMoney != nil {
 			common.ApiErrorT(c, "Invalid parameters")

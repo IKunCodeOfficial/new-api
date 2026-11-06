@@ -336,15 +336,19 @@ func UpdateOption(key string, value string) error {
 // validateWooshpayEnvironment checks the WooshPay settings a save would leave
 // in place; a setting not being saved keeps its stored value. A secret key
 // must not be paired with the API base of the other environment, and WooshPay
-// can only be on while the keys of one environment and an absolute http(s)
-// server address are set. The admin page
-// saves every changed WooshPay setting together through UpdateOptionsBulk.
+// can only be on while the keys of one environment and a server address its
+// customers can return to are set (setting.ValidateWooshpayServerAddress).
+// Saving the server address alone while WooshPay is on is checked too, so
+// WooshPay cannot silently disappear from the wallet. The admin page saves
+// every changed WooshPay setting together through UpdateOptionsBulk.
 func validateWooshpayEnvironment(values map[string]string) error {
 	secretKey, keySaved := values["WooshpaySecretKey"]
 	apiBase, baseSaved := values["WooshpayApiBase"]
 	webhookSecret, secretSaved := values["WooshpayWebhookSecret"]
 	enabled, enabledSaved := values["WooshpayEnabled"]
-	if !keySaved && !baseSaved && !secretSaved && !enabledSaved {
+	serverAddress, addressSaved := values["ServerAddress"]
+	wooshpaySaved := keySaved || baseSaved || secretSaved || enabledSaved
+	if !wooshpaySaved && !addressSaved {
 		return nil
 	}
 	if !keySaved {
@@ -359,24 +363,24 @@ func validateWooshpayEnvironment(values map[string]string) error {
 	if !enabledSaved {
 		enabled = strconv.FormatBool(setting.WooshpayEnabled)
 	}
-	if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
-		return err
+	if !addressSaved {
+		serverAddress = system_setting.ServerAddress
+	}
+	if wooshpaySaved {
+		if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
+			return err
+		}
 	}
 	if enabled != "true" {
 		return nil
 	}
-	if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
-		return err
+	if wooshpaySaved {
+		if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
+			return err
+		}
 	}
 	// Checkouts return the customer to pages under the server address.
-	serverAddress, addressSaved := values["ServerAddress"]
-	if !addressSaved {
-		serverAddress = system_setting.ServerAddress
-	}
-	if !system_setting.IsAbsoluteHTTPAddress(serverAddress) {
-		return common.NewMessage("WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL")
-	}
-	return nil
+	return setting.ValidateWooshpayServerAddress(secretKey, serverAddress)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database

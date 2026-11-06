@@ -110,11 +110,11 @@ func TestRechargeWooshpay_RejectsMismatchedPaymentMethod(t *testing.T) {
 	insertUserForPaymentGuardTest(t, 102, 0)
 	insertTopUpForPaymentGuardTest(t, "wooshpay-guard", 102, PaymentProviderStripe)
 
-	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 CNY", GatewayCharge{})
+	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 CNY", GatewayCharge{}, false)
 	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
 	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-guard"))
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 102))
-	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 CNY", GatewayCharge{}), ErrTopUpNotFound)
+	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 CNY", GatewayCharge{}, false), ErrTopUpNotFound)
 }
 
 // A verified WooshPay payment completes its order even after the order was
@@ -132,17 +132,17 @@ func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 		require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", tradeNo).Update("status", status).Error)
 
 		// A received amount other than the order's Money credits nothing.
-		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.98 CNY", GatewayCharge{Listed: 998, Charged: 998}), ErrTopUpAmountMismatch, status)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.98 CNY", GatewayCharge{Listed: 998, Charged: 998}, false), ErrTopUpAmountMismatch, status)
 		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
 
-		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}), status)
+		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}, false), status)
 		assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, tradeNo))
 		quota := getUserQuotaForPaymentGuardTest(t, 103)
 		assert.Greater(t, quota, credited, status)
 		credited = quota
 
-		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}), ErrTopUpStatusInvalid)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", GatewayCharge{Listed: 999, Charged: 999}, false), ErrTopUpStatusInvalid)
 		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103), "a completed order is not credited twice")
 	}
 }
