@@ -637,8 +637,8 @@ type AdminCompleteTopupRequest struct {
 	// charged (fork, ikun: invite-rebate paid snapshot). Optional.
 	PaidMoney *float64 `json:"paid_money"`
 	// PaymentIntentID proves the payment of a WooshPay order: the PaymentIntent
-	// is re-queried and must have paid this order. Required for a WooshPay
-	// order closed as expired or failed.
+	// is re-queried and must have paid this order. Required for every WooshPay
+	// order, whatever its status.
 	PaymentIntentID string `json:"payment_intent_id"`
 }
 

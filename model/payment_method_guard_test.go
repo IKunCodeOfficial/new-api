@@ -153,6 +153,28 @@ func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
 	}
 }
 
+// A WooshPay order is completed by hand only against a verified
+// PaymentIntent, so ManualCompleteTopUp refuses it whatever the caller.
+func TestManualCompleteTopUp_RefusesWooshpayOrder(t *testing.T) {
+	truncateTables(t)
+	insertUserForPaymentGuardTest(t, 104, 0)
+	insertTopUpForPaymentGuardTest(t, "wooshpay-manual", 104, PaymentProviderWooshpay)
+	var before RebateTopupPaid
+	require.NoError(t, DB.Where("trade_no = ?", "wooshpay-manual").First(&before).Error)
+
+	paid := 0.0
+	for _, paidMoney := range []*float64{nil, &paid} {
+		err := ManualCompleteTopUp("wooshpay-manual", "127.0.0.1", paidMoney)
+		require.Error(t, err)
+		assert.Equal(t, "A WooshPay order can only be completed with the ID of its succeeded PaymentIntent", err.Error())
+	}
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-manual"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 104))
+	var row RebateTopupPaid
+	require.NoError(t, DB.Where("trade_no = ?", "wooshpay-manual").First(&row).Error)
+	assert.Equal(t, before.PaidQuota, row.PaidQuota)
+}
+
 func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T) {
 	testCases := []struct {
 		name                    string

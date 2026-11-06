@@ -679,6 +679,12 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	err := model.UpdateOption("WooshpayWebhookSecret", "whsec_saved")
 	require.Error(t, err)
 	assert.Equal(t, localhost, err.Error())
+	// Also when the bundle carries a passkey-domain setting, which hands the
+	// whole bundle to the passkey save.
+	err = model.UpdateOptionsBulk(map[string]string{"passkey.origins": "https://pay.example.com", "WooshpayWebhookSecret": "whsec_rotated"})
+	require.Error(t, err)
+	assert.Equal(t, localhost, err.Error())
+	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)
 	require.NoError(t, model.UpdateOption("ServerAddress", "https://pay.example.com"))
 	assert.Empty(t, wooshpayUnavailableReason())
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayMinTopUp": "3", "WooshpayEnabled": "true"}))

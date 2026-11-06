@@ -599,6 +599,11 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return common.NewMessage("Top-up order does not exist")
 		}
+		// A WooshPay order is only completed against a PaymentIntent the
+		// gateway confirms (completeWooshpayOrderByIntent), never by hand.
+		if resolveTopUpProvider(topUp) == PaymentProviderWooshpay {
+			return common.NewMessage("A WooshPay order can only be completed with the ID of its succeeded PaymentIntent")
+		}
 
 		// 幂等处理：已成功直接返回
 		if topUp.Status == common.TopUpStatusSuccess {
@@ -612,7 +617,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string, paidMoney *float64) er
 		// 计算应充值额度，与各渠道回调入账保持一致：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
 		// - Creem 订单：Amount 本身就是额度（RechargeCreem 原样入账）
-		// - 其他订单（易支付、Waffo 等）：Amount 为美元数量，* QuotaPerUnit
+		// - 其他订单（易支付、Waffo、Waffo Pancake 等）：Amount 为购买数量，* QuotaPerUnit
 		var quotaErr error
 		switch resolveTopUpProvider(topUp) {
 		case PaymentProviderStripe:

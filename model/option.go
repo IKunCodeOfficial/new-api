@@ -391,6 +391,10 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	// Checked before the passkey-domain hand-off, which saves the whole bundle.
+	if err := validateWooshpayEnvironment(values); err != nil {
+		return err
+	}
 	for key := range values {
 		if IsPasskeyDomainOption(key) {
 			_, err := UpdatePasskeyDomainOptions(values, false, "")
@@ -405,9 +409,6 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
-	}
-	if err := validateWooshpayEnvironment(values); err != nil {
-		return err
 	}
 	var policySnapshot *RequestPolicySnapshot
 	for key := range values {
