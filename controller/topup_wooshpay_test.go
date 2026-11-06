@@ -667,57 +667,20 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	assert.True(t, setting.WooshpayEnabled)
 	assert.True(t, setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase))
 
-	// While WooshPay is on, the server address cannot be changed to one its
-	// customers cannot return to, whichever way it is saved; WooshPay would
-	// otherwise silently disappear from the wallet.
+	// Saving the server address alone is not checked: an address customers
+	// cannot return to only stops new WooshPay top-ups, and the admin page
+	// names the reason. WooshPay settings saved meanwhile are still refused.
+	confirmPaymentComplianceForTest(t)
 	require.NoError(t, model.DB.AutoMigrate(&model.PasskeyCredential{}))
-	saves := map[string]func(address string) error{
-		"option": func(address string) error { return model.UpdateOption("ServerAddress", address) },
-		"bulk": func(address string) error {
-			return model.UpdateOptionsBulk(map[string]string{"ServerAddress": address})
-		},
-		"passkey domain": func(address string) error {
-			_, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, false, "")
-			return err
-		},
-		// A preview reports the refusal the save would meet.
-		"passkey domain preview": func(address string) error {
-			_, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, true, "")
-			return err
-		},
-	}
-	for name, saveAddress := range saves {
-		for address, message := range refusedAddresses {
-			err := saveAddress(address)
-			require.Error(t, err, "%s %q", name, address)
-			assert.Equal(t, message, err.Error(), "%s %q", name, address)
-		}
-		assert.Equal(t, "https://example.com/", system_setting.ServerAddress, name)
-	}
-	change, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": "https://pay.example.com"}, true, "")
-	require.NoError(t, err, "a preview the WooshPay rules accept")
-	require.NotNil(t, change)
-	assert.Equal(t, "https://example.com/", system_setting.ServerAddress, "a preview saves nothing")
-
-	// Refused by the WooshPay rules through the generic option PUT, the save
-	// is audited as a failed setting update, not as a Passkey domain change.
-	out = postJSON(t, UpdateOption, http.MethodPut, "/api/option/", `{"key":"ServerAddress","value":"http://localhost:3000"}`, adminID)
-	assert.Equal(t, false, out["success"])
-	assert.Equal(t, localhost, out["message"])
-	var refusedAudit model.AuditLog
-	require.NoError(t, model.DB.Order("id desc").First(&refusedAudit).Error)
-	assert.Equal(t, "option.update", refusedAudit.Action)
-	assert.False(t, refusedAudit.Success)
-	assert.Equal(t, "Updated system setting ServerAddress", refusedAudit.Content)
-	var passkeyFailures int64
-	require.NoError(t, model.DB.Model(&model.AuditLog{}).Where("action = ?", "option.passkey_domains_failed").Count(&passkeyFailures).Error)
-	assert.Zero(t, passkeyFailures)
-
-	// The WooshPay saves and the server address saves share one lock; both
-	// paths still save.
-	require.NoError(t, model.UpdateOption("ServerAddress", "https://pay.example.com"))
-	assert.Equal(t, "https://pay.example.com", system_setting.ServerAddress)
+	require.NoError(t, model.UpdateOption("ServerAddress", "http://localhost:3000"))
+	assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
 	assert.True(t, setting.WooshpayEnabled)
+	assert.Equal(t, "invalid_server_address", wooshpayUnavailableReason())
+	err := model.UpdateOption("WooshpayWebhookSecret", "whsec_saved")
+	require.Error(t, err)
+	assert.Equal(t, localhost, err.Error())
+	require.NoError(t, model.UpdateOption("ServerAddress", "https://pay.example.com"))
+	assert.Empty(t, wooshpayUnavailableReason())
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayMinTopUp": "3", "WooshpayEnabled": "true"}))
 	require.NoError(t, model.UpdateOption("WooshpayMinTopUp", "2"))
 	assert.Equal(t, 2, setting.WooshpayMinTopUp)
@@ -731,10 +694,7 @@ func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
 	out = save(`{}`)
 	assert.Equal(t, false, out["success"], "a save without settings")
 
-	// With WooshPay off the server address is not its concern.
 	require.Equal(t, true, save(`{"enabled":false}`)["success"])
-	require.NoError(t, model.UpdateOption("ServerAddress", "http://localhost:3000"))
-	assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
 
 	// A mismatched stored pair (saved before the cross-check existed, or by
 	// another node) cannot block switching WooshPay off, alone or with other

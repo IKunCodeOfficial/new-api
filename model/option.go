@@ -313,13 +313,6 @@ func UpdateOption(key string, value string) error {
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
-	if isWooshpayOption(key) {
-		// The WooshPay rules read ServerAddress, which UpdatePasskeyDomainOptions
-		// writes under this mutex; holding it keeps the check and the write of
-		// either side from interleaving with the other.
-		passkeyOptionMutex.Lock()
-		defer passkeyOptionMutex.Unlock()
-	}
 	if err := validateWooshpayEnvironment(map[string]string{key: value}); err != nil {
 		return err
 	}
@@ -344,47 +337,19 @@ func UpdateOption(key string, value string) error {
 	return updateOptionMap(key, value)
 }
 
-// isWooshpayOption reports whether key is a WooshPay setting.
-func isWooshpayOption(key string) bool {
-	return strings.HasPrefix(key, "Wooshpay")
-}
-
-// WooshpayEnvironmentError is a save refused by the WooshPay rules of
-// validateWooshpayEnvironment, so callers can tell it from a refusal by the
-// rules of the other settings saved with it. It unwraps to the message.
-type WooshpayEnvironmentError struct {
-	Err error
-}
-
-func (e *WooshpayEnvironmentError) Error() string { return e.Err.Error() }
-func (e *WooshpayEnvironmentError) Unwrap() error { return e.Err }
-
 // validateWooshpayEnvironment checks the WooshPay settings a save would leave
 // in place; a setting not being saved keeps its stored value. A secret key
 // must not be paired with the API base of the other environment, and WooshPay
 // can only be on while the keys of one environment and a server address its
 // customers can return to are set (setting.ValidateWooshpayServerAddress).
-// Saving the server address alone while WooshPay is on is checked too, so
-// WooshPay cannot silently disappear from the wallet. The admin page saves
-// every changed WooshPay setting together through UpdateOptionsBulk. A
-// refusal is a *WooshpayEnvironmentError. Callers that write hold
-// passkeyOptionMutex, so ServerAddress cannot change between this check and
-// their write.
+// Saves without a WooshPay setting are not checked. The admin page saves every
+// changed WooshPay setting together through UpdateOptionsBulk.
 func validateWooshpayEnvironment(values map[string]string) error {
-	if err := checkWooshpayEnvironment(values); err != nil {
-		return &WooshpayEnvironmentError{Err: err}
-	}
-	return nil
-}
-
-func checkWooshpayEnvironment(values map[string]string) error {
 	secretKey, keySaved := values["WooshpaySecretKey"]
 	apiBase, baseSaved := values["WooshpayApiBase"]
 	webhookSecret, secretSaved := values["WooshpayWebhookSecret"]
 	enabled, enabledSaved := values["WooshpayEnabled"]
-	serverAddress, addressSaved := values["ServerAddress"]
-	wooshpaySaved := keySaved || baseSaved || secretSaved || enabledSaved
-	if !wooshpaySaved && !addressSaved {
+	if !keySaved && !baseSaved && !secretSaved && !enabledSaved {
 		return nil
 	}
 	if !keySaved {
@@ -399,13 +364,10 @@ func checkWooshpayEnvironment(values map[string]string) error {
 	if !enabledSaved {
 		enabled = strconv.FormatBool(setting.WooshpayEnabled)
 	}
-	if !addressSaved {
-		serverAddress = system_setting.ServerAddress
-	}
 	// Switching WooshPay off without touching the key or the API base must
 	// work even while the stored pair is mismatched.
 	disabling := enabledSaved && enabled != "true" && !keySaved && !baseSaved
-	if wooshpaySaved && !disabling {
+	if !disabling {
 		if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
 			return err
 		}
@@ -413,13 +375,11 @@ func checkWooshpayEnvironment(values map[string]string) error {
 	if enabled != "true" {
 		return nil
 	}
-	if wooshpaySaved {
-		if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
-			return err
-		}
+	if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
+		return err
 	}
 	// Checkouts return the customer to pages under the server address.
-	return setting.ValidateWooshpayServerAddress(secretKey, serverAddress)
+	return setting.ValidateWooshpayServerAddress(secretKey, system_setting.ServerAddress)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
@@ -446,6 +406,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	if err := validateWooshpayEnvironment(values); err != nil {
+		return err
+	}
 	var policySnapshot *RequestPolicySnapshot
 	for key := range values {
 		if IsRequestPolicyOption(key) {
@@ -464,18 +427,6 @@ func UpdateOptionsBulk(values map[string]string) error {
 			}
 			break
 		}
-	}
-	// Taken after requestPolicyOptionMutex, in the order loadOptionsFromDatabase
-	// takes both; see UpdateOption.
-	for key := range values {
-		if isWooshpayOption(key) {
-			passkeyOptionMutex.Lock()
-			defer passkeyOptionMutex.Unlock()
-			break
-		}
-	}
-	if err := validateWooshpayEnvironment(values); err != nil {
-		return err
 	}
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
