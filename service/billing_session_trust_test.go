@@ -398,12 +398,15 @@ func TestRealtimeSessionIsBilledOnce(t *testing.T) {
 							_ = tx.AddError(errors.New("token update failed"))
 						}
 					}))
-					require.Error(t, PreWssConsumeQuota(c, info, turn, &sessionSoFar))
+					_, err := PreWssConsumeQuota(c, info, turn, &sessionSoFar)
+					require.Error(t, err)
 					require.NoError(t, model.DB.Callback().Update().Remove(callback))
 				case tc.refused:
-					require.ErrorContains(t, PreWssConsumeQuota(c, info, turn, &sessionSoFar), "user quota is not enough")
+					_, err := PreWssConsumeQuota(c, info, turn, &sessionSoFar)
+					require.ErrorContains(t, err, "user quota is not enough")
 				default:
-					require.NoError(t, PreWssConsumeQuota(c, info, turn, &sessionSoFar))
+					_, err := PreWssConsumeQuota(c, info, turn, &sessionSoFar)
+					require.NoError(t, err)
 				}
 			}
 			PostWssConsumeQuota(c, info, tc.modelName, session, nil)

@@ -85,20 +85,22 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 	return common.QuotaFromDecimalChecked(quota)
 }
 
-func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage, session *dto.RealtimeUsage) error {
+// PreWssConsumeQuota charges the usage of one Realtime response and returns
+// the quota it charged.
+func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage, session *dto.RealtimeUsage) (int, error) {
 	// A per-request priced model is billed once, by the session's final
 	// settlement; charging its turns by ratio would bill it a second way.
 	if relayInfo.UsePrice || relayInfo.PriceData.UsePrice {
-		return nil
+		return 0, nil
 	}
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	var quota int
@@ -153,11 +155,11 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	// A subscription-funded session is limited by its subscription, which the
 	// charge below enforces; the wallet balance does not apply.
 	if relayInfo.BillingSource != BillingSourceSubscription && userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+		return 0, fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
 	}
 
 	if !token.UnlimitedQuota && token.RemainQuota < quota {
-		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
+		return 0, fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
 	result, err := postConsumeQuotaWithResult(relayInfo, quota, 0, false)
@@ -168,10 +170,10 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		relayInfo.WssChargedQuota += quota
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	logger.LogInfo(ctx, common.LogText("realtime streaming consume quota success, quota: %d", quota))
-	return nil
+	return quota, nil
 }
 
 // realtimeTieredTokenParams reads realtime usage into billing-expression

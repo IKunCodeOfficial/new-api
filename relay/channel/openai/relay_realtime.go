@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/requestplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -55,13 +56,46 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	// chargeTurn charges a turn that is already part of sumUsage. A turn whose
 	// charge fails stays in sumUsage and is billed by the final settlement,
 	// which subtracts only what was charged per turn.
-	chargeTurn := func(turn, session *dto.RealtimeUsage) error {
+	chargeTurn := func(turn, session *dto.RealtimeUsage) (int, error) {
 		chargeMu.Lock()
 		defer chargeMu.Unlock()
 		if settled.Load() {
-			return errSessionSettled
+			return 0, errSessionSettled
 		}
 		return service.PreWssConsumeQuota(c, info, turn, session)
+	}
+
+	// The request plugins answer the client and cancel upstream responses
+	// from either reader, so each socket takes one writer at a time.
+	var clientWriteMu, targetWriteMu sync.Mutex
+	writeClient := func(message []byte) error {
+		clientWriteMu.Lock()
+		defer clientWriteMu.Unlock()
+		return helper.WssString(c, clientConn, string(message))
+	}
+	writeTarget := func(message []byte) error {
+		targetWriteMu.Lock()
+		defer targetWriteMu.Unlock()
+		return helper.WssString(c, targetConn, string(message))
+	}
+	plugins := requestplugin.NewRealtime(c, info, func(message []byte) {
+		if err := writeClient(message); err != nil {
+			select {
+			case errChan <- fmt.Errorf("error writing to client: %v", err):
+			default:
+			}
+		}
+	}, func(message []byte) {
+		if err := writeTarget(message); err != nil {
+			select {
+			case errChan <- fmt.Errorf("error writing to target: %v", err):
+			default:
+			}
+		}
+	})
+	if plugins != nil {
+		// The consume log reads what the plugins did once the session ends.
+		defer plugins.Close(info)
 	}
 
 	gopool.Go(func() {
@@ -91,6 +125,19 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					errChan <- fmt.Errorf("error unmarshalling message: %v", err)
 					return
 				}
+				if plugins != nil {
+					patched, dropped := plugins.ClientEvent(realtimeEvent.Type, message)
+					if dropped {
+						continue
+					}
+					if patched != nil {
+						message, realtimeEvent = patched, &dto.RealtimeEvent{}
+						if err = common.Unmarshal(message, realtimeEvent); err != nil {
+							errChan <- fmt.Errorf("error unmarshalling message: %v", err)
+							return
+						}
+					}
+				}
 
 				err = func() error {
 					usageMu.Lock()
@@ -114,7 +161,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					return
 				}
 
-				err = helper.WssString(c, targetConn, string(message))
+				err = writeTarget(message)
 				if err != nil {
 					errChan <- fmt.Errorf("error writing to target: %v", err)
 					return
@@ -159,6 +206,8 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					return
 				}
 
+				// quota is what a response.done was charged.
+				quota := 0
 				if realtimeEvent.Type == dto.RealtimeEventTypeResponseDone {
 					// session is the session total including this turn; a
 					// billing expression prices the session, not the turn.
@@ -200,7 +249,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						return turn, &session, nil
 					}()
 					if err == nil {
-						err = chargeTurn(turn, session)
+						quota, err = chargeTurn(turn, session)
 					}
 					if errors.Is(err, errSessionSettled) {
 						return
@@ -243,8 +292,13 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 				if settled.Load() {
 					return
 				}
-				err = helper.WssString(c, clientConn, string(message))
-				if err != nil {
+				if plugins != nil {
+					var responseUsage *dto.RealtimeUsage
+					if realtimeEvent.Response != nil {
+						responseUsage = realtimeEvent.Response.Usage
+					}
+					plugins.ServerEvent(realtimeEvent.Type, message, responseUsage, quota)
+				} else if err = writeClient(message); err != nil {
 					errChan <- fmt.Errorf("error writing to client: %v", err)
 					return
 				}
