@@ -101,6 +101,12 @@ func InitOptionMap() {
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["WooshpayEnabled"] = strconv.FormatBool(setting.WooshpayEnabled)
+	common.OptionMap["WooshpaySecretKey"] = setting.WooshpaySecretKey
+	common.OptionMap["WooshpayWebhookSecret"] = setting.WooshpayWebhookSecret
+	common.OptionMap["WooshpayApiBase"] = setting.WooshpayApiBase
+	common.OptionMap["WooshpayUnitPrice"] = strconv.FormatFloat(setting.WooshpayUnitPrice, 'f', -1, 64)
+	common.OptionMap["WooshpayMinTopUp"] = strconv.Itoa(setting.WooshpayMinTopUp)
 	common.OptionMap["CreemApiKey"] = setting.CreemApiKey
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
@@ -267,6 +273,10 @@ func validateOptionValue(key string, value string) error {
 	if key == "ResendKeyConfigured" {
 		return common.NewMessage("Resend key configuration status is read-only")
 	}
+	// Derived by GetOptions from the WooshPay settings, never stored.
+	if key == "WooshpayTestMode" || key == "WooshpayUnavailableReason" {
+		return common.NewMessage("WooshPay status is derived from its settings and is read-only")
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
@@ -282,7 +292,7 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
-	return nil
+	return setting.ValidateWooshpayOption(key, value)
 }
 
 func UpdateOption(key string, value string) error {
@@ -297,6 +307,9 @@ func UpdateOption(key string, value string) error {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
 	if err := validateOptionValue(key, value); err != nil {
+		return err
+	}
+	if err := validateWooshpayEnvironment(map[string]string{key: value}); err != nil {
 		return err
 	}
 	// Save to database first
@@ -315,6 +328,51 @@ func UpdateOption(key string, value string) error {
 	return updateOptionMap(key, value)
 }
 
+// validateWooshpayEnvironment checks the WooshPay settings a save would leave
+// in place; a setting not being saved keeps its stored value. A secret key
+// must not be paired with the API base of the other environment, and WooshPay
+// can only be on while the keys of one environment and a server address its
+// customers can return to are set (setting.ValidateWooshpayServerAddress).
+// Saves without a WooshPay setting are not checked. The admin page saves every
+// changed WooshPay setting together through UpdateOptionsBulk.
+func validateWooshpayEnvironment(values map[string]string) error {
+	secretKey, keySaved := values["WooshpaySecretKey"]
+	apiBase, baseSaved := values["WooshpayApiBase"]
+	webhookSecret, secretSaved := values["WooshpayWebhookSecret"]
+	enabled, enabledSaved := values["WooshpayEnabled"]
+	if !keySaved && !baseSaved && !secretSaved && !enabledSaved {
+		return nil
+	}
+	if !keySaved {
+		secretKey = setting.WooshpaySecretKey
+	}
+	if !baseSaved {
+		apiBase = setting.WooshpayApiBase
+	}
+	if !secretSaved {
+		webhookSecret = setting.WooshpayWebhookSecret
+	}
+	if !enabledSaved {
+		enabled = strconv.FormatBool(setting.WooshpayEnabled)
+	}
+	// Switching WooshPay off without touching the key or the API base must
+	// work even while the stored pair is mismatched.
+	disabling := enabledSaved && enabled != "true" && !keySaved && !baseSaved
+	if !disabling {
+		if err := setting.ValidateWooshpayKeyBase(secretKey, apiBase); err != nil {
+			return err
+		}
+	}
+	if enabled != "true" {
+		return nil
+	}
+	if err := setting.ValidateWooshpayEnabled(secretKey, webhookSecret, apiBase); err != nil {
+		return err
+	}
+	// Checkouts return the customer to pages under the server address.
+	return setting.ValidateWooshpayServerAddress(secretKey, system_setting.ServerAddress)
+}
+
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
 // transaction, then dispatches them through updateOptionMap in one pass. If
 // any DB write fails the whole transaction rolls back and no in-memory state
@@ -323,6 +381,10 @@ func UpdateOption(key string, value string) error {
 func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
+	}
+	// Checked before the passkey-domain hand-off, which saves the whole bundle.
+	if err := validateWooshpayEnvironment(values); err != nil {
+		return err
 	}
 	for key := range values {
 		if IsPasskeyDomainOption(key) {
@@ -558,6 +620,19 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "WooshpayEnabled":
+		setting.WooshpayEnabled = value == "true"
+	case "WooshpaySecretKey":
+		setting.WooshpaySecretKey = value
+	case "WooshpayWebhookSecret":
+		setting.WooshpayWebhookSecret = strings.TrimSpace(value)
+	case "WooshpayApiBase":
+		setting.WooshpayApiBase = setting.NormalizeWooshpayApiBase(value)
+		common.OptionMap[key] = setting.WooshpayApiBase
+	case "WooshpayUnitPrice":
+		setting.WooshpayUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "WooshpayMinTopUp":
+		setting.WooshpayMinTopUp, _ = strconv.Atoi(value)
 	case "CreemApiKey":
 		setting.CreemApiKey = value
 	case "CreemProducts":

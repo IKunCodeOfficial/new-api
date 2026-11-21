@@ -44,6 +44,33 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
   return res.data
 }
 
+/**
+ * Changed WooshPay settings; absent fields keep their stored values, and so
+ * do empty secrets.
+ */
+export interface WooshpaySettingsUpdate {
+  enabled?: boolean
+  secret_key?: string
+  webhook_secret?: string
+  api_base?: string
+  unit_price?: number
+  min_topup?: number
+}
+
+/**
+ * Save every changed WooshPay setting in one request. The server validates
+ * the resulting combination (the key and API base of one environment, the
+ * keys needed to enable it) and writes it in one transaction, so a refused
+ * save changes nothing.
+ */
+export async function updateWooshpaySettings(request: WooshpaySettingsUpdate) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/wooshpay/environment',
+    request
+  )
+  return res.data
+}
+
 export async function updatePasskeyDomains(
   request: UpdatePasskeyDomainsRequest
 ) {

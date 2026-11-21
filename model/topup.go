@@ -30,6 +30,7 @@ const (
 	PaymentMethodCreem        = "creem"
 	PaymentMethodWaffo        = "waffo"
 	PaymentMethodWaffoPancake = "waffo_pancake"
+	PaymentMethodWooshpay     = "wooshpay"
 	PaymentMethodBalance      = "balance"
 )
 
@@ -39,6 +40,7 @@ const (
 	PaymentProviderCreem        = "creem"
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
+	PaymentProviderWooshpay     = "wooshpay"
 	PaymentProviderBalance      = "balance"
 )
 
@@ -46,6 +48,11 @@ var (
 	ErrPaymentMethodMismatch = errors.New("payment method mismatch")
 	ErrTopUpNotFound         = errors.New("topup not found")
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
+	ErrTopUpAmountMismatch   = errors.New("received amount does not match the order")
+	// ErrTestPaymentForNonAdmin refuses a test-mode payment for an order
+	// whose owner is not an administrator: test payments move no real money,
+	// so only administrators' orders may be credited with them.
+	ErrTestPaymentForNonAdmin = errors.New("test-mode payment for an order of a non-administrator")
 	// The quota errors reach the web console, so they carry message keys.
 	ErrInvalidTopUpQuota        error = common.NewMessage("Invalid top-up quota")
 	ErrTopUpQuotaLimitExceeded  error = common.NewMessage("Top-up quota limit exceeded")
@@ -156,7 +163,10 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 	return DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
-			return ErrTopUpNotFound
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
 		}
 		if expectedPaymentProvider != "" && topUp.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
@@ -295,6 +305,98 @@ const topUpQueryWindowSeconds int64 = 30 * 24 * 60 * 60
 // topUpQueryCutoff 返回允许查询的最早 create_time（秒级 Unix 时间戳）。
 func topUpQueryCutoff() int64 {
 	return common.GetTimestamp() - topUpQueryWindowSeconds
+}
+
+// RechargeWooshpay completes a WooshPay order after the webhook handler has
+// re-queried the PaymentIntent and verified that it succeeded. The money has
+// then really arrived, so an order already closed as expired or failed is
+// completed too. paymentAmount is the collected amount with its currency, as
+// shown in the top-up log. charged is the amount received in fen; it
+// must equal the order's Money, or the order is not completed. It returns
+// ErrTopUpNotFound, ErrPaymentMethodMismatch, ErrTopUpAmountMismatch,
+// ErrTestPaymentForNonAdmin (a test payment for a non-administrator's order,
+// also when an administrator completes it) or ErrTopUpStatusInvalid (already completed, the
+// duplicate-notification case) unchanged so the caller can acknowledge them; any other error is a database
+// failure worth retrying. byAdmin records the completion in the top-up log as
+// an administrator's, as ManualCompleteTopUp does.
+func RechargeWooshpay(tradeNo string, callerIp string, paymentAmount string, charged int64, testPayment bool, byAdmin bool) (err error) {
+	if tradeNo == "" {
+		return errors.New("payment order number not provided")
+	}
+
+	var quota int
+	topUp := &TopUp{}
+
+	refCol := "`trade_no`"
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		refCol = `"trade_no"`
+	}
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
+		}
+		if topUp.PaymentProvider != PaymentProviderWooshpay {
+			return ErrPaymentMethodMismatch
+		}
+		switch topUp.Status {
+		case common.TopUpStatusPending, common.TopUpStatusExpired, common.TopUpStatusFailed:
+		default:
+			return ErrTopUpStatusInvalid
+		}
+		// The caller checked the amount against the checkout's metadata; the
+		// locked order's own price is checked again here.
+		if !decimal.NewFromFloat(topUp.Money).Shift(2).Round(0).Equal(decimal.NewFromInt(charged)) {
+			return ErrTopUpAmountMismatch
+		}
+		// Only administrators may place test orders; a test payment for anyone
+		// else's order (the key changed after it was created, or the order was
+		// not created by the checkout) must not credit real quota, whether the
+		// webhook or an administrator completes it.
+		if testPayment {
+			owner := User{}
+			if err := tx.Select("role").Where("id = ?", topUp.UserId).First(&owner).Error; err != nil {
+				return err
+			}
+			if owner.Role < common.RoleAdminUser {
+				return ErrTestPaymentForNonAdmin
+			}
+		}
+
+		// Money is what was charged; the top-up group ratio only scales the
+		// price, so the credit is the purchased units, as with epay and Waffo.
+		var quotaErr error
+		quota, quotaErr = common.WalletQuotaFromDecimalStrict(
+			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+		if quotaErr != nil || quota <= 0 {
+			return ErrInvalidTopUpQuota
+		}
+
+		topUp.CompleteTime = common.GetTimestamp()
+		topUp.Status = common.TopUpStatusSuccess
+		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+		return creditTopUpQuota(tx, topUp.UserId, quota, nil)
+	})
+	if err != nil {
+		if !errors.Is(err, ErrTopUpNotFound) && !errors.Is(err, ErrPaymentMethodMismatch) && !errors.Is(err, ErrTopUpStatusInvalid) && !errors.Is(err, ErrTopUpAmountMismatch) && !errors.Is(err, ErrTestPaymentForNonAdmin) {
+			common.SysError(common.LogText("wooshpay topup failed: %s", err.Error()))
+		}
+		return err
+	}
+	syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("wooshpay topup"))
+
+	if byAdmin {
+		RecordTopupLog(topUp.UserId, common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quota), "amount": paymentAmount}), callerIp, topUp.PaymentMethod, "admin")
+		return nil
+	}
+	RecordTopupLog(topUp.UserId, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "WooshPay", "quota": logger.FormatQuota(quota), "amount": paymentAmount}), callerIp, topUp.PaymentMethod, PaymentMethodWooshpay)
+	return nil
 }
 
 func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
@@ -467,6 +569,11 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		// 行级锁，避免并发补单
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error; err != nil {
 			return common.NewMessage("Top-up order does not exist")
+		}
+		// A WooshPay order is only completed against a PaymentIntent the
+		// gateway confirms (completeWooshpayOrderByIntent), never by hand.
+		if topUp.PaymentProvider == PaymentProviderWooshpay {
+			return common.NewMessage("A WooshPay order can only be completed with the ID of its succeeded PaymentIntent")
 		}
 
 		// 幂等处理：已成功直接返回

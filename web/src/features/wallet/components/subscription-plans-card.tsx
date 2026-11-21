@@ -71,8 +71,15 @@ interface SubscriptionPlansCardProps {
 }
 
 function getEpayMethods(payMethods: PaymentMethod[] = []): PaymentMethod[] {
+  // Waffo Pancake and WooshPay have their own checkout and only support
+  // wallet top-up; neither is an epay pay type.
   return payMethods.filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem'
+    (m) =>
+      m?.type &&
+      m.type !== 'stripe' &&
+      m.type !== 'creem' &&
+      m.type !== 'waffo_pancake' &&
+      m.type !== 'wooshpay'
   )
 }
 

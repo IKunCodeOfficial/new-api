@@ -35,10 +35,24 @@ export interface ApiResponse<T = unknown> {
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
 export type AmountResponse = ApiResponse<string>
+/** WooshPay quote: the amount it charges in CNY, with 2 decimals */
+export type WooshpayAmountResponse = ApiResponse<{
+  amount: string
+}>
+
+/**
+ * A quoted payment amount. inCny is set when the gateway charges in CNY
+ * (WooshPay) rather than in the display currency.
+ */
+export interface PaymentQuote {
+  amount: number
+  inCny?: boolean
+}
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
+export type WooshpayPaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
@@ -130,6 +144,12 @@ export interface TopupInfo {
   min_topup: number
   /** Minimum topup amount for Stripe */
   stripe_min_topup: number
+  /** Whether WooshPay topup is enabled */
+  enable_wooshpay_topup?: boolean
+  /** Minimum topup amount for WooshPay */
+  wooshpay_min_topup?: number
+  /** WooshPay CNY price of one unit for this user (group ratio included) */
+  wooshpay_unit_price?: number
   /** Preset amount options */
   amount_options: number[]
   /** Discount rates by amount */
@@ -247,7 +267,7 @@ export interface UserWalletData {
 /**
  * Topup record status
  */
-export type TopupStatus = 'success' | 'pending' | 'expired'
+export type TopupStatus = 'success' | 'pending' | 'expired' | 'failed'
 
 /**
  * Topup billing record
@@ -286,4 +306,6 @@ export interface BillingHistoryResponse {
  */
 export interface CompleteOrderRequest {
   trade_no: string
+  /** PaymentIntent that paid a WooshPay order, required to complete one */
+  payment_intent_id?: string
 }

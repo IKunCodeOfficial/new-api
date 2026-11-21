@@ -45,7 +45,9 @@ import {
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
+  getWooshpayPresetPricing,
   dispatchSelectedPayment,
+  isWooshpayPayment,
 } from './lib'
 import type {
   UserWalletData,
@@ -90,8 +92,12 @@ export function Wallet(props: WalletProps) {
       ? 1
       : currency?.usdExchangeRate || 1
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
+  // WooshPay amounts are whole units, entered in tokens with the Tokens display.
+  const tokensPerUnit =
+    currency?.quotaDisplayType === 'TOKENS' ? currency.quotaPerUnit : undefined
   const {
     amount: paymentAmount,
+    paymentInCny,
     calculating,
     processing,
     calculatePaymentAmount,
@@ -146,9 +152,9 @@ export function Wallet(props: WalletProps) {
 
       // Calculate initial payment amount with default payment type
       const defaultPaymentType = getDefaultPaymentType(topupInfo)
-      calculatePaymentAmount(minTopup, defaultPaymentType)
+      calculatePaymentAmount(minTopup, defaultPaymentType, { tokensPerUnit })
     }
-  }, [topupInfo, calculatePaymentAmount])
+  }, [topupInfo, calculatePaymentAmount, tokensPerUnit])
 
   // Get current payment type (selected or default)
   const getCurrentPaymentType = useCallback(() => {
@@ -159,14 +165,16 @@ export function Wallet(props: WalletProps) {
   const handleSelectPreset = (preset: PresetAmount) => {
     setTopupAmount(preset.value)
     setSelectedPreset(preset.value)
-    calculatePaymentAmount(preset.value, getCurrentPaymentType())
+    calculatePaymentAmount(preset.value, getCurrentPaymentType(), {
+      tokensPerUnit,
+    })
   }
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
     setTopupAmount(amount)
     setSelectedPreset(null)
-    calculatePaymentAmount(amount, getCurrentPaymentType())
+    calculatePaymentAmount(amount, getCurrentPaymentType(), { tokensPerUnit })
   }
 
   // Handle payment method selection
@@ -182,8 +190,17 @@ export function Wallet(props: WalletProps) {
         return
       }
 
-      // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
+      // Calculate payment amount and show confirmation dialog. A WooshPay
+      // amount that cannot be quoted is explained instead of being
+      // confirmed at a price of 0.
+      const isWooshpay = isWooshpayPayment(method.type)
+      const quote = await calculatePaymentAmount(topupAmount, method.type, {
+        tokensPerUnit,
+        notifyFailure: isWooshpay,
+      })
+      if (!quote && isWooshpay) {
+        return
+      }
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -270,6 +287,14 @@ export function Wallet(props: WalletProps) {
     }
   }
 
+  // The cards are priced for the payment type the amount field is quoted
+  // for, so both show WooshPay prices together.
+  const wooshpayPresetPricing = getWooshpayPresetPricing(
+    topupInfo,
+    getCurrentPaymentType(),
+    tokensPerUnit
+  )
+
   // Get discount rate for current topup amount
   const getDiscountRate = useCallback(() => {
     return topupInfo?.discount?.[topupAmount] || DEFAULT_DISCOUNT_RATE
@@ -328,6 +353,8 @@ export function Wallet(props: WalletProps) {
                   enableWaffoPancakeTopup={
                     topupInfo?.enable_waffo_pancake_topup
                   }
+                  gatewayPricing={wooshpayPresetPricing}
+                  paymentInCny={paymentInCny}
                 />
               </div>
 
@@ -363,6 +390,7 @@ export function Wallet(props: WalletProps) {
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
+        paymentInCny={paymentInCny}
       />
 
       <TransferDialog

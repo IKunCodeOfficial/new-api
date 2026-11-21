@@ -17,22 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -81,16 +73,35 @@ export function BillingHistoryDialog({
   } = useBillingHistory()
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
+  // A WooshPay order, in any status, is only completed against the
+  // PaymentIntent that paid it; the server re-queries it with WooshPay.
+  const [confirmNeedsIntent, setConfirmNeedsIntent] = useState(false)
+  const [paymentIntentId, setPaymentIntentId] = useState('')
+  const intentInputId = useId()
+  const intentHintId = useId()
+  const intentErrorId = useId()
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
+  const trimmedIntentId = paymentIntentId.trim()
+  const intentInvalid =
+    trimmedIntentId !== '' && !trimmedIntentId.startsWith('pi_')
+  const confirmBlocked =
+    confirmNeedsIntent && (trimmedIntentId === '' || intentInvalid)
+
+  const closeConfirm = () => {
+    setConfirmTradeNo(null)
+    setConfirmNeedsIntent(false)
+    setPaymentIntentId('')
+  }
 
   const handleConfirmComplete = async () => {
-    if (confirmTradeNo) {
-      const success = await handleCompleteOrder(confirmTradeNo)
-      if (success) {
-        setConfirmTradeNo(null)
-      }
+    if (!confirmTradeNo || confirmBlocked) return
+    const success = confirmNeedsIntent
+      ? await handleCompleteOrder(confirmTradeNo, trimmedIntentId)
+      : await handleCompleteOrder(confirmTradeNo)
+    if (success) {
+      closeConfirm()
     }
   }
 
@@ -265,19 +276,31 @@ export function BillingHistoryDialog({
                         </div>
                       </div>
 
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
+                      {/* Admin Actions: WooshPay closes an order when its
+                          session expires, yet a payment may still have
+                          arrived, so its expired and failed orders can be
+                          completed too, against their PaymentIntent. */}
+                      {isAdmin &&
+                        (record.status === 'pending' ||
+                          (record.payment_method === 'wooshpay' &&
+                            (record.status === 'expired' ||
+                              record.status === 'failed'))) && (
+                          <div className='mt-4 flex justify-end'>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => {
+                                setConfirmTradeNo(record.trade_no)
+                                setConfirmNeedsIntent(
+                                  record.payment_method === 'wooshpay'
+                                )
+                              }}
+                              disabled={completing}
+                            >
+                              {t('Complete Order')}
+                            </Button>
+                          </div>
+                        )}
                     </div>
                   )
                 })}
@@ -323,32 +346,51 @@ export function BillingHistoryDialog({
       </Dialog>
 
       {/* Confirm Complete Order Dialog */}
-      <AlertDialog
+      <ConfirmDialog
         open={!!confirmTradeNo}
-        onOpenChange={(open) => !open && setConfirmTradeNo(null)}
+        onOpenChange={(open) => {
+          if (!open) closeConfirm()
+        }}
+        title={t('Complete Order')}
+        desc={t(
+          'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
+        )}
+        confirmText={completing ? t('Processing...') : t('Confirm')}
+        handleConfirm={() => void handleConfirmComplete()}
+        isLoading={completing}
+        disabled={confirmBlocked}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Complete Order')}</AlertDialogTitle>
-            <AlertDialogDescription>
+        {confirmNeedsIntent && (
+          <div className='space-y-1.5'>
+            <Label htmlFor={intentInputId}>{t('PaymentIntent ID')}</Label>
+            <Input
+              id={intentInputId}
+              type='text'
+              autoComplete='off'
+              placeholder='pi_...'
+              value={paymentIntentId}
+              onChange={(e) => setPaymentIntentId(e.target.value)}
+              aria-required
+              aria-invalid={intentInvalid}
+              aria-describedby={
+                intentInvalid
+                  ? `${intentHintId} ${intentErrorId}`
+                  : intentHintId
+              }
+            />
+            {intentInvalid && (
+              <FieldError id={intentErrorId} className='text-xs'>
+                {t('A PaymentIntent ID starts with pi_')}
+              </FieldError>
+            )}
+            <p id={intentHintId} className='text-muted-foreground text-xs'>
               {t(
-                'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
+                'Enter the ID of the succeeded PaymentIntent from the WooshPay dashboard; the order is completed only if WooshPay confirms it paid this order in full.'
               )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={completing}>
-              {t('Cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmComplete}
-              disabled={completing}
-            >
-              {completing ? t('Processing...') : t('Confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </>
   )
 }

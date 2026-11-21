@@ -11,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -45,7 +44,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		common.ApiErrorT(c, "Plan amount is too low")
 		return
 	}
-	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
+	if !isEpayPayMethod(req.PaymentMethod) {
 		common.ApiErrorT(c, "Payment method does not exist")
 		return
 	}

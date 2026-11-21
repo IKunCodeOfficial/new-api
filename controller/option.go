@@ -86,7 +86,8 @@ func GetOptions(c *gin.Context) {
 	optionValues := make(map[string]string)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
-		if k == "theme.frontend" || k == "billing_setting.billing_mode" || k == "billing_setting.billing_expr" || k == "ResendKeyConfigured" {
+		if k == "theme.frontend" || k == "billing_setting.billing_mode" || k == "billing_setting.billing_expr" || k == "ResendKeyConfigured" ||
+			k == "WooshpayTestMode" || k == "WooshpayUnavailableReason" {
 			continue
 		}
 		value := common.Interface2String(v)
@@ -110,7 +111,19 @@ func GetOptions(c *gin.Context) {
 	options = append(options, &model.Option{
 		Key: "ResendKeyConfigured", Value: strconv.FormatBool(strings.TrimSpace(common.OptionMap["ResendApiKey"]) != ""),
 	})
+	// The WooshPay secret key is never returned; the admin page only learns
+	// whether it is a test key, whose payments credit real quota.
+	options = append(options, &model.Option{
+		Key: "WooshpayTestMode", Value: strconv.FormatBool(setting.IsWooshpayTestSecretKey(common.OptionMap["WooshpaySecretKey"])),
+	})
 	common.OptionMapRWMutex.Unlock()
+	// Why WooshPay, switched on, offers no top-ups; empty while it does or
+	// while it is switched off.
+	wooshpayReason := ""
+	if setting.WooshpayEnabled {
+		wooshpayReason = wooshpayUnavailableReason()
+	}
+	options = append(options, &model.Option{Key: "WooshpayUnavailableReason", Value: wooshpayReason})
 	// Display the same effective expressions used by pricing and settlement,
 	// including built-in defaults absent from persisted administrator options.
 	for key, values := range map[string]map[string]string{

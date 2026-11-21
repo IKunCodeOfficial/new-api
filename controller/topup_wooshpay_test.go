@@ -1,0 +1,1315 @@
+package controller
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+)
+
+const wooshpayTestWebhookSecret = "whsec_yDjRWBtest"
+
+// setupWooshpayControllerTest opens the manage-user test database with the
+// top-up tables and keeps the quota cache off Redis.
+func setupWooshpayControllerTest(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupManageUserTestDB(t)
+	// commonGroupCol and the other dialect column names are only set by
+	// InitDB, so they are set here for the fixture's dialect.
+	model.InitColumnNames()
+	t.Cleanup(model.InitColumnNames)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.TopUp{}, &model.AuditLog{}))
+	return db
+}
+
+func createWooshpayTestUser(t *testing.T, quota int, role int) int {
+	t.Helper()
+	user := &model.User{
+		Username: "wp" + common.GetRandomString(8),
+		Password: "12345678",
+		Quota:    quota,
+		Role:     role,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		AffCode:  common.GetRandomString(8), // aff_code has a unique index
+	}
+	require.NoError(t, model.DB.Create(user).Error)
+	return user.Id
+}
+
+// postJSON calls handler as a root user and decodes the JSON response body.
+func postJSON(t *testing.T, handler gin.HandlerFunc, method, path, body string, operatorId int) map[string]any {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(method, path, strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("id", operatorId)
+	c.Set("role", common.RoleRootUser)
+	handler(c)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out map[string]any
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &out))
+	return out
+}
+
+// wooshpayTestTransport sends every outbound request to the test server, so
+// the configured API base can stay the real WooshPay host.
+type wooshpayTestTransport struct{ target *url.URL }
+
+func (tr wooshpayTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.URL.Scheme, r.URL.Host = tr.target.Scheme, tr.target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// setupWooshpayTest configures a live-mode WooshPay account whose API is
+// served by api, with an in-memory database, pricing at 8 CNY per unit and
+// the server address https://example.com/.
+func setupWooshpayTest(t *testing.T, api http.HandlerFunc) {
+	t.Helper()
+	setupWooshpayControllerTest(t)
+	confirmPaymentComplianceForTest(t)
+	service.InitHttpClient()
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+	target, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client := service.GetHttpClient()
+	transport := client.Transport
+	client.Transport = wooshpayTestTransport{target: target}
+	t.Cleanup(func() { client.Transport = transport })
+
+	enabled, secretKey, webhookSecret, apiBase := setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase
+	unitPrice, minTopUp := setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
+	quotaPerUnit := common.QuotaPerUnit
+	displayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	discount := operation_setting.GetPaymentSetting().AmountDiscount
+	serverAddress := system_setting.ServerAddress
+	t.Cleanup(func() {
+		system_setting.ServerAddress = serverAddress
+		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
+		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
+		common.QuotaPerUnit = quotaPerUnit
+		operation_setting.GetGeneralSetting().QuotaDisplayType = displayType
+		operation_setting.GetPaymentSetting().AmountDiscount = discount
+	})
+	setting.WooshpayEnabled = true
+	setting.WooshpaySecretKey = "sk_live_wooshpay"
+	setting.WooshpayWebhookSecret = wooshpayTestWebhookSecret
+	setting.WooshpayApiBase = "https://api.wooshpay.com"
+	setting.WooshpayUnitPrice = 8
+	setting.WooshpayMinTopUp = 1
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	system_setting.ServerAddress = "https://example.com/"
+}
+
+func insertWooshpayTestOrder(t *testing.T, userID int, tradeNo string) {
+	t.Helper()
+	require.NoError(t, (&model.TopUp{
+		UserId: userID, Amount: 10, Money: 80, TradeNo: tradeNo, PaymentMethod: model.PaymentMethodWooshpay,
+		PaymentProvider: model.PaymentProviderWooshpay, Status: common.TopUpStatusPending, CreateTime: time.Now().Unix(),
+	}).Insert())
+}
+
+// wooshpayTestIntent is a succeeded live PaymentIntent of 80.00 CNY that
+// matches the metadata this server writes for tradeNo.
+func wooshpayTestIntent(id string, tradeNo string) string {
+	return fmt.Sprintf(`{"id":%q,"object":"payment_intent","status":"succeeded","amount":8000,"amount_received":8000,`+
+		`"currency":"cny","livemode":true,"merchant_order_id":%q,"metadata":{"new_api_trade_no":%q,`+
+		`"new_api_amount_listed":"8000","new_api_amount_charged":"8000"}}`, id, tradeNo, tradeNo)
+}
+
+func signWooshpayTestPayload(timestamp string, payload string) string {
+	mac := hmac.New(sha256.New, []byte(wooshpayTestWebhookSecret))
+	mac.Write([]byte(timestamp + "." + payload))
+	return "t=" + timestamp + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func postWooshpayTestWebhook(t *testing.T, requestCtx context.Context, payload string, signature string) int {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequestWithContext(requestCtx, http.MethodPost, "/api/wooshpay/webhook", strings.NewReader(payload))
+	ctx.Request.Header.Set("Wooshpay-Signature", signature)
+	WooshpayWebhook(ctx)
+	return recorder.Code
+}
+
+// The worked example from WooshPay's "Signature Check" document: their secret
+// (a public sample secret, not ours), header timestamp and request body must
+// produce their published v1.
+func TestVerifyWooshpaySignatureMatchesWooshpayExample(t *testing.T) {
+	const secret = "whsec_5U6m5O2ojRra442YkKZ6emDkH0S9wpGs"
+	const header = "t=1773980648254,v1=0c900eecd785b89ab54cc878fad312275be7104cae2e8e347eadc786697fbe91"
+	const body = `{"id":"evt_2034848439350591488","object":"event","created":1773980648254,"livemode":false,"data":{"object":{"id":"pi_2034848201760047104","object":"payment_intent","created":1773980592000,"livemode":false,"currency":"SGD","amount":32700,"status":"succeeded","description":"Exam Enrollment","metadata":{"tempinvoice_id":"a0ffV000000XtiUQAS","temp_invoice":"TI-025686","customer_email":"iscatest6@gmail.com","customer_name":"Mochitest","contact_id":"003fV000005yIdZQAU"},"customer":"cus_2034848368806592512","client_secret":"pi_2034848201760047104_secret_06c8GZbhHl8rumaeScXDtFYf","payment_method_types":["9pay","googlepay","applepay","gcash","card"],"confirmation_method":"automatic","payment_method_options":{"card":{"request_three_d_secure":"any"},"truemoney":{"terminal_type":"WEB"},"akulaku":{"terminal_type":"WEB"},"kakaopay":{"terminal_type":"WEB"},"dana":{"terminal_type":"WEB"},"shopeepay":{"terminal_type":"WEB"}},"return_url":"https://jstest.wooshpay.com/v1/payment/success?redirect=https%3A%2F%2Fcheckouttest.wooshpay.com%2Fpay%2Fcs_test_2034848201541943296%3Fkey%3DcGtfdGVzdF9OVEU0TURrME16WTROelF4TXpReE16QTJPRGt4T2twSVNWcE9SVmRIVjJWd1lXZEhORkZJYzJOU2VrRkhjVEUzTWpBeU16Z3pORE16TWpB","payment_method":"pm_2034848375358095360","amount_received":32700}},"type":"payment_intent.succeeded"}`
+
+	require.NoError(t, verifyWooshpaySignature([]byte(body), header, secret))
+	assert.Error(t, verifyWooshpaySignature([]byte(strings.Replace(body, "TI-025686", "TI025686", 1)), header, secret))
+}
+
+// WooshPay delivers the signature in Wooshpay-Signature; a plain Signature
+// header, as some of its docs describe, is still accepted when it is absent.
+func TestWooshpaySignatureHeader(t *testing.T) {
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{"wooshpay header", map[string]string{"Wooshpay-Signature": "t=1,v1=aa"}, "t=1,v1=aa"},
+		{"plain header", map[string]string{"Signature": "t=2,v1=bb"}, "t=2,v1=bb"},
+		{"both prefer wooshpay", map[string]string{"Wooshpay-Signature": "t=1,v1=aa", "Signature": "t=2,v1=bb"}, "t=1,v1=aa"},
+		{"neither", map[string]string{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := http.Header{}
+			for name, value := range tc.headers {
+				header.Set(name, value)
+			}
+			assert.Equal(t, tc.want, wooshpaySignatureHeader(header))
+		})
+	}
+}
+
+func TestVerifyWooshpaySignature(t *testing.T) {
+	const body = `{"id":"evt_1"}`
+	// hex(HMAC_SHA256("whsec_yDjRWBtest", "1767225600123." + body)), computed independently.
+	const valid = "2b6e1324030aac57c0d9244a0968a8742e712281c820a2b532ba823112fb9237"
+
+	cases := []struct {
+		name    string
+		payload string
+		header  string
+		secret  string
+		ok      bool
+	}{
+		{"valid signature with whsec_ key and millisecond t", body, "t=1767225600123,v1=" + valid, wooshpayTestWebhookSecret, true},
+		{"one of several v1 values matches", body, "t=1767225600123,v1=deadbeef,v1=" + valid, wooshpayTestWebhookSecret, true},
+		{"spaces after commas", body, "t=1767225600123, v1=" + valid, wooshpayTestWebhookSecret, true},
+		{"old timestamp is still accepted", `{"id":"evt_old"}`, signWooshpayTestPayload("1000", `{"id":"evt_old"}`), wooshpayTestWebhookSecret, true},
+		{"tampered body", `{"id":"evt_2"}`, "t=1767225600123,v1=" + valid, wooshpayTestWebhookSecret, false},
+		{"different t", body, "t=1767225600124,v1=" + valid, wooshpayTestWebhookSecret, false},
+		{"t reformatted is a different salt", body, "t=01767225600123,v1=" + valid, wooshpayTestWebhookSecret, false},
+		{"secret without whsec_ prefix", body, "t=1767225600123,v1=" + valid, "yDjRWBtest", false},
+		{"missing t", body, "v1=" + valid, wooshpayTestWebhookSecret, false},
+		{"missing v1", body, "t=1767225600123", wooshpayTestWebhookSecret, false},
+		{"empty header", body, "", wooshpayTestWebhookSecret, false},
+		{"empty secret", body, "t=1767225600123,v1=" + valid, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := verifyWooshpaySignature([]byte(tc.payload), tc.header, tc.secret)
+			if tc.ok {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestWooshpayUnitAmountFen(t *testing.T) {
+	cases := []struct {
+		name string
+		yuan string
+		want int64
+		err  string
+	}{
+		{"yuan become fen", "73", 7300, ""},
+		{"fractional fen round half away from zero", "8.005", 801, ""},
+		{"fractional fen round down", "8.004", 800, ""},
+		// A PaymentIntent amount has at most 8 digits.
+		{"largest WooshPay amount", "999999.99", 99_999_999, ""},
+		{"nine digits", "1000000", 0, "Payment amount is too high"},
+		{"nine digits after rounding", "999999.995", 0, "Payment amount is too high"},
+		{"rounds to zero", "0.004", 0, "Payment amount is too low"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := wooshpayFen(decimal.RequireFromString(tc.yuan))
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// The Checkout Session is created before the order, carries the amounts the
+// webhook later checks, and a gateway failure, a payment URL outside WooshPay
+// or a server address that cannot build return URLs leaves no dangling order.
+// The order stores the purchased units and the money actually charged.
+func TestRequestWooshpayPayCreatesSessionBeforeOrder(t *testing.T) {
+	var sessionBody map[string]any
+	var idempotencyKey, authorization string
+	fail := true
+	sessionURL := "https://checkouttest.wooshpay.com/cs_test_1"
+	gatewayCalls := 0
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		gatewayCalls++
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v1/checkout/sessions", r.URL.Path)
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.NoError(t, common.Unmarshal(raw, &sessionBody))
+		idempotencyKey, authorization = r.Header.Get("Idempotency-Key"), r.Header.Get("Authorization")
+		if fail {
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"amount_too_small","message":"no"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"id":"cs_test_1","url":%q,"status":"open","payment_intent":"pi_1"}`, sessionURL)))
+	})
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{2: 0.75}
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+
+	pay := func() map[string]any {
+		return postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":2,"payment_method":"wooshpay"}`, userID)
+	}
+	out := pay()
+	assert.Equal(t, "error", out["message"])
+	var count int64
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+	assert.Zero(t, count, "no order without a Checkout Session")
+
+	// The customer is only sent to a WooshPay page over HTTPS.
+	fail = false
+	for _, link := range []string{
+		"", "https://checkout.example.com/cs_test_1", "http://checkouttest.wooshpay.com/cs_test_1",
+		"https://wooshpay.com.example.com/cs_test_1", "https://evilwooshpay.com/cs_test_1", "javascript:alert(1)",
+	} {
+		sessionURL = link
+		out = pay()
+		assert.Equal(t, "error", out["message"], link)
+		assert.Equal(t, "Failed to start payment", out["data"], link)
+	}
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+	assert.Zero(t, count, "no order for a payment URL outside WooshPay")
+
+	// Without an absolute server address there is no page to return the
+	// customer to: the checkout is refused before WooshPay is called.
+	for _, address := range []string{"", "example.com", "/", "http://localhost:3000", "http://example.com"} {
+		system_setting.ServerAddress = address
+		calls := gatewayCalls
+		out = pay()
+		assert.Equal(t, "error", out["message"], address)
+		assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"], address)
+		assert.Equal(t, calls, gatewayCalls, "WooshPay is not called: %q", address)
+	}
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+	assert.Zero(t, count, "no order without return URLs")
+	system_setting.ServerAddress = "https://example.com/"
+
+	sessionURL = "https://checkouttest.wooshpay.com/cs_test_1"
+	out = pay()
+	require.Equal(t, "success", out["message"], out)
+	assert.Equal(t, map[string]any{"pay_link": "https://checkouttest.wooshpay.com/cs_test_1"}, out["data"])
+
+	tradeNo := sessionBody["client_reference_id"].(string)
+	assert.True(t, strings.HasPrefix(tradeNo, "wsp_"))
+	assert.Equal(t, tradeNo, idempotencyKey)
+	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("sk_live_wooshpay:")), authorization)
+	assert.NotContains(t, sessionBody, "expires_at", "WooshPay's 24h default applies; its timestamps are in milliseconds")
+	assert.Equal(t, "https://example.com/wallet?show_history=true", sessionBody["success_url"], "a paid customer lands on the top-up history")
+	assert.Equal(t, "https://example.com/wallet", sessionBody["cancel_url"])
+	lineItem := sessionBody["line_items"].([]any)[0].(map[string]any)
+	priceData := lineItem["price_data"].(map[string]any)
+	assert.Equal(t, "CNY", priceData["currency"])
+	assert.EqualValues(t, 1200, priceData["unit_amount"], "2 units × 8 CNY with the 0.75 preset discount, in fen")
+	metadata := map[string]any{
+		"new_api_trade_no": tradeNo, "new_api_amount_listed": "1600",
+		"new_api_amount_charged": "1200",
+	}
+	assert.Equal(t, metadata, sessionBody["metadata"])
+	intentData := sessionBody["payment_intent_data"].(map[string]any)
+	assert.Equal(t, metadata, intentData["metadata"])
+	assert.Equal(t, tradeNo, intentData["merchant_order_id"])
+
+	order := model.GetTopUpByTradeNo(tradeNo)
+	require.NotNil(t, order)
+	assert.Equal(t, common.TopUpStatusPending, order.Status)
+	assert.Equal(t, model.PaymentProviderWooshpay, order.PaymentProvider)
+	assert.Equal(t, int64(2), order.Amount)
+	assert.InDelta(t, 12.0, order.Money, 1e-9)
+
+	// Only the charged amount is bounded: 100 units at 160,000 CNY list at
+	// 1,600,000,000 fen, above WooshPay's 8-digit amount limit, but the 0.05
+	// preset discount charges 80,000,000 fen. The out-of-range listed amount
+	// is left out.
+	setting.WooshpayUnitPrice = 160_000
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{100: 0.05}
+	out = postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":100,"payment_method":"wooshpay"}`, userID)
+	require.Equal(t, "success", out["message"], out)
+	priceData = sessionBody["line_items"].([]any)[0].(map[string]any)["price_data"].(map[string]any)
+	assert.Equal(t, "CNY", priceData["currency"])
+	assert.EqualValues(t, 80_000_000, priceData["unit_amount"])
+	assert.NotContains(t, sessionBody["metadata"], "new_api_amount_listed")
+	assert.Equal(t, "80000000", sessionBody["metadata"].(map[string]any)["new_api_amount_charged"])
+
+	// Without the discount the charge itself has 10 digits: both the quote
+	// and the checkout refuse it before WooshPay is called.
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	var orders int64
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&orders).Error)
+	for _, handler := range []gin.HandlerFunc{RequestWooshpayAmount, RequestWooshpayPay} {
+		out = postJSON(t, handler, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":100,"payment_method":"wooshpay"}`, userID)
+		assert.Equal(t, "error", out["message"])
+		assert.Equal(t, "Payment amount is too high", out["data"])
+	}
+	var ordersAfter int64
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&ordersAfter).Error)
+	assert.Equal(t, orders, ordersAfter)
+
+	// The quote states the CNY amount with 2 decimals.
+	setting.WooshpayUnitPrice = 7.3
+	out = postJSON(t, RequestWooshpayAmount, http.MethodPost, "/api/user/wooshpay/amount", `{"amount":10}`, userID)
+	require.Equal(t, "success", out["message"], out)
+	assert.Equal(t, map[string]any{"amount": "73.00"}, out["data"])
+}
+
+// With the Tokens display the amount is entered in tokens. It is bounded and
+// priced by the whole units it buys, the top-up group ratio scales only the
+// price, and the order credits exactly the requested tokens.
+func TestWooshpayTokensDisplayOrderCreditsRequestedTokens(t *testing.T) {
+	oldTopupGroupRatio := common.TopupGroupRatio2JSONString()
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"vip":2}`))
+	t.Cleanup(func() { require.NoError(t, common.UpdateTopupGroupRatioByJSONString(oldTopupGroupRatio)) })
+	var sessionBody map[string]any
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/checkout/sessions" {
+			raw, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			require.NoError(t, common.Unmarshal(raw, &sessionBody))
+			_, _ = w.Write([]byte(`{"id":"cs_tokens","url":"https://checkout.wooshpay.com/cs_tokens","status":"open","payment_intent":"pi_tokens"}`))
+			return
+		}
+		tradeNo := sessionBody["client_reference_id"].(string)
+		intent := strings.ReplaceAll(wooshpayTestIntent("pi_tokens", tradeNo), "8000", "1600")
+		_, _ = w.Write([]byte(intent))
+	})
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1_000_000: 0.5}
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("group", "vip").Error)
+
+	assert.Error(t, checkWooshpayTopUpAmount(499_999), "below one unit of tokens")
+	assert.NoError(t, checkWooshpayTopUpAmount(setting.WooshpayMaxTopUpUnits*500_000))
+	assert.Error(t, checkWooshpayTopUpAmount((setting.WooshpayMaxTopUpUnits+1)*500_000), "the maximum applies to purchased units")
+	// Tokens buy whole units only; a remainder is refused rather than paid
+	// for and dropped.
+	const notWholeUnits = "With the Tokens display the top-up amount must be a multiple of 500000 tokens"
+	assert.EqualError(t, checkWooshpayTopUpAmount(1_250_000), notWholeUnits)
+	for _, handler := range []gin.HandlerFunc{RequestWooshpayAmount, RequestWooshpayPay} {
+		out := postJSON(t, handler, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":1250000,"payment_method":"wooshpay"}`, userID)
+		assert.Equal(t, "error", out["message"])
+		assert.Equal(t, notWholeUnits, out["data"])
+	}
+	var orders int64
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&orders).Error)
+	assert.Zero(t, orders)
+
+	_, payMoney := getWooshpayPayMoney(1_000_000, "vip", setting.WooshpayUnitPrice)
+	assert.Equal(t, "16", payMoney.String(), "2 units × 8 CNY × group ratio 2 × discount 0.5")
+	out := postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":1000000,"payment_method":"wooshpay"}`, userID)
+	require.Equal(t, "success", out["message"], out)
+
+	tradeNo := sessionBody["client_reference_id"].(string)
+	priceData := sessionBody["line_items"].([]any)[0].(map[string]any)["price_data"].(map[string]any)
+	assert.EqualValues(t, 1600, priceData["unit_amount"])
+	order := model.GetTopUpByTradeNo(tradeNo)
+	require.NotNil(t, order)
+	assert.Equal(t, int64(2), order.Amount, "the order stores purchased units")
+	assert.InDelta(t, 16.0, order.Money, 1e-9)
+
+	require.NoError(t, wooshpayFulfill(t.Context(), currentWooshpayAccount(), []byte(`{"id":"pi_tokens"}`), "127.0.0.1"))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tradeNo).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 1_000_000, quota, "credits the requested tokens, not scaled by the group ratio")
+	var topupLog model.Log
+	require.NoError(t, model.LOG_DB.Where("user_id = ? AND type = ?", userID, model.LogTypeTopup).First(&topupLog).Error)
+	assert.Contains(t, topupLog.Content, "16.00 CNY", "the log shows the amount actually charged")
+}
+
+func TestWooshpayFulfillRejectsMismatchedIntent(t *testing.T) {
+	const tradeNo, orphanTradeNo = "wsp_mismatch_order", "wsp_orphan_order"
+	intent := func(id string) string { return wooshpayTestIntent(id, tradeNo) }
+	// A definitive mismatch on a succeeded PaymentIntent, or one this site
+	// did not create, is acknowledged without crediting: redelivery cannot
+	// change it.
+	acknowledged := map[string]string{
+		"pi_other_order":  strings.Replace(intent("pi_other_order"), `"merchant_order_id":"`+tradeNo, `"merchant_order_id":"wsp_other`, 1),
+		"pi_underpaid":    strings.Replace(intent("pi_underpaid"), `"amount_received":8000`, `"amount_received":7999`, 1),
+		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"cny"`, `"currency":"usd"`, 1),
+		"pi_test_mode":    strings.Replace(intent("pi_test_mode"), `"livemode":true`, `"livemode":false`, 1),
+		"pi_no_metadata":  fmt.Sprintf(`{"id":"pi_no_metadata","status":"succeeded","amount_received":8000,"currency":"cny","livemode":true,"merchant_order_id":%q}`, tradeNo),
+		"pi_answers_else": intent("pi_someone_else"),
+		// The metadata and the received amount agree with each other but not
+		// with the order's Money of 80.00 CNY.
+		"pi_order_money": strings.ReplaceAll(intent("pi_order_money"), "8000", "7000"),
+		// The order's user is gone; the payment needs manual handling.
+		"pi_orphan": wooshpayTestIntent("pi_orphan", orphanTradeNo),
+	}
+	// A PaymentIntent that is not conclusively paid yet is redelivered.
+	retried := map[string]string{
+		"pi_processing":      strings.Replace(intent("pi_processing"), `"succeeded"`, `"processing"`, 1),
+		"pi_requires_action": strings.Replace(intent("pi_requires_action"), `"succeeded"`, `"requires_action"`, 1),
+		"pi_no_amount":       strings.Replace(intent("pi_no_amount"), `"amount":8000,"amount_received":8000,`, ``, 1),
+	}
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")
+		body, ok := acknowledged[id]
+		if !ok {
+			body, ok = retried[id]
+		}
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	insertWooshpayTestOrder(t, userID, tradeNo)
+	insertWooshpayTestOrder(t, userID+1000, orphanTradeNo)
+
+	fulfill := func(id string) error {
+		return wooshpayFulfill(t.Context(), currentWooshpayAccount(), []byte(`{"id":"`+id+`","status":"succeeded","metadata":{"new_api_trade_no":"`+tradeNo+`"}}`), "127.0.0.1")
+	}
+	for id := range acknowledged {
+		assert.NoError(t, fulfill(id), id)
+	}
+	for id := range retried {
+		assert.ErrorIs(t, fulfill(id), errWooshpayRetry, id)
+	}
+	assert.NoError(t, wooshpayFulfill(t.Context(), currentWooshpayAccount(), []byte(`{"id":"cs_not_an_intent"}`), "127.0.0.1"))
+	assert.ErrorIs(t, fulfill("pi_api_down"), errWooshpayRetry, "a failed re-query must be redelivered")
+
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(tradeNo).Status)
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(orphanTradeNo).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+}
+
+func TestWooshpayFulfillIsIdempotent(t *testing.T) {
+	const paid, expired, canceled = "wsp_paid_order", "wsp_expired_order", "wsp_canceled_order"
+	apiDown := false
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if apiDown {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/payment_intents/pi_paid":
+			_, _ = w.Write([]byte(wooshpayTestIntent("pi_paid", paid)))
+		case "/v1/payment_intents/pi_late":
+			_, _ = w.Write([]byte(wooshpayTestIntent("pi_late", expired)))
+		default:
+			t.Errorf("unexpected WooshPay API call %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	for _, tradeNo := range []string{paid, expired, canceled} {
+		insertWooshpayTestOrder(t, userID, tradeNo)
+	}
+	// Surrounding whitespace in the stored secret is not part of the key.
+	setting.WooshpayWebhookSecret = " " + wooshpayTestWebhookSecret + "\n"
+	deliverWithContext := func(requestCtx context.Context, eventType string, object string) int {
+		payload := `{"id":"evt_1","type":"` + eventType + `","livemode":true,"data":{"object":` + object + `}}`
+		return postWooshpayTestWebhook(t, requestCtx, payload, signWooshpayTestPayload("1767225600123", payload))
+	}
+	deliver := func(eventType string, object string) int {
+		return deliverWithContext(t.Context(), eventType, object)
+	}
+	userQuota := func() int {
+		quota, err := model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+		return quota
+	}
+	succeeded := `{"id":"pi_paid","object":"payment_intent"}`
+
+	apiDown = true
+	assert.Equal(t, http.StatusInternalServerError, deliver("payment_intent.succeeded", succeeded))
+	apiDown = false
+	assert.Equal(t, http.StatusBadRequest, postWooshpayTestWebhook(t, t.Context(), `{"type":"payment_intent.succeeded"}`, "t=1,v1=00"))
+
+	// WooshPay hanging up must not abort the re-query and the crediting.
+	disconnected, disconnect := context.WithCancel(t.Context())
+	disconnect()
+	assert.Equal(t, http.StatusOK, deliverWithContext(disconnected, "payment_intent.succeeded", succeeded))
+	assert.Equal(t, http.StatusOK, deliver("payment_intent.succeeded", succeeded))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(paid).Status)
+	assert.Equal(t, 5_000_000, userQuota(), "credited once: Amount 10 × QuotaPerUnit")
+
+	// Only the session expiry closes an order; a canceled or failed
+	// PaymentIntent leaves it pending.
+	assert.Equal(t, http.StatusOK, deliver("checkout.session.expired", `{"id":"cs_1","object":"checkout.session","metadata":{"new_api_trade_no":"`+expired+`"}}`))
+	assert.Equal(t, http.StatusOK, deliver("payment_intent.canceled", `{"id":"pi_c","metadata":{"new_api_trade_no":"`+canceled+`"}}`))
+	assert.Equal(t, http.StatusOK, deliver("payment_intent.payment_failed", `{"id":"pi_x","metadata":{"new_api_trade_no":"`+canceled+`"}}`))
+	assert.Equal(t, http.StatusOK, deliver("checkout.session.expired", `{"id":"cs_2","object":"checkout.session","metadata":{"new_api_trade_no":"`+paid+`"}}`))
+	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(expired).Status)
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(canceled).Status)
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(paid).Status)
+
+	// A verified payment that arrives after the session expired is still
+	// credited, once.
+	for range 2 {
+		assert.Equal(t, http.StatusOK, deliver("payment_intent.succeeded", `{"id":"pi_late","object":"payment_intent"}`))
+	}
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(expired).Status)
+	assert.Equal(t, 10_000_000, userQuota())
+}
+
+// Settings that would produce wrong checkout amounts, send the secret key
+// over plain HTTP, or pair a secret key with the other environment's API base
+// are refused when saved.
+func TestWooshpayOptionsRejectInvalidValues(t *testing.T) {
+	setupWooshpayControllerTest(t)
+	enabled, secretKey, webhookSecret, apiBase := setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase
+	unitPrice, minTopUp := setting.WooshpayUnitPrice, setting.WooshpayMinTopUp
+	common.OptionMapRWMutex.Lock()
+	optionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	common.OptionMapRWMutex.Unlock()
+	serverAddress := system_setting.ServerAddress
+	t.Cleanup(func() {
+		system_setting.ServerAddress = serverAddress
+		setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayWebhookSecret, setting.WooshpayApiBase = enabled, secretKey, webhookSecret, apiBase
+		setting.WooshpayUnitPrice, setting.WooshpayMinTopUp = unitPrice, minTopUp
+		common.OptionMap = optionMap
+	})
+	setting.WooshpayEnabled = false
+	setting.WooshpaySecretKey = ""
+	setting.WooshpayWebhookSecret = ""
+	setting.WooshpayApiBase = "https://api.wooshpay.com"
+	setting.WooshpayUnitPrice = 7.3
+
+	rejected := map[string][]string{
+		"WooshpayUnitPrice": {"", "0", "-1", "NaN", "Inf", "abc"},
+		"WooshpayMinTopUp":  {"", "0", "-1", "1.5", "10001"},
+		"WooshpayApiBase": {"", "http://api.wooshpay.com", "api.wooshpay.com", "https://api.wooshpay.com/v1",
+			"https://api.wooshpay.com?x=1", "https://user@api.wooshpay.com", "https://api.wooshpay.com#x", "https://"},
+		"WooshpayEnabled": {"", "yes", "1"},
+	}
+	for key, values := range rejected {
+		for _, value := range values {
+			assert.Error(t, model.UpdateOption(key, value), "%s=%q", key, value)
+		}
+	}
+	assert.Equal(t, 7.3, setting.WooshpayUnitPrice, "a refused value does not reach the setting")
+
+	accepted := map[string]string{
+		"WooshpayUnitPrice": "7.5", "WooshpayMinTopUp": "10000",
+		"WooshpayApiBase": "https://apitest.wooshpay.com/",
+	}
+	for key, value := range accepted {
+		require.NoError(t, model.UpdateOption(key, value), "%s=%q", key, value)
+	}
+	assert.Equal(t, 7.5, setting.WooshpayUnitPrice)
+	assert.Equal(t, 10000, setting.WooshpayMinTopUp)
+	assert.Equal(t, "https://apitest.wooshpay.com", setting.WooshpayApiBase, "a trailing slash is dropped when saved")
+
+	assert.Error(t, model.UpdateOption("WooshpayEnabled", "true"), "WooshPay cannot be switched on without its keys")
+	assert.False(t, setting.WooshpayEnabled)
+	require.NoError(t, model.UpdateOption("WooshpayWebhookSecret", " whsec_saved\n"))
+	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)
+
+	// The key and the API base are saved separately, so each is checked
+	// against the stored other one.
+	assert.Error(t, model.UpdateOption("WooshpaySecretKey", "sk_live_x"), "a live key against the test API base")
+	require.NoError(t, model.UpdateOption("WooshpaySecretKey", "sk_test_x"))
+	assert.Error(t, model.UpdateOption("WooshpayApiBase", "https://api.wooshpay.com"), "the live API base against a test key")
+	assert.Equal(t, "https://apitest.wooshpay.com", setting.WooshpayApiBase)
+
+	// The admin page saves every changed WooshPay setting in one request,
+	// validated as a whole: a refused combination writes nothing.
+	adminID := createWooshpayTestUser(t, 0, common.RoleRootUser)
+	save := func(body string) map[string]any {
+		return postJSON(t, UpdateWooshpayEnvironment, http.MethodPut, "/api/option/wooshpay/environment", body, adminID)
+	}
+	storedMinTopUp := func() string {
+		var option model.Option
+		require.NoError(t, model.DB.Where(&model.Option{Key: "WooshpayMinTopUp"}).First(&option).Error)
+		return option.Value
+	}
+	out := save(`{"secret_key":"sk_live_x","api_base":"https://apitest.wooshpay.com","min_topup":5,"unit_price":9}`)
+	assert.Equal(t, false, out["success"], "a live key with the test API base is still refused together")
+	out = save(`{"min_topup":5,"unit_price":0}`)
+	assert.Equal(t, false, out["success"], "a refused unit price")
+	out = save(`{"min_topup":5,"api_base":"https://api.wooshpay.com/v1"}`)
+	assert.Equal(t, false, out["success"], "an API base with a path")
+	assert.Equal(t, 10000, setting.WooshpayMinTopUp, "a refused save changes none of its settings")
+	assert.Equal(t, "10000", storedMinTopUp())
+	assert.Equal(t, 7.5, setting.WooshpayUnitPrice)
+	assert.Equal(t, "sk_test_x", setting.WooshpaySecretKey)
+
+	// Checkouts return the customer under the server address, so WooshPay
+	// cannot be switched on while it is not an absolute http(s) URL.
+	const liveSave = `{"secret_key":" sk_live_x ","webhook_secret":"","api_base":"https://api.wooshpay.com/","unit_price":9.5,"min_topup":2,"enabled":true}`
+	// Customers must be able to reach it: not this machine, and over https
+	// with a live key.
+	const notAbsolute = "WooshPay can only be enabled once the server address in system settings is an absolute http(s) URL"
+	const localhost = "WooshPay cannot return customers to a localhost server address; set the public address of this site in system settings"
+	const liveHTTPS = "WooshPay live secret keys (sk_live_) need an https:// server address in system settings"
+	refusedAddresses := map[string]string{
+		"": notAbsolute, "example.com": notAbsolute, "ftp://example.com": notAbsolute,
+		"http://localhost:3000": localhost, "https://127.0.0.1": localhost, "http://[::1]": localhost, "http://0.0.0.0": localhost,
+		"http://example.com": liveHTTPS,
+	}
+	for address, message := range refusedAddresses {
+		system_setting.ServerAddress = address
+		out = save(liveSave)
+		assert.Equal(t, false, out["success"], "server address %q", address)
+		assert.Equal(t, message, out["message"], address)
+		assert.False(t, setting.WooshpayEnabled)
+	}
+	system_setting.ServerAddress = "https://example.com/"
+
+	// Moving to the live environment, with a new price, is one save; blank
+	// secrets keep their values.
+	out = save(liveSave)
+	require.Equal(t, true, out["success"], out)
+	assert.Equal(t, "sk_live_x", setting.WooshpaySecretKey)
+	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)
+	assert.Equal(t, "https://api.wooshpay.com", setting.WooshpayApiBase)
+	assert.Equal(t, 9.5, setting.WooshpayUnitPrice)
+	assert.Equal(t, 2, setting.WooshpayMinTopUp)
+	assert.Equal(t, "2", storedMinTopUp())
+	assert.True(t, setting.WooshpayEnabled)
+	assert.True(t, setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase))
+
+	// Saving the server address alone is not checked: an address customers
+	// cannot return to only stops new WooshPay top-ups, and the admin page
+	// names the reason. WooshPay settings saved meanwhile are still refused.
+	confirmPaymentComplianceForTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.PasskeyCredential{}))
+	require.NoError(t, model.UpdateOption("ServerAddress", "http://localhost:3000"))
+	assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
+	assert.True(t, setting.WooshpayEnabled)
+	assert.Equal(t, "invalid_server_address", wooshpayUnavailableReason())
+	err := model.UpdateOption("WooshpayWebhookSecret", "whsec_saved")
+	require.Error(t, err)
+	assert.Equal(t, localhost, err.Error())
+	// Also when the bundle carries a passkey-domain setting, which hands the
+	// whole bundle to the passkey save.
+	err = model.UpdateOptionsBulk(map[string]string{"passkey.origins": "https://pay.example.com", "WooshpayWebhookSecret": "whsec_rotated"})
+	require.Error(t, err)
+	assert.Equal(t, localhost, err.Error())
+	assert.Equal(t, "whsec_saved", setting.WooshpayWebhookSecret)
+	require.NoError(t, model.UpdateOption("ServerAddress", "https://pay.example.com"))
+	assert.Empty(t, wooshpayUnavailableReason())
+	require.NoError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayMinTopUp": "3", "WooshpayEnabled": "true"}))
+	require.NoError(t, model.UpdateOption("WooshpayMinTopUp", "2"))
+	assert.Equal(t, 2, setting.WooshpayMinTopUp)
+
+	// The audit log names the changed settings, never their values.
+	var audit model.AuditLog
+	require.NoError(t, model.DB.Where("action = ? AND success = ?", "option.update", true).Order("id desc").First(&audit).Error)
+	assert.Equal(t, "Updated system setting WooshpayApiBase, WooshpayEnabled, WooshpayMinTopUp, WooshpaySecretKey, WooshpayUnitPrice", audit.Content)
+	assert.NotContains(t, audit.Content, "sk_live_x")
+
+	out = save(`{}`)
+	assert.Equal(t, false, out["success"], "a save without settings")
+
+	require.Equal(t, true, save(`{"enabled":false}`)["success"])
+
+	// A mismatched stored pair (saved before the cross-check existed, or by
+	// another node) cannot block switching WooshPay off, alone or with other
+	// settings; a save that touches the key or the API base is still checked.
+	setting.WooshpayEnabled, setting.WooshpaySecretKey, setting.WooshpayApiBase = true, "sk_live_x", "https://apitest.wooshpay.com"
+	const keyBase = "WooshPay test secret keys (sk_test_) need the API base https://apitest.wooshpay.com, and live secret keys (sk_live_) need https://api.wooshpay.com"
+	out = save(`{"enabled":false,"api_base":"https://apitest.wooshpay.com"}`)
+	assert.Equal(t, keyBase, out["message"])
+	assert.True(t, setting.WooshpayEnabled)
+	out = save(`{"enabled":false,"min_topup":4}`)
+	require.Equal(t, true, out["success"], out)
+	assert.False(t, setting.WooshpayEnabled)
+	assert.Equal(t, 4, setting.WooshpayMinTopUp)
+	setting.WooshpayEnabled = true
+	require.NoError(t, model.UpdateOption("WooshpayEnabled", "false"))
+	assert.False(t, setting.WooshpayEnabled)
+}
+
+// The settings a request works with are read once: a change saved while a
+// checkout is being created or a payment re-queried does not mix the old and
+// the new values.
+func TestWooshpayRequestsUseOneSettingsSnapshot(t *testing.T) {
+	var sessionBody map[string]any
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		// An administrator switches to the test environment and doubles the
+		// price while WooshPay answers.
+		setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+		setting.WooshpayUnitPrice = 16
+		if r.URL.Path == "/v1/checkout/sessions" {
+			raw, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			require.NoError(t, common.Unmarshal(raw, &sessionBody))
+			_, _ = w.Write([]byte(`{"id":"cs_snapshot","url":"https://checkout.wooshpay.com/cs_snapshot","status":"open","payment_intent":"pi_snapshot"}`))
+			return
+		}
+		tradeNo := sessionBody["client_reference_id"].(string)
+		_, _ = w.Write([]byte(strings.ReplaceAll(wooshpayTestIntent("pi_snapshot", tradeNo), "8000", "1600")))
+	})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+
+	out := postJSON(t, RequestWooshpayPay, http.MethodPost, "/api/user/wooshpay/pay", `{"amount":2,"payment_method":"wooshpay"}`, userID)
+	require.Equal(t, "success", out["message"], out)
+	tradeNo := sessionBody["client_reference_id"].(string)
+	assert.Equal(t, 16.0, model.GetTopUpByTradeNo(tradeNo).Money, "2 units at the unit price 8 read before the checkout")
+
+	// The webhook's live key was the one checked at the start, so the live
+	// payment matches it although the key changed during the re-query.
+	setting.WooshpaySecretKey, setting.WooshpayApiBase, setting.WooshpayUnitPrice = "sk_live_wooshpay", "https://api.wooshpay.com", 8
+	payload := `{"id":"evt_snapshot","type":"payment_intent.succeeded","livemode":true,"data":{"object":{"id":"pi_snapshot"}}}`
+	assert.Equal(t, http.StatusOK, postWooshpayTestWebhook(t, t.Context(), payload, signWooshpayTestPayload("1767225600123", payload)))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tradeNo).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 1_000_000, quota)
+}
+
+// A succeeded PaymentIntent without amount_received was captured
+// automatically, so its amount was received; one without livemode is in the
+// mode of the key.
+func TestWooshpayFulfillFallsBackForMissingFields(t *testing.T) {
+	const noReceived, noLivemode = "wsp_no_received", "wsp_no_livemode"
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/payment_intents/pi_no_received":
+			_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent("pi_no_received", noReceived), `"amount_received":8000,`, ``, 1)))
+		case "/v1/payment_intents/pi_no_livemode":
+			_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent("pi_no_livemode", noLivemode), `"livemode":true,`, ``, 1)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	insertWooshpayTestOrder(t, userID, noReceived)
+	insertWooshpayTestOrder(t, userID, noLivemode)
+
+	for id, tradeNo := range map[string]string{"pi_no_received": noReceived, "pi_no_livemode": noLivemode} {
+		require.NoError(t, wooshpayFulfill(t.Context(), currentWooshpayAccount(), []byte(`{"id":"`+id+`"}`), "127.0.0.1"), id)
+		assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tradeNo).Status, id)
+	}
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 10_000_000, quota)
+}
+
+// A database failure while crediting is temporary: WooshPay is asked to
+// redeliver, and the redelivery credits the order once.
+func TestWooshpayWebhookRetriesTransientDatabaseError(t *testing.T) {
+	const tradeNo = "wsp_transient_db"
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(wooshpayTestIntent("pi_transient", tradeNo)))
+	})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	insertWooshpayTestOrder(t, userID, tradeNo)
+	failing := true
+	const callback = "wooshpay_test:transient_failure"
+	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register(callback, func(db *gorm.DB) {
+		if failing {
+			_ = db.AddError(errors.New("database is temporarily unavailable"))
+		}
+	}))
+	t.Cleanup(func() { _ = model.DB.Callback().Update().Remove(callback) })
+
+	payload := `{"id":"evt_transient","type":"payment_intent.succeeded","livemode":true,"data":{"object":{"id":"pi_transient"}}}`
+	signature := signWooshpayTestPayload("1767225600123", payload)
+	assert.Equal(t, http.StatusInternalServerError, postWooshpayTestWebhook(t, t.Context(), payload, signature))
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(tradeNo).Status)
+
+	failing = false
+	assert.Equal(t, http.StatusOK, postWooshpayTestWebhook(t, t.Context(), payload, signature))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(tradeNo).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5_000_000, quota)
+}
+
+// The wallet prices the preset cards with what this user pays: the unit
+// price in CNY scaled by the user's top-up group ratio.
+// Listing WooshPay must not write into the configured PayMethods.
+func TestWooshpayTopUpInfoPricesForTheUser(t *testing.T) {
+	oldTopupGroupRatio := common.TopupGroupRatio2JSONString()
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"vip":2}`))
+	t.Cleanup(func() { require.NoError(t, common.UpdateTopupGroupRatioByJSONString(oldTopupGroupRatio)) })
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	oldMethods := operation_setting.PayMethods
+	t.Cleanup(func() { operation_setting.PayMethods = oldMethods })
+	// Spare capacity lets an append write into the configured array.
+	operation_setting.PayMethods = append(make([]map[string]string, 0, 4), map[string]string{"name": "Alipay", "type": "alipay"})
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("group", "vip").Error)
+
+	out := postJSON(t, GetTopUpInfo, http.MethodGet, "/api/user/topup/info", "", userID)
+	require.Equal(t, true, out["success"], out)
+	data := out["data"].(map[string]any)
+	assert.Equal(t, true, data["enable_wooshpay_topup"])
+	assert.Equal(t, 16.0, data["wooshpay_unit_price"], "8 per unit × group ratio 2")
+	methods := data["pay_methods"].([]any)
+	require.Len(t, methods, 2)
+	assert.Equal(t, "wooshpay", methods[1].(map[string]any)["type"])
+	assert.Len(t, operation_setting.PayMethods, 1)
+	assert.Nil(t, operation_setting.PayMethods[:2][1], "the configured PayMethods array is left untouched")
+}
+
+// An administrator can complete an expired or failed WooshPay order only with
+// the ID of a PaymentIntent that, re-queried with the configured key,
+// succeeded and paid exactly this order. It is completed once.
+func TestAdminCompleteWooshpayOrderRequiresPaymentProof(t *testing.T) {
+	const closed, pending, other = "wsp_admin_closed", "wsp_admin_pending", "wsp_admin_other"
+	intent := func(id string) string { return wooshpayTestIntent(id, closed) }
+	intents := map[string]string{
+		"pi_closed":       intent("pi_closed"),
+		"pi_processing":   strings.Replace(intent("pi_processing"), `"succeeded"`, `"processing"`, 1),
+		"pi_other_order":  wooshpayTestIntent("pi_other_order", other),
+		"pi_test_mode":    strings.Replace(intent("pi_test_mode"), `"livemode":true`, `"livemode":false`, 1),
+		"pi_wrong_amount": strings.ReplaceAll(intent("pi_wrong_amount"), "8000", "7999"),
+		"pi_currency":     strings.Replace(intent("pi_currency"), `"currency":"cny"`, `"currency":"usd"`, 1),
+		"pi_merchant":     strings.Replace(intent("pi_merchant"), `"merchant_order_id":"`+closed, `"merchant_order_id":"wsp_x`, 1),
+		// The intent agrees with its own metadata but not with the order's
+		// Money of 80.00 CNY.
+		"pi_order_money": strings.ReplaceAll(intent("pi_order_money"), "8000", "7000"),
+		"pi_pending":     wooshpayTestIntent("pi_pending", pending),
+	}
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body, ok := intents[strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	})
+	adminID := createWooshpayTestUser(t, 0, common.RoleRootUser)
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	for _, tradeNo := range []string{closed, pending, other} {
+		insertWooshpayTestOrder(t, userID, tradeNo)
+	}
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no = ?", closed).Update("status", common.TopUpStatusExpired).Error)
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no = ?", other).Update("status", common.TopUpStatusFailed).Error)
+	complete := func(body string) map[string]any {
+		return postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", body, adminID)
+	}
+	userQuota := func() int {
+		quota, err := model.GetUserQuota(userID, true)
+		require.NoError(t, err)
+		return quota
+	}
+
+	// A WooshPay order in any status is only completed with a PaymentIntent.
+	// Each refusal names its cause in a message the web console translates,
+	// never a raw field name.
+	const needsIntent = "A WooshPay order can only be completed with the ID of its succeeded PaymentIntent"
+	refused := map[string]string{
+		`{"trade_no":"` + closed + `"}`:                                       needsIntent,
+		`{"trade_no":"` + other + `"}`:                                        needsIntent,
+		`{"trade_no":"` + pending + `"}`:                                      needsIntent,
+		`{"trade_no":"` + pending + `","payment_intent_id":""}`:               needsIntent,
+		`{"trade_no":"` + closed + `","payment_intent_id":"cs_closed"}`:       "Enter the ID of the WooshPay PaymentIntent, which starts with pi_",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_unknown"}`:      "Failed to query the WooshPay PaymentIntent",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_processing"}`:   "The WooshPay PaymentIntent has not succeeded",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_other_order"}`:  "The WooshPay PaymentIntent belongs to another order",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_merchant"}`:     "The WooshPay PaymentIntent belongs to another order",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_test_mode"}`:    "The WooshPay PaymentIntent is not in the mode of the configured secret key",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_wrong_amount"}`: "The amount the WooshPay PaymentIntent received does not match this order",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_currency"}`:     "The WooshPay PaymentIntent was not charged in CNY",
+		`{"trade_no":"` + closed + `","payment_intent_id":"pi_order_money"}`:  "The amount the WooshPay PaymentIntent received does not match this order",
+	}
+	for body, message := range refused {
+		out := complete(body)
+		assert.Equal(t, false, out["success"], body)
+		assert.Equal(t, message, out["message"], body)
+	}
+	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(closed).Status)
+	assert.Equal(t, common.TopUpStatusFailed, model.GetTopUpByTradeNo(other).Status)
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(pending).Status)
+	assert.Zero(t, userQuota())
+
+	for range 2 {
+		out := complete(`{"trade_no":"` + closed + `","payment_intent_id":" pi_closed "}`)
+		require.Equal(t, true, out["success"], out)
+	}
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(closed).Status)
+	assert.Equal(t, 5_000_000, userQuota(), "completed once")
+	// The top-up log records the completion as an administrator's.
+	var topupLogs []model.Log
+	require.NoError(t, model.LOG_DB.Where("user_id = ? AND type = ?", userID, model.LogTypeTopup).Find(&topupLogs).Error)
+	require.Len(t, topupLogs, 1)
+	assert.Contains(t, topupLogs[0].Content, "Administrator completed the order")
+	assert.Contains(t, topupLogs[0].Content, "80.00 CNY")
+	assert.Contains(t, topupLogs[0].Other, `"callback_payment_method":"admin"`)
+
+	// A pending order is completed with its PaymentIntent too.
+	out := complete(`{"trade_no":"` + pending + `","payment_intent_id":"pi_pending"}`)
+	require.Equal(t, true, out["success"], out)
+	assert.Equal(t, 10_000_000, userQuota())
+}
+
+// requestWooshpayAs calls handler as userID with role and decodes the JSON
+// response body.
+func requestWooshpayAs(t *testing.T, handler gin.HandlerFunc, body string, userID int, role int) map[string]any {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/user/wooshpay", strings.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("id", userID)
+	ctx.Set("role", role)
+	handler(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var out map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &out))
+	return out
+}
+
+// captureWooshpayErrorLog collects the warning and error log lines written
+// while the test runs.
+func captureWooshpayErrorLog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var logs strings.Builder
+	common.LogWriterMu.Lock()
+	previous := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logs
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previous
+		common.LogWriterMu.Unlock()
+	})
+	return &logs
+}
+
+// A test key moves no real money but credits real quota, so only
+// administrators may quote, start or even see WooshPay top-ups with it. The
+// admin page learns the mode from a derived flag, never from the key.
+func TestWooshpayTestModeIsAdminOnly(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"cs_test_admin","url":"https://checkouttest.wooshpay.com/cs_test_admin","status":"open","payment_intent":"pi_test_admin"}`))
+	})
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+	oldMethods := operation_setting.PayMethods
+	t.Cleanup(func() { operation_setting.PayMethods = oldMethods })
+	operation_setting.PayMethods = []map[string]string{{"name": "WooshPay", "type": "wooshpay"}}
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	adminID := createWooshpayTestUser(t, 0, common.RoleAdminUser)
+	const testMode = "WooshPay is in test mode; only administrators can place test orders"
+
+	for _, handler := range []gin.HandlerFunc{RequestWooshpayAmount, RequestWooshpayPay} {
+		out := requestWooshpayAs(t, handler, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+		assert.Equal(t, "error", out["message"])
+		assert.Equal(t, testMode, out["data"])
+	}
+	var orders int64
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&orders).Error)
+	assert.Zero(t, orders)
+	info := requestWooshpayAs(t, GetTopUpInfo, "", userID, common.RoleCommonUser)["data"].(map[string]any)
+	assert.Equal(t, false, info["enable_wooshpay_topup"])
+	assert.Empty(t, info["pay_methods"], "the configured wooshpay entry is hidden too")
+
+	out := requestWooshpayAs(t, RequestWooshpayAmount, `{"amount":2}`, adminID, common.RoleAdminUser)
+	require.Equal(t, "success", out["message"], out)
+	out = requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, adminID, common.RoleAdminUser)
+	require.Equal(t, "success", out["message"], out)
+	info = requestWooshpayAs(t, GetTopUpInfo, "", adminID, common.RoleAdminUser)["data"].(map[string]any)
+	assert.Equal(t, true, info["enable_wooshpay_topup"])
+	assert.Len(t, info["pay_methods"], 1)
+
+	// A live key serves everyone.
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_live_wooshpay", "https://api.wooshpay.com"
+	out = requestWooshpayAs(t, RequestWooshpayAmount, `{"amount":2}`, userID, common.RoleCommonUser)
+	assert.Equal(t, "success", out["message"], out)
+
+	common.OptionMapRWMutex.Lock()
+	optionMap := common.OptionMap
+	// A stored WooshpayTestMode row is never echoed: only the derived value is.
+	common.OptionMap = map[string]string{"WooshpaySecretKey": "sk_test_secret_value", "WooshpayTestMode": "false"}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() { common.OptionMap = optionMap })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/option/", nil)
+	GetOptions(ctx)
+	assert.Contains(t, recorder.Body.String(), `{"key":"WooshpayTestMode","value":"true"}`)
+	assert.NotContains(t, recorder.Body.String(), `{"key":"WooshpayTestMode","value":"false"}`)
+	assert.NotContains(t, recorder.Body.String(), "sk_test_secret_value")
+
+	// The derived flag cannot be written through any option save.
+	const readOnly = "WooshPay status is derived from its settings and is read-only"
+	assert.EqualError(t, model.UpdateOption("WooshpayTestMode", "false"), readOnly)
+	assert.EqualError(t, model.UpdateOptionsBulk(map[string]string{"WooshpayTestMode": "false"}), readOnly)
+	out = postJSON(t, UpdateOption, http.MethodPut, "/api/option/", `{"key":"WooshpayTestMode","value":false}`, adminID)
+	assert.Equal(t, false, out["success"])
+	assert.Equal(t, readOnly, out["message"])
+	var stored int64
+	require.NoError(t, model.DB.Model(&model.Option{}).Where(&model.Option{Key: "WooshpayTestMode"}).Count(&stored).Error)
+	assert.Zero(t, stored)
+}
+
+// Where WooshPay is not available to the user, its pay method is removed
+// even when PayMethods lists it, and the quote is refused like the checkout.
+// A failure to read the user's group hides WooshPay instead of failing the
+// whole top-up info.
+func TestWooshpayTopUpInfoHidesUnavailableWooshpay(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	oldMethods := operation_setting.PayMethods
+	t.Cleanup(func() { operation_setting.PayMethods = oldMethods })
+	operation_setting.PayMethods = []map[string]string{{"name": "Alipay", "type": "alipay"}, {"name": "WooshPay", "type": "wooshpay"}}
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	methodTypes := func(info map[string]any) []string {
+		var types []string
+		for _, method := range info["pay_methods"].([]any) {
+			types = append(types, method.(map[string]any)["type"].(string))
+		}
+		return types
+	}
+
+	info := requestWooshpayAs(t, GetTopUpInfo, "", userID, common.RoleCommonUser)["data"].(map[string]any)
+	assert.Equal(t, []string{"alipay", "wooshpay"}, methodTypes(info), "a configured entry is not listed twice")
+
+	setting.WooshpayEnabled = false
+	info = requestWooshpayAs(t, GetTopUpInfo, "", userID, common.RoleCommonUser)["data"].(map[string]any)
+	assert.Equal(t, false, info["enable_wooshpay_topup"])
+	assert.Equal(t, []string{"alipay"}, methodTypes(info))
+	out := requestWooshpayAs(t, RequestWooshpayAmount, `{"amount":2}`, userID, common.RoleCommonUser)
+	assert.Equal(t, "WooshPay payment is not enabled", out["data"])
+	setting.WooshpayEnabled = true
+
+	const callback = "wooshpay_test:group_failure"
+	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register(callback, func(db *gorm.DB) {
+		_ = db.AddError(errors.New("database is temporarily unavailable"))
+	}))
+	t.Cleanup(func() { _ = model.DB.Callback().Query().Remove(callback) })
+	logs := captureWooshpayErrorLog(t)
+	out = requestWooshpayAs(t, GetTopUpInfo, "", userID, common.RoleCommonUser)
+	require.Equal(t, true, out["success"], out)
+	info = out["data"].(map[string]any)
+	assert.Equal(t, false, info["enable_wooshpay_topup"])
+	assert.Equal(t, []string{"alipay"}, methodTypes(info))
+	assert.Contains(t, logs.String(), "WooshPay hidden from the top-up info")
+}
+
+// Rejected webhooks carry alert=wooshpay_webhook_rejected, untranslated and in
+// the same place in the English and the Chinese log, and log at most 256
+// bytes of the path without its query.
+func TestWooshpayRejectedWebhookLogsAlertMarker(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	t.Cleanup(func() { common.SetLogLanguage("") })
+	longPath := "/api/wooshpay/webhook/" + strings.Repeat("a", 400)
+	post := func(path string) int {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, path+"?token=secret", strings.NewReader(`{}`))
+		ctx.Request.Header.Set("Wooshpay-Signature", "t=1,v1=00")
+		WooshpayWebhook(ctx)
+		return recorder.Code
+	}
+	cases := []struct {
+		language string
+		disabled string
+		badSig   string
+	}{
+		{"en", "WooshPay webhook rejected alert=wooshpay_webhook_rejected reason=webhook_disabled path=", "WooshPay webhook signature verification failed alert=wooshpay_webhook_rejected client_ip="},
+		{"zh-CN", "WooshPay Webhook 被拒绝 alert=wooshpay_webhook_rejected reason=webhook_disabled path=", "WooshPay Webhook 验签失败 alert=wooshpay_webhook_rejected client_ip="},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			common.SetLogLanguage(tc.language)
+			logs := captureWooshpayErrorLog(t)
+			assert.Equal(t, http.StatusBadRequest, post("/api/wooshpay/webhook"))
+			assert.Contains(t, logs.String(), tc.badSig)
+
+			setting.WooshpayWebhookSecret = ""
+			t.Cleanup(func() { setting.WooshpayWebhookSecret = wooshpayTestWebhookSecret })
+			assert.Equal(t, http.StatusForbidden, post(longPath))
+			assert.Contains(t, logs.String(), tc.disabled+`"`+longPath[:256]+`"`)
+			assert.NotContains(t, logs.String(), longPath[:257])
+			assert.NotContains(t, logs.String(), "token=secret")
+		})
+	}
+}
+
+// On a site that has not switched WooshPay on, a checkout is refused as not
+// enabled, and the server address is not reported as an error.
+func TestRequestWooshpayPayOnDisabledSiteLogsNoAddressError(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	system_setting.ServerAddress = "http://localhost:3000"
+	logs := captureWooshpayErrorLog(t)
+	for _, disable := range []func(){
+		func() { setting.WooshpayEnabled = false },
+		func() { setting.WooshpayEnabled, setting.WooshpayWebhookSecret = true, "" },
+	} {
+		disable()
+		out := requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+		assert.Equal(t, "WooshPay payment is not enabled", out["data"])
+	}
+	assert.NotContains(t, logs.String(), "return URL cannot be built")
+}
+
+// A test payment moves no real money, so it credits only an administrator's
+// order, whether the webhook or an administrator completes it. One for anyone
+// else's order (the key was switched to a test key after the order was
+// created) is acknowledged by the webhook without crediting under its own
+// alert, and refused to an administrator with a message the web console
+// translates.
+func TestWooshpayTestPaymentCreditsOnlyAdministratorOrders(t *testing.T) {
+	const userOrder, adminOrder = "wsp_test_user_order", "wsp_test_admin_order"
+	const userClosed, adminClosed = "wsp_test_user_closed", "wsp_test_admin_closed"
+	intentOrders := map[string]string{"pi_user": userOrder, "pi_admin": adminOrder, "pi_user_closed": userClosed, "pi_admin_closed": adminClosed}
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/")
+		_, _ = w.Write([]byte(strings.Replace(wooshpayTestIntent(id, intentOrders[id]), `"livemode":true`, `"livemode":false`, 1)))
+	})
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	adminID := createWooshpayTestUser(t, 0, common.RoleAdminUser)
+	insertWooshpayTestOrder(t, userID, userOrder)
+	insertWooshpayTestOrder(t, adminID, adminOrder)
+	insertWooshpayTestOrder(t, userID, userClosed)
+	insertWooshpayTestOrder(t, adminID, adminClosed)
+	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no IN ?", []string{userClosed, adminClosed}).Update("status", common.TopUpStatusExpired).Error)
+	completeByAdmin := func(tradeNo string, intentID string) map[string]any {
+		return postJSON(t, AdminCompleteTopUp, http.MethodPost, "/api/user/topup/complete", `{"trade_no":"`+tradeNo+`","payment_intent_id":"`+intentID+`"}`, adminID)
+	}
+
+	out := completeByAdmin(userClosed, "pi_user_closed")
+	assert.Equal(t, false, out["success"])
+	assert.Equal(t, "This is a WooshPay test payment and cannot credit a non-administrator account; adjust the user's quota directly if needed", out["message"])
+	assert.Equal(t, common.TopUpStatusExpired, model.GetTopUpByTradeNo(userClosed).Status)
+	quota, err := model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+
+	out = completeByAdmin(adminClosed, "pi_admin_closed")
+	require.Equal(t, true, out["success"], out)
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminClosed).Status)
+	quota, err = model.GetUserQuota(adminID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5_000_000, quota)
+	logs := captureWooshpayErrorLog(t)
+	deliver := func(intentID string) int {
+		payload := `{"id":"evt_` + intentID + `","type":"payment_intent.succeeded","livemode":false,"data":{"object":{"id":"` + intentID + `"}}}`
+		return postWooshpayTestWebhook(t, t.Context(), payload, signWooshpayTestPayload("1767225600123", payload))
+	}
+
+	// No real money moved, so the refusal raises its own alert, not the
+	// paid-but-not-credited one; the marker stays untranslated.
+	t.Cleanup(func() { common.SetLogLanguage("") })
+	refusedLine := fmt.Sprintf(" alert=wooshpay_test_payment_refused trade_no=%s payment_intent=pi_user user_id=%d client_ip=", userOrder, userID)
+	for language, text := range map[string]string{
+		"en":    "WooshPay test payment for an order of a non-administrator refused, not credited",
+		"zh-CN": "WooshPay 测试付款对应的订单用户不是管理员，已拒绝，未入账",
+	} {
+		common.SetLogLanguage(language)
+		logs.Reset()
+		assert.Equal(t, http.StatusOK, deliver("pi_user"), "redelivery cannot change the outcome")
+		assert.Contains(t, logs.String(), text+refusedLine, language)
+		assert.NotContains(t, logs.String(), "wooshpay_paid_not_credited", language)
+	}
+	common.SetLogLanguage("")
+	assert.Equal(t, common.TopUpStatusPending, model.GetTopUpByTradeNo(userOrder).Status)
+	quota, err = model.GetUserQuota(userID, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+
+	assert.Equal(t, http.StatusOK, deliver("pi_admin"))
+	assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(adminOrder).Status)
+	quota, err = model.GetUserQuota(adminID, true)
+	require.NoError(t, err)
+	assert.Equal(t, 10_000_000, quota)
+}
+
+// With a test key a non-administrator is refused as test mode before the
+// server address is examined: they never see the address message, and their
+// request logs no address error. An administrator is told about the address.
+func TestRequestWooshpayPayRefusesTestOrderBeforeAddressDiagnosis(t *testing.T) {
+	gatewayCalls := 0
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		gatewayCalls++
+		w.WriteHeader(http.StatusNotFound)
+	})
+	setting.WooshpaySecretKey, setting.WooshpayApiBase = "sk_test_wooshpay", "https://apitest.wooshpay.com"
+	system_setting.ServerAddress = "http://localhost:3000"
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	adminID := createWooshpayTestUser(t, 0, common.RoleAdminUser)
+	logs := captureWooshpayErrorLog(t)
+
+	out := requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+	assert.Equal(t, "WooshPay is in test mode; only administrators can place test orders", out["data"])
+	assert.NotContains(t, logs.String(), "return URL cannot be built")
+
+	out = requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, adminID, common.RoleAdminUser)
+	assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"])
+	assert.Contains(t, logs.String(), "return URL cannot be built")
+	assert.Zero(t, gatewayCalls)
+}
+
+// A checkout that cannot be created carries alert=wooshpay_checkout_failed,
+// untranslated and in the same place in the English and the Chinese log:
+// customers cannot pay with WooshPay until an administrator acts.
+func TestWooshpayCheckoutFailureLogsAlertMarker(t *testing.T) {
+	setupWooshpayTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"currency_not_supported"}}`))
+	})
+	t.Cleanup(func() { common.SetLogLanguage("") })
+	userID := createWooshpayTestUser(t, 0, common.RoleCommonUser)
+	cases := []struct {
+		language string
+		gateway  string
+		address  string
+	}{
+		{"en", "WooshPay failed to create Checkout Session alert=wooshpay_checkout_failed user_id=",
+			"WooshPay checkout refused, the return URL cannot be built, set the server address in system settings alert=wooshpay_checkout_failed error="},
+		{"zh-CN", "WooshPay 创建 Checkout Session 失败 alert=wooshpay_checkout_failed user_id=",
+			"WooshPay 拒绝创建收银台，无法生成返回地址，请在系统设置中填写服务器地址 alert=wooshpay_checkout_failed error="},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			common.SetLogLanguage(tc.language)
+			logs := captureWooshpayErrorLog(t)
+			system_setting.ServerAddress = "https://example.com/"
+			out := requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+			assert.Equal(t, "Failed to start payment", out["data"])
+			assert.Contains(t, logs.String(), tc.gateway)
+
+			system_setting.ServerAddress = "http://localhost:3000"
+			out = requestWooshpayAs(t, RequestWooshpayPay, `{"amount":2,"payment_method":"wooshpay"}`, userID, common.RoleCommonUser)
+			assert.Equal(t, "Payment return address is not configured; set the server address in system settings", out["data"])
+			assert.Contains(t, logs.String(), tc.address)
+		})
+	}
+}

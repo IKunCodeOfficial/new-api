@@ -103,6 +103,69 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 101))
 }
 
+func TestRechargeWooshpay_RejectsMismatchedPaymentMethod(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 102, 0)
+	insertTopUpForPaymentGuardTest(t, "wooshpay-guard", 102, PaymentProviderStripe)
+
+	err := RechargeWooshpay("wooshpay-guard", "127.0.0.1", "8.00 CNY", 0, false, false)
+	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-guard"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 102))
+	require.ErrorIs(t, RechargeWooshpay("wooshpay-missing", "127.0.0.1", "8.00 CNY", 0, false, false), ErrTopUpNotFound)
+}
+
+// A verified WooshPay payment completes its order even after the order was
+// closed as expired or failed, because the money really arrived; a completed
+// order is never credited twice and reports the duplicate sentinel, and a
+// payment of another amount than the order's Money is not credited.
+func TestRechargeWooshpay_CompletesClosedOrdersOnce(t *testing.T) {
+	truncateTables(t)
+	insertUserForPaymentGuardTest(t, 103, 0)
+
+	credited := 0
+	for _, status := range []string{common.TopUpStatusPending, common.TopUpStatusExpired, common.TopUpStatusFailed} {
+		tradeNo := "wooshpay-" + status
+		insertTopUpForPaymentGuardTest(t, tradeNo, 103, PaymentProviderWooshpay)
+		require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", tradeNo).Update("status", status).Error)
+
+		// A received amount other than the order's Money credits nothing.
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.98 CNY", 998, false, false), ErrTopUpAmountMismatch, status)
+		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
+		// A test payment credits only an administrator's order, also when an
+		// administrator completes it.
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", 999, true, false), ErrTestPaymentForNonAdmin, status)
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", 999, true, true), ErrTestPaymentForNonAdmin, status)
+		assert.Equal(t, status, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103))
+
+		require.NoError(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", 999, false, false), status)
+		assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, tradeNo))
+		quota := getUserQuotaForPaymentGuardTest(t, 103)
+		assert.Greater(t, quota, credited, status)
+		credited = quota
+
+		require.ErrorIs(t, RechargeWooshpay(tradeNo, "127.0.0.1", "9.99 CNY", 999, false, false), ErrTopUpStatusInvalid)
+		assert.Equal(t, credited, getUserQuotaForPaymentGuardTest(t, 103), "a completed order is not credited twice")
+	}
+}
+
+// A WooshPay order is completed by hand only against a verified
+// PaymentIntent, so ManualCompleteTopUp refuses it whatever the caller.
+func TestManualCompleteTopUp_RefusesWooshpayOrder(t *testing.T) {
+	truncateTables(t)
+	insertUserForPaymentGuardTest(t, 104, 0)
+	insertTopUpForPaymentGuardTest(t, "wooshpay-manual", 104, PaymentProviderWooshpay)
+
+	err := ManualCompleteTopUp("wooshpay-manual", "127.0.0.1")
+	require.Error(t, err)
+	assert.Equal(t, "A WooshPay order can only be completed with the ID of its succeeded PaymentIntent", err.Error())
+	assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, "wooshpay-manual"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 104))
+}
+
 func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T) {
 	testCases := []struct {
 		name                    string
@@ -123,6 +186,20 @@ func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T)
 			tradeNo:                 "waffo-failed-guard",
 			storedPaymentProvider:   PaymentProviderStripe,
 			expectedPaymentProvider: PaymentProviderWaffo,
+			targetStatus:            common.TopUpStatusFailed,
+		},
+		{
+			name:                    "wooshpay expire",
+			tradeNo:                 "wooshpay-expire-guard",
+			storedPaymentProvider:   PaymentProviderStripe,
+			expectedPaymentProvider: PaymentProviderWooshpay,
+			targetStatus:            common.TopUpStatusExpired,
+		},
+		{
+			name:                    "wooshpay failed",
+			tradeNo:                 "wooshpay-failed-guard",
+			storedPaymentProvider:   PaymentProviderEpay,
+			expectedPaymentProvider: PaymentProviderWooshpay,
 			targetStatus:            common.TopUpStatusFailed,
 		},
 	}

@@ -57,9 +57,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
 import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { confirmPaymentCompliance } from '../api'
+import {
+  confirmPaymentCompliance,
+  updateWooshpaySettings,
+  type WooshpaySettingsUpdate,
+} from '../api'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -161,6 +166,18 @@ const paymentSchema = z.object({
   StripeUnitPrice: z.coerce.number().min(0),
   StripeMinTopUp: z.coerce.number().min(0),
   StripePromotionCodesEnabled: z.boolean(),
+  WooshpayEnabled: z.boolean(),
+  WooshpaySecretKey: z.string(),
+  WooshpayWebhookSecret: z.string(),
+  WooshpayApiBase: z.string(),
+  WooshpayUnitPrice: z.coerce
+    .number()
+    .positive('Unit price must be greater than 0'),
+  WooshpayMinTopUp: z.coerce
+    .number()
+    .int('Minimum top-up must be a whole number of at least 1')
+    .min(1, 'Minimum top-up must be a whole number of at least 1')
+    .max(10000, 'Minimum top-up cannot exceed 10000'),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
@@ -215,6 +232,10 @@ type PaymentSettingsSectionProps = {
   waffoPancakeDefaultValues: WaffoPancakeSettingsValues
   waffoPancakeProvisionedStoreID?: string
   waffoPancakeProvisionedProductID?: string
+  /** The stored WooshPay secret key is a test (sk_test_) key. */
+  wooshpayTestMode?: boolean
+  /** Why WooshPay, switched on, offers no top-ups (a server code), or empty. */
+  wooshpayUnavailableReason?: string
   complianceDefaults: PaymentComplianceDefaults
 }
 
@@ -233,11 +254,43 @@ export function PaymentSettingsSection({
   waffoPancakeDefaultValues,
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
+  wooshpayTestMode,
+  wooshpayUnavailableReason,
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
+  const wooshpayUnavailableMessages: Record<string, string> = {
+    compliance_not_confirmed: t(
+      'WooshPay is switched on but has no effect until the payment compliance terms are confirmed.'
+    ),
+    missing_secret: t(
+      'WooshPay is switched on but has no effect: the secret key is not set.'
+    ),
+    missing_webhook_secret: t(
+      'WooshPay is switched on but has no effect: the webhook secret is not set.'
+    ),
+    key_base_mismatch: t(
+      'WooshPay is switched on but has no effect: the secret key and the API base belong to different environments.'
+    ),
+    invalid_server_address: t(
+      'WooshPay is switched on but has no effect: the server address in system settings is not one customers can return to.'
+    ),
+    invalid_unit_price: t(
+      'WooshPay is switched on but has no effect: the unit price must be greater than 0.'
+    ),
+  }
   const queryClient = useQueryClient()
   const updateOption = useUpdateOption()
+  const wooshpayApiBaseOptions = [
+    {
+      value: 'https://apitest.wooshpay.com',
+      label: `${t('Test environment')} (https://apitest.wooshpay.com)`,
+    },
+    {
+      value: 'https://api.wooshpay.com',
+      label: `${t('Live environment')} (https://api.wooshpay.com)`,
+    },
+  ]
   const initialFormValues = React.useMemo<PaymentFormValues>(
     () => ({
       ...defaultValues,
@@ -450,6 +503,12 @@ export function PaymentSettingsSection({
       StripeUnitPrice: values.StripeUnitPrice,
       StripeMinTopUp: values.StripeMinTopUp,
       StripePromotionCodesEnabled: values.StripePromotionCodesEnabled,
+      WooshpayEnabled: values.WooshpayEnabled,
+      WooshpaySecretKey: values.WooshpaySecretKey.trim(),
+      WooshpayWebhookSecret: values.WooshpayWebhookSecret.trim(),
+      WooshpayApiBase: values.WooshpayApiBase.trim(),
+      WooshpayUnitPrice: values.WooshpayUnitPrice,
+      WooshpayMinTopUp: values.WooshpayMinTopUp,
       CreemApiKey: values.CreemApiKey.trim(),
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
@@ -498,6 +557,12 @@ export function PaymentSettingsSection({
       StripeMinTopUp: initialRef.current.StripeMinTopUp,
       StripePromotionCodesEnabled:
         initialRef.current.StripePromotionCodesEnabled,
+      WooshpayEnabled: initialRef.current.WooshpayEnabled,
+      WooshpaySecretKey: initialRef.current.WooshpaySecretKey.trim(),
+      WooshpayWebhookSecret: initialRef.current.WooshpayWebhookSecret.trim(),
+      WooshpayApiBase: initialRef.current.WooshpayApiBase.trim(),
+      WooshpayUnitPrice: initialRef.current.WooshpayUnitPrice,
+      WooshpayMinTopUp: initialRef.current.WooshpayMinTopUp,
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
@@ -646,6 +711,37 @@ export function PaymentSettingsSection({
       })
     }
 
+    // Every changed WooshPay setting is saved in one request: the server
+    // checks the resulting combination (the key and API base of one
+    // environment, the keys needed to enable it) and writes all or nothing.
+    // Blank secrets keep their stored values.
+    const wooshpayChanges: WooshpaySettingsUpdate = {}
+    if (sanitized.WooshpayEnabled !== initial.WooshpayEnabled) {
+      wooshpayChanges.enabled = sanitized.WooshpayEnabled
+    }
+    if (
+      sanitized.WooshpaySecretKey &&
+      sanitized.WooshpaySecretKey !== initial.WooshpaySecretKey
+    ) {
+      wooshpayChanges.secret_key = sanitized.WooshpaySecretKey
+    }
+    if (
+      sanitized.WooshpayWebhookSecret &&
+      sanitized.WooshpayWebhookSecret !== initial.WooshpayWebhookSecret
+    ) {
+      wooshpayChanges.webhook_secret = sanitized.WooshpayWebhookSecret
+    }
+    if (sanitized.WooshpayApiBase !== initial.WooshpayApiBase) {
+      wooshpayChanges.api_base = sanitized.WooshpayApiBase
+    }
+    if (sanitized.WooshpayUnitPrice !== initial.WooshpayUnitPrice) {
+      wooshpayChanges.unit_price = sanitized.WooshpayUnitPrice
+    }
+    if (sanitized.WooshpayMinTopUp !== initial.WooshpayMinTopUp) {
+      wooshpayChanges.min_topup = sanitized.WooshpayMinTopUp
+    }
+    const savesWooshpay = Object.keys(wooshpayChanges).length > 0
+
     if (
       sanitized.CreemApiKey &&
       sanitized.CreemApiKey !== initial.CreemApiKey
@@ -753,13 +849,29 @@ export function PaymentSettingsSection({
       waffoPancakeSelection.storeID !== waffoPancakeSavedBinding.storeID ||
       waffoPancakeSelection.productID !== waffoPancakeSavedBinding.productID
 
-    if (updates.length === 0 && !hasWaffoPancakeChanges) {
+    if (updates.length === 0 && !savesWooshpay && !hasWaffoPancakeChanges) {
       toast.info(t('No changes to save'))
       return
     }
 
+    // Each save stands on its own: a refused setting is reported where it
+    // fails and does not keep the other settings or gateways from saving.
     for (const update of updates) {
-      await updateOption.mutateAsync(update)
+      try {
+        await updateOption.mutateAsync(update)
+      } catch {
+        // useUpdateOption has already reported the failure.
+      }
+    }
+
+    if (savesWooshpay) {
+      try {
+        requireServerSuccess(await updateWooshpaySettings(wooshpayChanges))
+        queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        toast.success(t('WooshPay settings saved'))
+      } catch (error) {
+        handleServerError(error, t('WooshPay settings were not saved'))
+      }
     }
 
     if (!hasWaffoPancakeChanges) {
@@ -925,10 +1037,11 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[51rem] grid-cols-7'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>Epay</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
+                <TabsTrigger value='wooshpay'>WooshPay</TabsTrigger>
                 <TabsTrigger value='creem'>Creem</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
                 <TabsTrigger value='waffo'>Waffo</TabsTrigger>
@@ -1050,7 +1163,7 @@ export function PaymentSettingsSection({
                       </FormControl>
                       <FormDescription>
                         {t(
-                          'Configured as PayMethods JSON. The type value decides which payment flow is used: stripe for Stripe, waffo_pancake for Waffo Pancake, and other values are sent to Epay as the type parameter.'
+                          'Configured as PayMethods JSON. The type value decides which payment flow is used: stripe for Stripe, wooshpay for WooshPay, waffo_pancake for Waffo Pancake, and other values are sent to Epay as the type parameter.'
                         )}
                       </FormDescription>
                       <FormMessage />
@@ -1574,6 +1687,257 @@ export function PaymentSettingsSection({
                           />
                         </FormControl>
                       </SettingsSwitchItem>
+                    )}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value='wooshpay'
+              className={paymentTabContentClassName}
+            >
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>
+                    {t('WooshPay Gateway')}
+                  </h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Configuration for WooshPay payment integration')}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='mb-2 font-medium'>
+                    {t('Webhook Configuration:')}
+                  </p>
+                  <ul className='list-inside list-disc space-y-1'>
+                    <li>
+                      {t('Webhook URL:')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        {'<ServerAddress>/api/wooshpay/webhook'}
+                      </code>
+                    </li>
+                    <li>
+                      {t('Required events:')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        payment_intent.succeeded
+                      </code>{' '}
+                      {t('and')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        checkout.session.expired
+                      </code>
+                    </li>
+                    <li>
+                      {t('Optional events (only logged):')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        payment_intent.canceled
+                      </code>{' '}
+                      {t('and')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        payment_intent.payment_failed
+                      </code>
+                    </li>
+                    <li>
+                      {t(
+                        'Register the webhook once per environment in the WooshPay console under Developer → Webhook, then paste its whsec_ secret below.'
+                      )}
+                    </li>
+                  </ul>
+                </div>
+
+                {wooshpayUnavailableReason && (
+                  <Alert variant='destructive'>
+                    <ShieldAlert className='h-4 w-4' />
+                    <AlertTitle>{t('WooshPay is not available')}</AlertTitle>
+                    <AlertDescription>
+                      {wooshpayUnavailableMessages[wooshpayUnavailableReason] ??
+                        t('WooshPay is switched on but has no effect.')}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {wooshpayTestMode && (
+                  <Alert variant='destructive'>
+                    <ShieldAlert className='h-4 w-4' />
+                    <AlertTitle>{t('WooshPay is in test mode')}</AlertTitle>
+                    <AlertDescription>
+                      {t(
+                        'The saved secret key is a test key (sk_test_). Test payments move no real money but credit real quota, so only administrators can place WooshPay orders until a live key is saved.'
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <Alert>
+                  <ShieldAlert className='h-4 w-4' />
+                  <AlertDescription>
+                    {t(
+                      'WooshPay stays disabled until the secret key and the API base belong to the same environment: sk_test_ keys need https://apitest.wooshpay.com and sk_live_ keys need https://api.wooshpay.com.'
+                    )}
+                  </AlertDescription>
+                </Alert>
+
+                <FormField
+                  control={form.control}
+                  name='WooshpayEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Enable WooshPay')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Offer WooshPay top-ups in the wallet. Payments on checkouts already opened are still credited while it is off.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                <div className='grid gap-6 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='WooshpaySecretKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Secret Key')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('sk_test_xxx or sk_live_xxx')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'WooshPay secret key (leave blank unless updating)'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='WooshpayWebhookSecret'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Webhook secret')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder={t('whsec_xxx')}
+                            autoComplete='new-password'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Webhook signing secret (leave blank unless updating)'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='WooshpayApiBase'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('API Base URL')}</FormLabel>
+                        <FormControl>
+                          <Select
+                            items={wooshpayApiBaseOptions}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectGroup>
+                                {wooshpayApiBaseOptions.map((option) => (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Use the test environment with sk_test_ keys and the live environment with sk_live_ keys'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='WooshpayUnitPrice'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Unit price')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            step='0.01'
+                            min={0}
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Price in CNY for each 1 unit of top-up')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='WooshpayMinTopUp'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Minimum top-up quantity')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            step='1'
+                            min={1}
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Smallest top-up amount a user can pay')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
                     )}
                   />
                 </div>

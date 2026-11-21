@@ -62,6 +62,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
 
 		apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
+		apiRouter.POST("/wooshpay/webhook", anonymousRequestBodyLimit, controller.WooshpayWebhook)
 		apiRouter.POST("/creem/webhook", anonymousRequestBodyLimit, controller.CreemWebhook)
 		apiRouter.POST("/waffo/webhook", anonymousRequestBodyLimit, controller.WaffoWebhook)
 		// :env separates test vs prod URLs so the operator can register each
@@ -126,6 +127,8 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/amount", controller.RequestAmount)
 				selfRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.RequestStripePay)
 				selfRoute.POST("/stripe/amount", controller.RequestStripeAmount)
+				selfRoute.POST("/wooshpay/pay", middleware.CriticalRateLimit(), controller.RequestWooshpayPay)
+				selfRoute.POST("/wooshpay/amount", controller.RequestWooshpayAmount)
 				selfRoute.POST("/creem/pay", middleware.CriticalRateLimit(), controller.RequestCreemPay)
 				selfRoute.POST("/waffo/amount", controller.RequestWaffoAmount)
 				selfRoute.POST("/waffo/pay", middleware.CriticalRateLimit(), controller.RequestWaffoPay)
@@ -217,6 +220,7 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PATCH("/request_policy", controller.UpdateRequestPolicy)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
+			optionRoute.PUT("/wooshpay/environment", controller.UpdateWooshpayEnvironment)
 			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
 			optionRoute.GET("/model_pricing/issues", controller.GetModelPricingIssues)
 			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)

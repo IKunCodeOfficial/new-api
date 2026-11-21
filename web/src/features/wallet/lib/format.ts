@@ -64,6 +64,27 @@ export function formatCurrency(amount: number | string): string {
 }
 
 /**
+ * Format money a payment gateway charges in CNY (WooshPay) with exactly 2
+ * decimals, whatever the display currency is. locale must already be an Intl
+ * locale (toIntlLocale); one Intl rejects falls back to the runtime default.
+ */
+export function formatCnyAmount(amount: number, locale?: string): string {
+  if (!Number.isFinite(amount)) return '-'
+  const options: Intl.NumberFormatOptions = {
+    style: 'currency',
+    currency: 'CNY',
+    currencyDisplay: 'code',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }
+  try {
+    return new Intl.NumberFormat(locale, options).format(amount)
+  } catch {
+    return new Intl.NumberFormat(undefined, options).format(amount)
+  }
+}
+
+/**
  * Get discount label for display (e.g., "20% OFF")
  */
 export function getDiscountLabel(discount: number, t: TFunction): string {

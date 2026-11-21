@@ -119,6 +119,13 @@ export function getPaymentIcon(
           style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.STRIPE] }}
         />
       )
+    case PAYMENT_TYPES.WOOSHPAY:
+      return (
+        <CreditCard
+          className={className}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.WOOSHPAY] }}
+        />
+      )
     case PAYMENT_TYPES.CREEM:
       return (
         <Landmark

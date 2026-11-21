@@ -154,6 +154,12 @@ const BILLING_SECTIONS = [
           StripeUnitPrice: settings.StripeUnitPrice,
           StripeMinTopUp: settings.StripeMinTopUp,
           StripePromotionCodesEnabled: settings.StripePromotionCodesEnabled,
+          WooshpayEnabled: settings.WooshpayEnabled ?? false,
+          WooshpaySecretKey: settings.WooshpaySecretKey,
+          WooshpayWebhookSecret: settings.WooshpayWebhookSecret,
+          WooshpayApiBase: settings.WooshpayApiBase,
+          WooshpayUnitPrice: settings.WooshpayUnitPrice,
+          WooshpayMinTopUp: settings.WooshpayMinTopUp,
           CreemApiKey: settings.CreemApiKey,
           CreemWebhookSecret: settings.CreemWebhookSecret,
           CreemTestMode: settings.CreemTestMode,
@@ -181,6 +187,8 @@ const BILLING_SECTIONS = [
           WaffoPancakePrivateKey: settings.WaffoPancakePrivateKey ?? '',
           WaffoPancakeReturnURL: settings.WaffoPancakeReturnURL ?? '',
         }}
+        wooshpayTestMode={settings.WooshpayTestMode ?? false}
+        wooshpayUnavailableReason={settings.WooshpayUnavailableReason ?? ''}
         waffoPancakeProvisionedStoreID={settings.WaffoPancakeStoreID ?? ''}
         waffoPancakeProvisionedProductID={settings.WaffoPancakeProductID ?? ''}
         complianceDefaults={{

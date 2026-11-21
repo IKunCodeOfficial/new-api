@@ -94,6 +94,13 @@ export function isStripePayment(paymentType: string): boolean {
 }
 
 /**
+ * Check if payment method is WooshPay
+ */
+export function isWooshpayPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.WOOSHPAY
+}
+
+/**
  * Check if payment method is Waffo
  */
 export function isWaffoPayment(paymentType: string): boolean {
@@ -162,11 +169,17 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.WAFFO_PANCAKE
   }
 
+  // WooshPay needs no branch here: whenever it is enabled the server lists
+  // it in pay_methods.
   return DEFAULT_PAYMENT_TYPE
 }
 
 /**
  * Get minimum topup amount from topup info
+ *
+ * WooshPay comes last: its own minimum only applies when no earlier gateway
+ * is enabled, and its pay method button carries its minimum (min_topup) so
+ * it never raises the minimum of the other methods.
  */
 export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
   if (!topupInfo) {
@@ -189,7 +202,75 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
     return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
   }
 
+  if (topupInfo.enable_wooshpay_topup) {
+    return topupInfo.wooshpay_min_topup || DEFAULT_MIN_TOPUP
+  }
+
   return DEFAULT_MIN_TOPUP
+}
+
+/**
+ * CNY price of the preset amount cards for a gateway that charges in CNY
+ * (WooshPay). pricePerAmount is the price of one unit of the entered amount
+ * (one token with the Tokens display).
+ */
+export interface GatewayPresetPricing {
+  pricePerAmount: number
+}
+
+/**
+ * WooshPay charges its unit price, scaled by the user's top-up group ratio,
+ * in CNY; the top-up info states it for the current user. The
+ * preset cards use that price whenever WooshPay is the payment type the
+ * amount field is quoted for: the selected method, or the default one (the
+ * first pay method) before any is selected.
+ */
+export function getWooshpayPresetPricing(
+  topupInfo: TopupInfo | null,
+  paymentType: string,
+  tokensPerUnit?: number
+): GatewayPresetPricing | undefined {
+  const unitPrice = Number(topupInfo?.wooshpay_unit_price)
+  if (!isWooshpayPayment(paymentType) || !(unitPrice > 0)) {
+    return undefined
+  }
+  const perUnit = tokensPerUnit && tokensPerUnit > 0 ? tokensPerUnit : 1
+  return { pricePerAmount: unitPrice / perUnit }
+}
+
+/** Most units one WooshPay order may buy (setting.WooshpayMaxTopUpUnits). */
+export const WOOSHPAY_MAX_TOPUP_UNITS = 10000
+
+/**
+ * Checks a WooshPay amount before asking the server, with the server's own
+ * messages: with the Tokens display (tokensPerUnit set) the amount must buy
+ * whole units, and an order buys at most 10000 units. Returns the message key
+ * and its parameters, or null when the amount is acceptable.
+ */
+export function getWooshpayAmountError(
+  amount: number,
+  tokensPerUnit?: number
+): { key: string; params: Record<string, number> } | null {
+  const perUnit = tokensPerUnit && tokensPerUnit > 0 ? tokensPerUnit : 0
+  if (perUnit > 0 && amount % perUnit !== 0) {
+    return {
+      key: 'With the Tokens display the top-up amount must be a multiple of {{unit}} tokens',
+      params: { unit: perUnit },
+    }
+  }
+  const units = perUnit > 0 ? amount / perUnit : amount
+  if (units > WOOSHPAY_MAX_TOPUP_UNITS) {
+    return {
+      key: 'Top-up amount cannot exceed {{max}}',
+      params: {
+        max:
+          perUnit > 0
+            ? Math.floor(WOOSHPAY_MAX_TOPUP_UNITS * perUnit)
+            : WOOSHPAY_MAX_TOPUP_UNITS,
+      },
+    }
+  }
+  return null
 }
 
 /**

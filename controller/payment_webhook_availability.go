@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 func isPaymentComplianceConfirmed() bool {
@@ -112,4 +113,48 @@ func isEpayWebhookConfigured() bool {
 
 func isEpayWebhookEnabled() bool {
 	return isEpayTopUpEnabled()
+}
+
+// isWooshpayTopUpEnabled reports whether new WooshPay top-ups are offered:
+// the administrator switched WooshPay on, its account is configured, and the
+// server address can build return URLs a customer can reach (see
+// setting.ValidateWooshpayServerAddress). With a test key only administrators
+// may use them (see wooshpayTopUpUnavailable).
+func isWooshpayTopUpEnabled() bool {
+	return setting.WooshpayEnabled && wooshpayUnavailableReason() == ""
+}
+
+// wooshpayUnavailableReason returns a stable code for the first requirement
+// of new WooshPay top-ups, other than the switch itself, that is not met, or
+// "" when all are. The admin page shows a warning per code while WooshPay is
+// switched on but offers nothing.
+func wooshpayUnavailableReason() string {
+	switch {
+	case !isPaymentComplianceConfirmed():
+		return "compliance_not_confirmed"
+	case strings.TrimSpace(setting.WooshpaySecretKey) == "":
+		return "missing_secret"
+	case strings.TrimSpace(setting.WooshpayWebhookSecret) == "":
+		return "missing_webhook_secret"
+	case !setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase):
+		return "key_base_mismatch"
+	case !(setting.WooshpayUnitPrice > 0):
+		return "invalid_unit_price"
+	case setting.ValidateWooshpayServerAddress(setting.WooshpaySecretKey, system_setting.ServerAddress) != nil:
+		return "invalid_server_address"
+	}
+	return ""
+}
+
+// isWooshpayWebhookEnabled reports whether WooshPay payments are accepted.
+// It does not need the WooshpayEnabled switch: switching top-ups off must not
+// leave the checkouts already opened paid but never credited.
+func isWooshpayWebhookEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	return strings.TrimSpace(setting.WooshpaySecretKey) != "" &&
+		strings.TrimSpace(setting.WooshpayWebhookSecret) != "" &&
+		setting.WooshpayUnitPrice > 0 &&
+		setting.WooshpayKeyMatchesApiBase(setting.WooshpaySecretKey, setting.WooshpayApiBase)
 }

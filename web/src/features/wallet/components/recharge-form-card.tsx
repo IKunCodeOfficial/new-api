@@ -34,15 +34,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import {
+  formatCnyAmount,
   formatCurrency,
   getDiscountLabel,
   getPaymentIcon,
   getMinTopupAmount,
   calculatePresetPricing,
+  type GatewayPresetPricing,
 } from '../lib'
 import type {
   PaymentMethod,
@@ -81,6 +84,10 @@ interface RechargeFormCardProps {
   waffoMinTopup?: number
   onWaffoMethodSelect?: (method: WaffoPayMethod, index: number) => void
   enableWaffoPancakeTopup?: boolean
+  /** Prices the preset cards in CNY for a gateway that charges in CNY (WooshPay). */
+  gatewayPricing?: GatewayPresetPricing
+  /** Whether the quoted payment amount is in CNY (WooshPay). */
+  paymentInCny?: boolean
 }
 
 export function RechargeFormCard({
@@ -111,8 +118,14 @@ export function RechargeFormCard({
   waffoMinTopup,
   onWaffoMethodSelect,
   enableWaffoPancakeTopup,
+  gatewayPricing,
+  paymentInCny,
 }: RechargeFormCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const formatIn = (amount: number, inCny?: boolean) =>
+    inCny ? formatCnyAmount(amount, locale) : formatCurrency(amount)
+  const presetsInCny = gatewayPricing !== undefined
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
 
   useEffect(() => {
@@ -133,6 +146,7 @@ export function RechargeFormCard({
   const hasConfigurableTopup =
     topupInfo?.enable_online_topup ||
     topupInfo?.enable_stripe_topup ||
+    topupInfo?.enable_wooshpay_topup ||
     enableWaffoTopup ||
     enableWaffoPancakeTopup
   const hasAnyTopup = hasConfigurableTopup || enableCreemTopup
@@ -239,7 +253,7 @@ export function RechargeFormCard({
                         hasDiscount,
                       } = calculatePresetPricing(
                         preset.value,
-                        priceRatio,
+                        gatewayPricing?.pricePerAmount ?? priceRatio,
                         discount,
                         usdExchangeRate
                       )
@@ -271,8 +285,8 @@ export function RechargeFormCard({
                                 t={t}
                                 i18nKey='Pay {{amount}} <savings>• Save {{saved}}</savings>'
                                 values={{
-                                  amount: formatCurrency(actualPrice),
-                                  saved: formatCurrency(savedAmount),
+                                  amount: formatIn(actualPrice, presetsInCny),
+                                  saved: formatIn(savedAmount, presetsInCny),
                                 }}
                                 components={{
                                   savings: <span className='text-green-600' />,
@@ -280,7 +294,7 @@ export function RechargeFormCard({
                               />
                             ) : (
                               t('Pay {{amount}}', {
-                                amount: formatCurrency(actualPrice),
+                                amount: formatIn(actualPrice, presetsInCny),
                               })
                             )}
                           </div>
@@ -316,7 +330,7 @@ export function RechargeFormCard({
                       <Skeleton className='h-5 w-16' />
                     ) : (
                       <span className='text-sm font-semibold'>
-                        {formatCurrency(paymentAmount)}
+                        {formatIn(paymentAmount, paymentInCny)}
                       </span>
                     )}
                   </div>
